@@ -1,0 +1,104 @@
+# GKE deployment — each workspace is a StatefulSet
+# Usage:
+#   1. Create from template: sed 's/WORKSPACE_ID/backend/g; s/WORKSPACE_NAME/Backend Team/g' workspace.yaml | kubectl apply -f -
+#   2. Or apply directly and set env vars
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rt-WORKSPACE_ID
+  labels:
+    app: roundtable
+    workspace: WORKSPACE_ID
+spec:
+  serviceName: rt-WORKSPACE_ID
+  replicas: 1
+  selector:
+    matchLabels:
+      app: roundtable
+      workspace: WORKSPACE_ID
+  template:
+    metadata:
+      labels:
+        app: roundtable
+        workspace: WORKSPACE_ID
+    spec:
+      serviceAccountName: roundtable-sa
+      containers:
+        - name: roundtable
+          image: us-central1-docker.pkg.dev/roundtable-public/roundtable/roundtable:latest
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: roundtable-config
+            - secretRef:
+                name: roundtable-secrets
+          env:
+            - name: WORKSPACE_ID
+              value: "WORKSPACE_ID"
+            - name: WORKSPACE_NAME
+              value: "WORKSPACE_NAME"
+            - name: WORKSPACE_URL
+              value: "http://rt-WORKSPACE_ID.default.svc.cluster.local:3000"
+          volumeMounts:
+            - name: workspace
+              mountPath: /app/workspace
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+        # Cloud SQL Auth Proxy sidecar
+        - name: cloud-sql-proxy
+          image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.8.0
+          args:
+            - "roundtable-public:us-central1:roundtable-db"
+            - "--port=5432"
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+          securityContext:
+            runAsNonRoot: true
+  volumeClaimTemplates:
+    - metadata:
+        name: workspace
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+---
+# Service for internal workspace-to-workspace communication
+apiVersion: v1
+kind: Service
+metadata:
+  name: rt-WORKSPACE_ID
+  labels:
+    app: roundtable
+    workspace: WORKSPACE_ID
+spec:
+  selector:
+    app: roundtable
+    workspace: WORKSPACE_ID
+  ports:
+    - port: 3000
+      targetPort: 3000
+  type: ClusterIP

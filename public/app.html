@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Roundtable</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+</head>
+<body>
+  <div class="app-layout" id="app">
+    <!-- Main workspace area (no sidebar) -->
+    <main class="main-area" id="main-area">
+      <!-- Chat view (always visible) -->
+      <div id="chat-view" style="display:flex;">
+        <div class="chat-header" id="chat-header">
+          <div class="chat-header-info">
+            <h2 id="chat-workspace-name">Roundtable</h2>
+            <p id="chat-workspace-meta"></p>
+          </div>
+          <div class="chat-header-actions">
+            <div class="presence-bar" id="presence-bar"></div>
+            <button class="btn btn-ghost btn-sm" id="btn-code-panel" title="Code Browser">📁</button>
+            <button class="btn btn-ghost btn-sm" id="btn-settings" title="Settings">⚙️</button>
+          </div>
+        </div>
+        <div class="chat-messages" id="chat-messages"></div>
+        <div class="typing-bar" id="typing-indicator"></div>
+        <div class="chat-input-area">
+          <div class="chat-input-wrapper">
+            <textarea class="chat-input" id="chat-input" placeholder="Message the workspace... use @ai to prompt the AI" rows="1"></textarea>
+            <button class="chat-send-btn" id="chat-send" title="Send">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Resize handle: drag to resize code panel width -->
+      <div class="resize-handle-v" id="resize-panel" title="Drag to resize"></div>
+
+      <!-- Code Browser Panel -->
+      <aside class="code-panel" id="code-panel">
+        <div class="code-panel-header">
+          <select class="code-panel-repo-select" id="repo-select">
+            <option value="">Select repo...</option>
+          </select>
+          <button class="btn btn-ghost btn-sm code-panel-wrap-btn" id="btn-word-wrap" title="Toggle word wrap">↩</button>
+          <button class="btn btn-ghost btn-sm sidebar-collapse-btn" id="btn-code-panel-close" title="Collapse panel">▶</button>
+        </div>
+        <div class="code-panel-body">
+          <div class="file-tree" id="file-tree">
+            <div class="file-tree-empty">
+              <div style="font-size:24px;margin-bottom:8px;">📂</div>
+              <div>No repos cloned yet</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Ask <span class="mention mention-ai">@ai</span> to clone a repo</div>
+            </div>
+          </div>
+          <!-- Resize handle: drag to resize file tree vs viewer split -->
+          <div class="resize-handle-h" id="resize-tree" title="Drag to resize"></div>
+          <div class="file-viewer" id="file-viewer">
+            <div class="file-viewer-empty">Select a file to view</div>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="modal-overlay" id="modal-settings">
+    <div class="modal">
+      <h3>Settings — API Keys</h3>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;">Configure your own API keys to use with AI providers. Keys are stored on the server.</p>
+      <div class="form-group">
+        <label for="key-provider">Provider</label>
+        <select id="key-provider">
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="google">Google AI</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="key-value">API Key</label>
+        <input type="password" id="key-value" placeholder="sk-...">
+      </div>
+      <button class="btn btn-primary btn-sm" id="btn-save-key" style="margin-bottom:16px;">Save Key</button>
+      <div id="saved-keys"></div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary btn-sm" id="btn-close-settings">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/socket.js"></script>
+  <script src="/js/chat.js"></script>
+  <script src="/js/presence.js"></script>
+  <script src="/js/settings.js"></script>
+  <script src="/js/codePanel.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

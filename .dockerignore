@@ -1,0 +1,12 @@
+node_modules/
+.git/
+data/
+workspace/
+.env
+.env.local
+*.md
+LICENSE
+.dockerignore
+docker-compose.yml
+k8s/
+nodemon.json

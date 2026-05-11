@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Roundtable — Multiplayer AI Chat</title>
+  <meta name="description" content="Real-time collaborative AI chat sessions. Multiple users, one conversation, any AI provider.">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="landing">
+    <div class="auth-container">
+      <div class="auth-card">
+        <div class="auth-logo">
+          <h1>🎙️ Roundtable</h1>
+          <p>Multiplayer AI Chat</p>
+        </div>
+
+        <div class="auth-tabs">
+          <button class="auth-tab active" data-tab="login" id="tab-login">Sign In</button>
+          <button class="auth-tab" data-tab="register" id="tab-register">Create Account</button>
+        </div>
+
+        <div class="auth-error" id="auth-error"></div>
+
+        <!-- Login Form -->
+        <form id="login-form">
+          <div class="form-group">
+            <label for="login-username">Username</label>
+            <input type="text" id="login-username" name="username" placeholder="Enter username" autocomplete="username" required>
+          </div>
+          <div class="form-group">
+            <label for="login-password">Password</label>
+            <input type="password" id="login-password" name="password" placeholder="Enter password" autocomplete="current-password" required>
+          </div>
+          <button type="submit" class="btn btn-primary" id="login-submit">Sign In</button>
+        </form>
+
+        <!-- Register Form -->
+        <form id="register-form" style="display:none">
+          <div class="form-group">
+            <label for="register-username">Username</label>
+            <input type="text" id="register-username" name="username" placeholder="Choose a username" autocomplete="username" required minlength="3" maxlength="30">
+          </div>
+          <div class="form-group">
+            <label for="register-display">Display Name</label>
+            <input type="text" id="register-display" name="displayName" placeholder="Your display name (optional)">
+          </div>
+          <div class="form-group">
+            <label for="register-password">Password</label>
+            <input type="password" id="register-password" name="password" placeholder="At least 6 characters" autocomplete="new-password" required minlength="6">
+          </div>
+          <button type="submit" class="btn btn-primary" id="register-submit">Create Account</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+</body>
+</html>
