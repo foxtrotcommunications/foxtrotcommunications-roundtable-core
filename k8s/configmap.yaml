@@ -1,0 +1,11 @@
+# Non-sensitive configuration only
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: roundtable-config
+data:
+  PORT: "3000"
+  NODE_ENV: "production"
+  EMBED_MODE: "false"
+  GCP_PROJECT: "roundtable-public"
+  GCP_LOCATION: "us-central1"

@@ -1,0 +1,47 @@
+{
+  "name": "foxtrotcommunications-roundtable",
+  "version": "0.1.0",
+  "description": "Real-time multiplayer AI chat sharing platform — collaborate on AI conversations together",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "nodemon server/index.js"
+  },
+  "keywords": [
+    "ai",
+    "chat",
+    "multiplayer",
+    "collaborative",
+    "real-time",
+    "openai",
+    "anthropic",
+    "gemini",
+    "socket.io"
+  ],
+  "author": "Foxtrot Communications",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bb-ftcomm/foxtrotcommunications-roundtable.git"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@google-cloud/vertexai": "^1.12.0",
+    "bcryptjs": "^2.4.3",
+    "connect-pg-simple": "^10.0.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.1",
+    "express-session": "^1.18.1",
+    "mathjs": "^13.2.0",
+    "memorystore": "^1.6.7",
+    "nanoid": "^3.3.8",
+    "node-fetch": "^2.7.0",
+    "pg": "^8.20.0",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}
