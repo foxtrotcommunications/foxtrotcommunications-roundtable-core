@@ -1,0 +1,44 @@
+version: "3.8"
+
+services:
+  roundtable:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - roundtable-data:/data
+      - roundtable-workspace:/app/workspace
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - DB_PATH=/data/roundtable.db
+    restart: unless-stopped
+
+  # ─── Optional: PostgreSQL ──────────────────────
+  # Uncomment to use Postgres instead of SQLite
+  # postgres:
+  #   image: postgres:16-alpine
+  #   volumes:
+  #     - pg-data:/var/lib/postgresql/data
+  #   environment:
+  #     POSTGRES_DB: roundtable
+  #     POSTGRES_USER: roundtable
+  #     POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+  #   secrets:
+  #     - db_password
+  #   restart: unless-stopped
+
+  # When using Postgres, update roundtable service:
+  #   environment:
+  #     - DB_ADAPTER=postgresql
+  #     - DATABASE_URL=postgresql://roundtable:password@postgres:5432/roundtable
+
+volumes:
+  roundtable-data:
+  roundtable-workspace:
+  # pg-data:
+
+# secrets:
+#   db_password:
+#     file: ./secrets/db_password.txt
