@@ -1,0 +1,39 @@
+// server/config.js — Environment configuration loader
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
+
+const config = {
+  port: parseInt(process.env.PORT, 10) || 3000,
+  sessionSecret: process.env.SESSION_SECRET || 'roundtable-dev-secret-change-me',
+
+  // Database (PostgreSQL required)
+  databaseUrl: process.env.DATABASE_URL || '',
+
+  // Workspace identity
+  workspaceId: process.env.WORKSPACE_ID || 'default',
+  workspaceName: process.env.WORKSPACE_NAME || process.env.WORKSPACE_ID || 'Roundtable',
+  workspaceUrl: process.env.WORKSPACE_URL || '',
+
+  embedMode: process.env.EMBED_MODE === 'true',
+
+  // Server-level AI keys (fallback if user hasn't configured their own)
+  ai: {
+    openai: process.env.OPENAI_API_KEY || '',
+    anthropic: process.env.ANTHROPIC_API_KEY || '',
+    google: process.env.GOOGLE_AI_API_KEY || '',
+  },
+
+  // Vertex AI (uses ADC — no API key needed)
+  vertexai: {
+    project: process.env.GCP_PROJECT || '',
+    location: process.env.GCP_LOCATION || 'us-central1',
+  },
+
+  // Google Custom Search (for web_search tool)
+  googleSearch: {
+    apiKey: process.env.GOOGLE_SEARCH_API_KEY || '',
+    engineId: process.env.GOOGLE_SEARCH_ENGINE_ID || '',
+  },
+};
+
+module.exports = config;
