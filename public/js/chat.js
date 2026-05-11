@@ -79,7 +79,14 @@ const Chat = {
     const isAssistant = msg.role === 'assistant';
     const initial = isAssistant ? 'AI' : (msg.display_name || msg.username || '?').charAt(0).toUpperCase();
     const name = isAssistant ? 'AI Assistant' : (msg.display_name || msg.username || 'User');
-    const time = msg.created_at ? new Date(msg.created_at + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    let time = '';
+    if (msg.created_at) {
+      // Postgres returns '2026-05-11 22:20:33.783' — normalize to ISO 8601
+      let ts = String(msg.created_at).replace(' ', 'T');
+      if (!ts.endsWith('Z') && !ts.includes('+')) ts += 'Z';
+      const d = new Date(ts);
+      time = isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
 
     // Unique color per user — use username as key to match presence bar
     const colorKey = msg.username || msg.display_name || 'user';
