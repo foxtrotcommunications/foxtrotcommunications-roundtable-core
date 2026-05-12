@@ -28,6 +28,7 @@ const App = {
 
     Chat.init();
     if (typeof CodePanel !== 'undefined') CodePanel.init();
+    Settings.init();
     Socket.connect();
     this.bindEvents();
 
@@ -40,12 +41,8 @@ const App = {
 
   bindEvents() {
     // Settings
-    document.getElementById('btn-settings')?.addEventListener('click', () => {
-      Settings.loadKeys();
-      this.openModal('modal-settings');
-    });
-    document.getElementById('btn-close-settings')?.addEventListener('click', () => this.closeModal('modal-settings'));
-    document.getElementById('btn-save-key')?.addEventListener('click', () => Settings.saveKey());
+    document.getElementById('btn-settings')?.addEventListener('click', () => Settings.open());
+    document.getElementById('btn-close-settings')?.addEventListener('click', () => Settings.close());
 
     // Chat input
     const chatInput = document.getElementById('chat-input');

@@ -65,6 +65,7 @@ class PostgreSQLAdapter {
         ai_model TEXT DEFAULT 'gemini-1.5-flash-002',
         system_prompt TEXT DEFAULT '',
         tools_enabled BOOLEAN DEFAULT true,
+        enabled_tools TEXT DEFAULT NULL,
         repos TEXT DEFAULT '[]',
         status TEXT DEFAULT 'active',
         created_by INTEGER REFERENCES users(id),
@@ -95,6 +96,10 @@ class PostgreSQLAdapter {
 
       CREATE INDEX IF NOT EXISTS idx_messages_workspace ON messages(workspace_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_workspaces_status ON workspaces(status);
+    `);
+    // Add enabled_tools column to existing deployments (idempotent)
+    await this.pool.query(`
+      ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS enabled_tools TEXT DEFAULT NULL;
     `);
     console.log('[DB] Migrations complete');
   }
@@ -157,6 +162,11 @@ class PostgreSQLAdapter {
     if (fields.aiModel !== undefined) { updates.push(`ai_model = $${idx++}`); values.push(fields.aiModel); }
     if (fields.systemPrompt !== undefined) { updates.push(`system_prompt = $${idx++}`); values.push(fields.systemPrompt); }
     if (fields.toolsEnabled !== undefined) { updates.push(`tools_enabled = $${idx++}`); values.push(fields.toolsEnabled); }
+    // enabledTools: array of tool names, or null to re-enable all
+    if (fields.enabledTools !== undefined) {
+      updates.push(`enabled_tools = $${idx++}`);
+      values.push(fields.enabledTools === null ? null : JSON.stringify(fields.enabledTools));
+    }
     if (fields.repos !== undefined) { updates.push(`repos = $${idx++}`); values.push(JSON.stringify(fields.repos)); }
     if (updates.length === 0) return this.getWorkspace(id);
     values.push(id);

@@ -71,25 +71,78 @@
 
   <!-- Settings Modal -->
   <div class="modal-overlay" id="modal-settings">
-    <div class="modal">
-      <h3>Settings — API Keys</h3>
-      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;">Configure your own API keys to use with AI providers. Keys are stored on the server.</p>
-      <div class="form-group">
-        <label for="key-provider">Provider</label>
-        <select id="key-provider">
-          <option value="openai">OpenAI</option>
-          <option value="anthropic">Anthropic</option>
-          <option value="google">Google AI</option>
-        </select>
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>⚙️ Workspace Settings</h3>
+        <button class="btn btn-ghost btn-sm" id="btn-close-settings" style="font-size:20px;line-height:1;padding:0 6px;">×</button>
       </div>
-      <div class="form-group">
-        <label for="key-value">API Key</label>
-        <input type="password" id="key-value" placeholder="sk-...">
+
+      <!-- Tabs -->
+      <div class="settings-tabs">
+        <button class="settings-tab active" data-tab="tab-agent" id="stab-agent">AI Agent</button>
+        <button class="settings-tab" data-tab="tab-tools" id="stab-tools">Tools</button>
+        <button class="settings-tab" data-tab="tab-keys" id="stab-keys">API Keys</button>
       </div>
-      <button class="btn btn-primary btn-sm" id="btn-save-key" style="margin-bottom:16px;">Save Key</button>
-      <div id="saved-keys"></div>
-      <div class="modal-actions">
-        <button class="btn btn-secondary btn-sm" id="btn-close-settings">Close</button>
+
+      <!-- Tab: AI Agent -->
+      <div class="settings-tab-panel active" id="tab-agent">
+        <p class="settings-desc">Configure the AI model and behavior for this workspace. Changes apply immediately to new messages.</p>
+
+        <div class="form-group">
+          <label for="ws-provider">AI Provider</label>
+          <select id="ws-provider">
+            <option value="vertexai">Vertex AI (Gemini via ADC)</option>
+            <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic</option>
+            <option value="google">Google AI (API key)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="ws-model">Model</label>
+          <input type="text" id="ws-model" placeholder="e.g. gemini-1.5-flash-002">
+          <div id="ws-model-hint" style="font-size:11px;color:var(--text-muted);margin-top:4px;"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="ws-system-prompt">System Prompt <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+          <textarea id="ws-system-prompt" rows="5" placeholder="Give the AI a persona, domain focus, or specific instructions for this workspace…" style="resize:vertical;min-height:100px;"></textarea>
+        </div>
+
+        <button class="btn btn-primary btn-sm" id="btn-save-agent">Save Agent Settings</button>
+      </div>
+
+      <!-- Tab: Tools -->
+      <div class="settings-tab-panel" id="tab-tools">
+        <p class="settings-desc">Choose which tools the AI can use. Disabled tools are removed from the AI's context entirely.</p>
+        <div class="tools-grid" id="tools-grid">
+          <!-- populated by Settings.loadTools() -->
+        </div>
+        <div style="display:flex;gap:8px;margin-top:16px;align-items:center;flex-wrap:wrap;">
+          <button class="btn btn-secondary btn-sm" id="btn-tools-all">Enable all</button>
+          <button class="btn btn-secondary btn-sm" id="btn-tools-none">Disable all</button>
+          <div style="flex:1;"></div>
+          <button class="btn btn-primary btn-sm" id="btn-save-tools">Save Tools</button>
+        </div>
+      </div>
+
+      <!-- Tab: API Keys -->
+      <div class="settings-tab-panel" id="tab-keys">
+        <p class="settings-desc">Configure your personal API keys. Keys are stored on the server and used as fallback when no server-level key is set.</p>
+        <div class="form-group">
+          <label for="key-provider">Provider</label>
+          <select id="key-provider">
+            <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic</option>
+            <option value="google">Google AI</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="key-value">API Key</label>
+          <input type="password" id="key-value" placeholder="sk-...">
+        </div>
+        <button class="btn btn-primary btn-sm" id="btn-save-key" style="margin-bottom:16px;">Save Key</button>
+        <div id="saved-keys"></div>
       </div>
     </div>
   </div>

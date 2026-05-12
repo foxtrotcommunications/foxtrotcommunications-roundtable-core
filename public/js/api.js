@@ -19,6 +19,7 @@ const API = {
   me() { return this.request('GET', '/auth/me'); },
   // Workspace
   getWorkspaceInfo() { return this.request('GET', '/workspace/info'); },
+  updateWorkspaceInfo(fields) { return this.request('PATCH', '/workspace/info', fields); },
   getMessages(before) { return this.request('GET', `/messages${before ? `?before=${before}` : ''}`); },
   // Cross-workspace
   getWorkspaces() { return this.request('GET', '/workspaces'); },
