@@ -3,4 +3,5 @@ data/
 workspace/
 .env
 *.log
+snowflake.log
 .DS_Store

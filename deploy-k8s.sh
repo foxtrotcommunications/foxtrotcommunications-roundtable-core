@@ -24,7 +24,7 @@ set -euo pipefail
 WORKSPACE_ID="${1:?Usage: $0 <workspace-id> [workspace-name]}"
 WORKSPACE_NAME="${2:-$WORKSPACE_ID}"
 NAMESPACE="${NAMESPACE:-default}"
-ROUNDTABLE_IMAGE="${ROUNDTABLE_IMAGE:-us-central1-docker.pkg.dev/roundtable-public/roundtable/roundtable:latest}"
+ROUNDTABLE_IMAGE="${ROUNDTABLE_IMAGE:-us-central1-docker.pkg.dev/your-gcp-project/roundtable/roundtable:latest}"
 
 echo "╔═══════════════════════════════════════════════════╗"
 echo "║  Deploying workspace: ${WORKSPACE_ID}"

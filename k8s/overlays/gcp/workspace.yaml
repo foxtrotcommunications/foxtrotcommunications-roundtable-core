@@ -3,8 +3,8 @@
 #
 # Usage:
 #   export WORKSPACE_ID=dev WORKSPACE_NAME=Development
-#   export CLOUDSQL_CONNECTION=roundtable-public:us-central1:roundtable-db
-#   export GCP_SA_EMAIL=roundtable-gke@roundtable-public.iam.gserviceaccount.com
+#   export CLOUDSQL_CONNECTION=your-gcp-project:us-central1:roundtable-db
+#   export GCP_SA_EMAIL=roundtable-gke@your-gcp-project.iam.gserviceaccount.com
 #   envsubst < k8s/overlays/gcp/workspace.yaml | kubectl apply -f -
 ---
 apiVersion: v1
