@@ -6,8 +6,8 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "nodemon server/index.js",
-    "test": "node -e \"const v=parseInt(process.version.slice(1));process.exit(v>=25?0:1)\" && node --localstorage-file=/tmp/roundtable-test-ls ./node_modules/.bin/jest --verbose || jest --verbose",
-    "test:watch": "jest --watch"
+    "test": "node -e \"const v=parseInt(process.version.slice(1)); const args = v>=25 ? ['--localstorage-file=/tmp/roundtable-test-ls'] : []; const cp = require('child_process').spawnSync('node', [...args, './node_modules/.bin/jest', '--verbose'], {stdio:'inherit'}); process.exit(cp.status)\"",
+    "test:watch": "node -e \"const v=parseInt(process.version.slice(1)); const args = v>=25 ? ['--localstorage-file=/tmp/roundtable-test-ls'] : []; const cp = require('child_process').spawnSync('node', [...args, './node_modules/.bin/jest', '--watch'], {stdio:'inherit'}); process.exit(cp.status)\""
   },
   "keywords": [
     "ai",
@@ -37,8 +37,10 @@
     "connect-pg-simple": "^10.0.0",
     "dotenv": "^16.4.7",
     "express": "^4.21.1",
+    "express-rate-limit": "^8.5.1",
     "express-session": "^1.18.1",
-    "mathjs": "^13.2.0",
+    "helmet": "^8.1.0",
+    "mathjs": "^15.2.0",
     "node-fetch": "^2.7.0",
     "pg": "^8.20.0",
     "snowflake-sdk": "^2.4.1",
