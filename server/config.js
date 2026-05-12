@@ -34,6 +34,22 @@ const config = {
     apiKey: process.env.GOOGLE_SEARCH_API_KEY || '',
     engineId: process.env.GOOGLE_SEARCH_ENGINE_ID || '',
   },
+
+  // Data warehouse connections
+  snowflake: {
+    account: process.env.SNOWFLAKE_ACCOUNT || '',
+    username: process.env.SNOWFLAKE_USERNAME || '',
+    warehouse: process.env.SNOWFLAKE_WAREHOUSE || '',
+    database: process.env.SNOWFLAKE_DATABASE || '',
+    schema: process.env.SNOWFLAKE_SCHEMA || '',
+  },
+
+  databricks: {
+    host: process.env.DATABRICKS_HOST || '',
+    httpPath: process.env.DATABRICKS_HTTP_PATH || '',
+    catalog: process.env.DATABRICKS_CATALOG || '',
+    schema: process.env.DATABRICKS_SCHEMA || '',
+  },
 };
 
 module.exports = config;
