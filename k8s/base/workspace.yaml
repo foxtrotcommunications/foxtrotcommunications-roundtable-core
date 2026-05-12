@@ -1,0 +1,106 @@
+# Cloud-agnostic Roundtable workspace template
+# Works on GKE, EKS, AKS, or any Kubernetes cluster
+#
+# Usage:
+#   WORKSPACE_ID=backend WORKSPACE_NAME="Backend Team" \
+#     envsubst < k8s/base/workspace.yaml | kubectl apply -f -
+#
+#   Or use the deploy scripts:
+#     ./deploy-k8s.sh backend "Backend Team"
+#     ./deploy-gke.sh backend "Backend Team"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rt-${WORKSPACE_ID}
+  labels:
+    app: roundtable
+    workspace: ${WORKSPACE_ID}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rt-${WORKSPACE_ID}
+  labels:
+    app: roundtable
+    workspace: ${WORKSPACE_ID}
+spec:
+  serviceName: rt-${WORKSPACE_ID}
+  replicas: 1
+  selector:
+    matchLabels:
+      app: roundtable
+      workspace: ${WORKSPACE_ID}
+  template:
+    metadata:
+      labels:
+        app: roundtable
+        workspace: ${WORKSPACE_ID}
+    spec:
+      serviceAccountName: rt-${WORKSPACE_ID}
+      containers:
+        - name: roundtable
+          image: ${ROUNDTABLE_IMAGE}
+          ports:
+            - containerPort: 3000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: roundtable-config
+            - secretRef:
+                name: roundtable-secrets
+          env:
+            - name: WORKSPACE_ID
+              value: "${WORKSPACE_ID}"
+            - name: WORKSPACE_NAME
+              value: "${WORKSPACE_NAME}"
+            - name: WORKSPACE_URL
+              value: "http://rt-${WORKSPACE_ID}.${NAMESPACE}.svc.cluster.local:3000"
+          volumeMounts:
+            - name: workspace
+              mountPath: /app/workspace
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+  volumeClaimTemplates:
+    - metadata:
+        name: workspace
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+---
+# ClusterIP service for internal workspace-to-workspace communication
+apiVersion: v1
+kind: Service
+metadata:
+  name: rt-${WORKSPACE_ID}
+  labels:
+    app: roundtable
+    workspace: ${WORKSPACE_ID}
+spec:
+  selector:
+    app: roundtable
+    workspace: ${WORKSPACE_ID}
+  ports:
+    - port: 3000
+      targetPort: 3000
+      name: http
+  type: ClusterIP
