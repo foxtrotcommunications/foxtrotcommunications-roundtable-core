@@ -6,8 +6,8 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "nodemon server/index.js",
-    "test": "node --localstorage-file=/tmp/roundtable-test-ls ./node_modules/.bin/jest --verbose",
-    "test:watch": "node --localstorage-file=/tmp/roundtable-test-ls ./node_modules/.bin/jest --watch"
+    "test": "node -e \"const v=parseInt(process.version.slice(1));process.exit(v>=25?0:1)\" && node --localstorage-file=/tmp/roundtable-test-ls ./node_modules/.bin/jest --verbose || jest --verbose",
+    "test:watch": "jest --watch"
   },
   "keywords": [
     "ai",
