@@ -1,0 +1,29 @@
+# Shared configuration — applied once per cluster
+# Cloud-agnostic: works on GKE, EKS, AKS
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: roundtable-config
+data:
+  PORT: "3000"
+  NODE_ENV: "production"
+  EMBED_MODE: "false"
+  # Set GCP_PROJECT for Vertex AI, or leave empty to use API keys
+  GCP_PROJECT: ""
+  GCP_LOCATION: "us-central1"
+---
+# Create secrets with:
+#   kubectl create secret generic roundtable-secrets \
+#     --from-literal=SESSION_SECRET=$(openssl rand -hex 32) \
+#     --from-literal=DATABASE_URL="postgresql://user:pass@host:5432/roundtable"
+#
+# For GCP Cloud SQL via proxy sidecar, use localhost:
+#     --from-literal=DATABASE_URL="postgresql://roundtable:pass@127.0.0.1:5432/roundtable"
+#
+# For AWS RDS or Azure Database for PostgreSQL, use the full endpoint:
+#     --from-literal=DATABASE_URL="postgresql://user:pass@mydb.abc123.us-east-1.rds.amazonaws.com:5432/roundtable"
+#
+# Optional AI provider keys (if not using Vertex AI):
+#     --from-literal=OPENAI_API_KEY="sk-..."
+#     --from-literal=ANTHROPIC_API_KEY="sk-ant-..."
