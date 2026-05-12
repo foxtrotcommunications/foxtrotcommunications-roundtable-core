@@ -42,6 +42,7 @@ spec:
       containers:
         - name: roundtable
           image: ${ROUNDTABLE_IMAGE}
+          imagePullPolicy: Always
           ports:
             - containerPort: 3000
               name: http
