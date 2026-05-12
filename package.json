@@ -6,8 +6,8 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "nodemon server/index.js",
-    "test": "node --localstorage-file=/tmp/roundtable-test-ls ./node_modules/.bin/jest --verbose",
-    "test:watch": "node --localstorage-file=/tmp/roundtable-test-ls ./node_modules/.bin/jest --watch"
+    "test": "node -e \"const v=parseInt(process.version.slice(1));process.exit(v>=25?0:1)\" && node --localstorage-file=/tmp/roundtable-test-ls ./node_modules/.bin/jest --verbose || jest --verbose",
+    "test:watch": "jest --watch"
   },
   "keywords": [
     "ai",
@@ -30,6 +30,8 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "@databricks/sql": "^1.14.0",
+    "@google-cloud/bigquery": "^8.3.1",
     "@google-cloud/vertexai": "^1.12.0",
     "bcryptjs": "^2.4.3",
     "connect-pg-simple": "^10.0.0",
@@ -39,6 +41,7 @@
     "mathjs": "^13.2.0",
     "node-fetch": "^2.7.0",
     "pg": "^8.20.0",
+    "snowflake-sdk": "^2.4.1",
     "socket.io": "^4.8.1"
   },
   "devDependencies": {
