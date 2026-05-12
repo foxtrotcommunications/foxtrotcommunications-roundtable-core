@@ -31,7 +31,7 @@ function setupChatHandlers(io, socket) {
 
       // AI provider config from workspace or defaults
       const aiProvider = (workspace && workspace.ai_provider) || 'vertexai';
-      const aiModel = (workspace && workspace.ai_model) || 'gemini-1.5-flash-002';
+      const aiModel = (workspace && workspace.ai_model) || 'gemini-2.5-flash';
       const toolsEnabled = workspace ? workspace.tools_enabled : true;
 
       // Resolve enabled tool names from workspace config (null = all tools)

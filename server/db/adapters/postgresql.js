@@ -62,7 +62,7 @@ class PostgreSQLAdapter {
         name TEXT NOT NULL,
         url TEXT,
         ai_provider TEXT DEFAULT 'vertexai',
-        ai_model TEXT DEFAULT 'gemini-1.5-flash-002',
+        ai_model TEXT DEFAULT 'gemini-2.5-flash',
         system_prompt TEXT DEFAULT '',
         tools_enabled BOOLEAN DEFAULT true,
         enabled_tools TEXT DEFAULT NULL,

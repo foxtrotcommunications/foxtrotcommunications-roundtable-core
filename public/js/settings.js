@@ -12,7 +12,7 @@ const Settings = {
 
   // Suggested models per provider
   MODEL_HINTS: {
-    vertexai:  'gemini-2.0-flash-001 · gemini-1.5-pro-002 · gemini-1.5-flash-002',
+    vertexai:  'gemini-2.5-flash · gemini-2.5-pro · gemini-1.5-flash-002 · gemini-1.5-pro-002',
     openai:    'gpt-4o · gpt-4o-mini · o1-preview',
     anthropic: 'claude-opus-4-5 · claude-sonnet-4-5 · claude-3-5-haiku-20241022',
     google:    'gemini-2.0-flash-001 · gemini-1.5-pro-002',
