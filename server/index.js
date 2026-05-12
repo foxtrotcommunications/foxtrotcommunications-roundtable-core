@@ -31,10 +31,13 @@ app.use(helmet({
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       connectSrc: ["'self'", "ws:", "wss:"],
       imgSrc: ["'self'", "data:", "https:"],
+      upgradeInsecureRequests: null,  // disable — not all deployments have TLS
     },
   },
-  crossOriginEmbedderPolicy: false, // Required for Socket.IO
+  hsts: false,                       // disable — only enable behind a real TLS terminator
+  crossOriginEmbedderPolicy: false,  // Required for Socket.IO
 }));
+
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -57,7 +60,7 @@ const sessionMiddleware = session({
   secret: config.sessionSecret,
   resave: false,
   saveUninitialized: false,
-  cookie: { maxAge: 7 * 24 * 60 * 60 * 1000, httpOnly: true, sameSite: 'lax', secure: isProd },
+  cookie: { maxAge: 7 * 24 * 60 * 60 * 1000, httpOnly: true, sameSite: 'lax', secure: isProd && process.env.SECURE_COOKIES === 'true' },
 });
 app.use(sessionMiddleware);
 
