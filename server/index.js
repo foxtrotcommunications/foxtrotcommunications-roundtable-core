@@ -5,6 +5,8 @@ const path = require('path');
 const session = require('express-session');
 const pgSession = require('connect-pg-simple')(session);
 const { Pool } = require('pg');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const config = require('./config');
 const { initAdapter, getAdapter } = require('./db/adapter');
 const { setupSockets } = require('./sockets');
@@ -18,6 +20,21 @@ const server = http.createServer(app);
 
 // Trust proxy (required behind Cloud Run, GKE Ingress, or any LB)
 app.set('trust proxy', 1);
+
+// Security headers
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.socket.io", "https://cdnjs.cloudflare.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      connectSrc: ["'self'", "ws:", "wss:"],
+      imgSrc: ["'self'", "data:", "https:"],
+    },
+  },
+  crossOriginEmbedderPolicy: false, // Required for Socket.IO
+}));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -67,6 +84,36 @@ app.get('/api/health', async (req, res) => {
 });
 
 app.use(express.static(path.join(__dirname, '..', 'public')));
+
+// Rate limiters
+const authLimiter = rateLimit({
+  windowMs: 60 * 1000,  // 1 minute
+  max: 5,               // 5 attempts per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many attempts. Please try again in a minute.' },
+});
+
+const registerLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 3,               // 3 registrations per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many accounts created. Please try again later.' },
+});
+
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,             // 100 general API requests per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Rate limit exceeded. Please slow down.' },
+});
+
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', registerLimiter);
+app.use('/api', apiLimiter);
+
 app.use('/api/auth', authRoutes);
 app.use('/api', requireAuth, fileRoutes);
 
