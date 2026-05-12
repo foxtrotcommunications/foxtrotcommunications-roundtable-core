@@ -36,15 +36,15 @@ module.exports = {
   },
   async execute({ sql, catalog, schema }) {
     try {
-      if (!process.env.DATABRICKS_HOST || !process.env.DATABRICKS_TOKEN) {
-        return { error: 'Databricks not configured. Set DATABRICKS_HOST, DATABRICKS_TOKEN, and DATABRICKS_HTTP_PATH environment variables.' };
-      }
-
-      // Safety: block write operations
+      // Safety: block write operations (checked first, before config)
       for (const pattern of BLOCKED_PATTERNS) {
         if (pattern.test(sql)) {
           return { error: 'Only read-only queries (SELECT/WITH) are allowed.' };
         }
+      }
+
+      if (!process.env.DATABRICKS_HOST || !process.env.DATABRICKS_TOKEN) {
+        return { error: 'Databricks not configured. Set DATABRICKS_HOST, DATABRICKS_TOKEN, and DATABRICKS_HTTP_PATH environment variables.' };
       }
 
       const { DBSQLClient } = require('@databricks/sql');

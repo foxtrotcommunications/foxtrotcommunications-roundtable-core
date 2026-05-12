@@ -77,15 +77,15 @@ module.exports = {
   },
   async execute({ sql, database, schema, warehouse }) {
     try {
-      if (!process.env.SNOWFLAKE_ACCOUNT) {
-        return { error: 'Snowflake not configured. Set SNOWFLAKE_ACCOUNT, SNOWFLAKE_USERNAME, and SNOWFLAKE_PASSWORD environment variables.' };
-      }
-
-      // Safety: block write operations
+      // Safety: block write operations (checked first, before config)
       for (const pattern of BLOCKED_PATTERNS) {
         if (pattern.test(sql)) {
           return { error: 'Only read-only queries (SELECT/WITH) are allowed.' };
         }
+      }
+
+      if (!process.env.SNOWFLAKE_ACCOUNT) {
+        return { error: 'Snowflake not configured. Set SNOWFLAKE_ACCOUNT, SNOWFLAKE_USERNAME, and SNOWFLAKE_PASSWORD environment variables.' };
       }
 
       const conn = createConnection({ database, schema, warehouse });

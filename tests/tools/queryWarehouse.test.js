@@ -33,33 +33,6 @@ describe.each(warehouseTools)('$name tool', ({ name, tool, configVar }) => {
   });
 
   describe('SQL safety', () => {
-    // Need to temporarily set config so it gets past the config check
-    const configOverrides = {
-      GCP_PROJECT: 'test-project',
-      SNOWFLAKE_ACCOUNT: 'test.us-east-1',
-      SNOWFLAKE_USERNAME: 'test',
-      SNOWFLAKE_PASSWORD: 'test',
-      DATABRICKS_HOST: 'test.databricks.net',
-      DATABRICKS_TOKEN: 'dapi-test',
-      DATABRICKS_HTTP_PATH: '/sql/test',
-    };
-
-    let originalEnv;
-    beforeAll(() => {
-      originalEnv = { ...process.env };
-      Object.assign(process.env, configOverrides);
-    });
-    afterAll(() => {
-      // Restore only the keys we changed
-      for (const key of Object.keys(configOverrides)) {
-        if (originalEnv[key] === undefined) {
-          delete process.env[key];
-        } else {
-          process.env[key] = originalEnv[key];
-        }
-      }
-    });
-
     const dangerousStatements = [
       { label: 'INSERT', sql: "INSERT INTO users VALUES (1, 'hacked')" },
       { label: 'UPDATE', sql: "UPDATE users SET admin = true WHERE id = 1" },
@@ -74,14 +47,14 @@ describe.each(warehouseTools)('$name tool', ({ name, tool, configVar }) => {
     ];
 
     it.each(dangerousStatements)('should block $label statements', async ({ sql }) => {
+      // Safety check runs before config — blocked even without warehouse credentials
       const result = await tool.execute({ sql });
       expect(result.error).toContain('read-only');
     });
 
     it('should allow basic SELECT', async () => {
-      // This will fail at the connection level but should NOT be blocked by safety
       const result = await tool.execute({ sql: 'SELECT 1 AS test' });
-      // Should not have a "read-only" error — it should fail at connection, not safety
+      // Should not be blocked by safety — may fail at config/connection level
       if (result.error) {
         expect(result.error).not.toContain('read-only');
       }
