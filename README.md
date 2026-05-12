@@ -10,8 +10,11 @@ Multiple users collaborate on AI conversations in real-time — with built-in to
 ## Features
 
 - **Multiplayer AI Chat** — Multiple users in the same AI conversation, streaming in real-time
-- **Multi-Provider AI** — OpenAI, Anthropic (Claude), and Google Gemini (via Vertex AI)
+- **Concurrent Generation** — Each user has an independent AI generation lifecycle; multiple people can prompt AI simultaneously without blocking each other
+- **Multi-Provider AI** — OpenAI, Anthropic (Claude), and Google Gemini (via Vertex AI or direct API key)
 - **14 Built-in Tools** — Web search, data warehouse queries, file management, shell execution, and more
+- **Configurable Tool Set** — Enable or disable individual tools per workspace via the Settings panel
+- **Configurable Agent** — Set the AI provider, model, and system prompt per workspace — no redeploy needed
 - **Data Warehouse Queries** — AI can query BigQuery, Snowflake, and Databricks in real-time
 - **Workspace-per-Container** — Each workspace is an isolated container with its own identity
 - **Multi-Cloud** — Deploy on Cloud Run, GKE, EKS, AKS, or any Kubernetes cluster
@@ -127,7 +130,37 @@ See [`k8s/overlays/tls/`](k8s/overlays/tls/) for HTTPS setup with cert-manager +
 
 See [`.env.example`](.env.example) for the full list.
 
+## Workspace Settings
+
+Each workspace can be configured at runtime via the **⚙️ Settings panel** (no redeploy required):
+
+### AI Agent tab
+
+| Setting | Description |
+|---------|-------------|
+| **Provider** | `vertexai` \| `openai` \| `anthropic` \| `google` |
+| **Model** | Any model supported by the selected provider (e.g. `gemini-2.0-flash-001`, `gpt-4o`, `claude-opus-4-5`) |
+| **System Prompt** | Custom instructions prepended to every AI conversation in this workspace |
+
+### Tools tab
+
+Enable or disable individual tools per workspace. Disabled tools are removed from the AI's context entirely — the model won't attempt to call them. Tools are grouped by category:
+
+- **Web**: `web_search`, `read_url`
+- **Code**: `run_code`, `shell_exec`, `calculator`
+- **Files**: `read_file`, `write_file`, `list_files`, `find_file`
+- **Git**: `git_clone`, `git_commit`
+- **Data**: `query_bigquery`, `query_snowflake`, `query_databricks`
+
+> **Tip**: For workspaces focused on data analysis, disable `shell_exec`, `git_clone`, and `git_commit` to reduce the AI's tool surface and improve response focus.
+
+### API Keys tab
+
+Users can configure personal API keys (OpenAI, Anthropic, Google AI) that override server-level defaults for their sessions.
+
 ## Built-in Tools
+
+All 14 tools are enabled by default. Individual tools can be toggled per workspace via the Settings panel.
 
 | Tool | Description |
 |------|-------------|
