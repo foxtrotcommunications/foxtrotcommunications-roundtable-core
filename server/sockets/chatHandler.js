@@ -3,7 +3,10 @@ const workspaceService = require('../services/workspaceService');
 const { streamCompletion } = require('../services/aiProvider');
 const config = require('../config');
 
-let activeGeneration = false;
+// Active generation state is tracked per-socket (on the socket object itself),
+// so multiple users in the same workspace can each have independent AI calls.
+// socket.abortController — AbortController for the current stream
+// socket.isGenerating   — boolean guard against double-submission
 
 function setupChatHandlers(io, socket) {
   const wsChannel = `ws:${config.workspaceId}`;
@@ -18,8 +21,9 @@ function setupChatHandlers(io, socket) {
       const mentionsAI = /@ai\b/i.test(content);
       if (!mentionsAI) return;
 
-      if (activeGeneration) {
-        socket.emit('error-message', { error: 'AI is still responding. Please wait.' });
+      // Per-socket guard — only one active generation per user
+      if (socket.isGenerating) {
+        socket.emit('error-message', { error: 'Your AI request is still processing. Please wait or stop it first.' });
         return;
       }
 
@@ -29,6 +33,15 @@ function setupChatHandlers(io, socket) {
       const aiProvider = (workspace && workspace.ai_provider) || 'vertexai';
       const aiModel = (workspace && workspace.ai_model) || 'gemini-1.5-flash-002';
       const toolsEnabled = workspace ? workspace.tools_enabled : true;
+
+      // Resolve enabled tool names from workspace config (null = all tools)
+      let enabledToolNames = null;
+      if (workspace && workspace.enabled_tools) {
+        try {
+          const parsed = JSON.parse(workspace.enabled_tools);
+          if (Array.isArray(parsed) && parsed.length > 0) enabledToolNames = parsed;
+        } catch (_) {}
+      }
 
       // Vertex AI uses ADC — no API key needed, just GCP_PROJECT
       let apiKey = '';
@@ -88,16 +101,26 @@ function setupChatHandlers(io, socket) {
         messages.push({ role: msg.role, content: msg.content });
       }
 
-      activeGeneration = true;
-      io.to(wsChannel).emit('ai-start', {});
+      // Set up per-socket AbortController
+      const abortController = new AbortController();
+      socket.abortController = abortController;
+      socket.isGenerating = true;
+
+      // Broadcast to the workspace that this user's AI is active
+      io.to(wsChannel).emit('ai-start', { userId: socket.userId, username: socket.username });
 
       let fullText = '';
       try {
-        for await (const event of streamCompletion(aiProvider, aiModel, messages, apiKey, toolsEnabled)) {
+        for await (const event of streamCompletion(
+          aiProvider, aiModel, messages, apiKey, toolsEnabled,
+          abortController.signal, enabledToolNames
+        )) {
+          if (abortController.signal.aborted) break;
+
           switch (event.type) {
             case 'text-delta':
               fullText += event.content;
-              io.to(wsChannel).emit('ai-chunk', { content: event.content });
+              io.to(wsChannel).emit('ai-chunk', { content: event.content, userId: socket.userId });
               break;
             case 'tool-call':
               console.log(`[Tool] Calling: ${event.name}`, JSON.stringify(event.args));
@@ -121,11 +144,14 @@ function setupChatHandlers(io, socket) {
           }
         }
       } catch (err) {
-        console.error(`[Chat] AI stream error in workspace ${config.workspaceId}:`, err);
-        io.to(wsChannel).emit('ai-error', { error: `AI generation failed: ${err.message}` });
+        if (err.name !== 'AbortError') {
+          console.error(`[Chat] AI stream error in workspace ${config.workspaceId}:`, err);
+          io.to(wsChannel).emit('ai-error', { error: `AI generation failed: ${err.message}` });
+        }
       } finally {
-        activeGeneration = false;
-        io.to(wsChannel).emit('ai-complete', { fullText });
+        socket.isGenerating = false;
+        socket.abortController = null;
+        io.to(wsChannel).emit('ai-complete', { fullText, userId: socket.userId });
       }
     } catch (err) {
       console.error('[Chat] Error:', err);
@@ -134,7 +160,17 @@ function setupChatHandlers(io, socket) {
   });
 
   socket.on('stop-generation', () => {
-    activeGeneration = false;
+    if (socket.abortController) {
+      socket.abortController.abort();
+      console.log(`[Chat] Generation stopped by ${socket.username}`);
+    }
+  });
+
+  // Clean up on disconnect
+  socket.on('disconnect', () => {
+    if (socket.abortController) {
+      socket.abortController.abort();
+    }
   });
 }
 

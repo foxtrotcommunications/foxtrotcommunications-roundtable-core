@@ -35,6 +35,21 @@ const tools = {
 };
 
 /**
+ * Resolve the active tool set. If enabledNames is a non-empty array, only
+ * those tools are included. Null/undefined/empty means all tools.
+ */
+function resolveTools(enabledNames) {
+  if (!enabledNames || !Array.isArray(enabledNames) || enabledNames.length === 0) {
+    return tools;
+  }
+  const filtered = {};
+  for (const name of enabledNames) {
+    if (tools[name]) filtered[name] = tools[name];
+  }
+  return filtered;
+}
+
+/**
  * Get all available tool definitions in a provider-agnostic format.
  * Each tool: { name, description, parameters (JSON Schema), execute(args) }
  */
@@ -47,10 +62,11 @@ function getAvailableTools() {
 }
 
 /**
- * Convert tool definitions to OpenAI format
+ * Convert tool definitions to OpenAI format.
+ * @param {string[]|null} enabledNames — optional allowlist; null/undefined = all tools
  */
-function toOpenAITools() {
-  return Object.values(tools).map((t) => ({
+function toOpenAITools(enabledNames) {
+  return Object.values(resolveTools(enabledNames)).map((t) => ({
     type: 'function',
     function: {
       name: t.name,
@@ -61,10 +77,11 @@ function toOpenAITools() {
 }
 
 /**
- * Convert tool definitions to Anthropic format
+ * Convert tool definitions to Anthropic format.
+ * @param {string[]|null} enabledNames — optional allowlist; null/undefined = all tools
  */
-function toAnthropicTools() {
-  return Object.values(tools).map((t) => ({
+function toAnthropicTools(enabledNames) {
+  return Object.values(resolveTools(enabledNames)).map((t) => ({
     name: t.name,
     description: t.description,
     input_schema: t.parameters,
@@ -72,12 +89,13 @@ function toAnthropicTools() {
 }
 
 /**
- * Convert tool definitions to Google/Gemini format
+ * Convert tool definitions to Google/Gemini format.
+ * @param {string[]|null} enabledNames — optional allowlist; null/undefined = all tools
  */
-function toGoogleTools() {
+function toGoogleTools(enabledNames) {
   return [
     {
-      functionDeclarations: Object.values(tools).map((t) => {
+      functionDeclarations: Object.values(resolveTools(enabledNames)).map((t) => {
         // Clean parameters for Gemini: strip empty required arrays
         const params = JSON.parse(JSON.stringify(t.parameters));
         if (params.required && params.required.length === 0) {

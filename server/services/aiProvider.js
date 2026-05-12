@@ -12,39 +12,53 @@ const config = require('../config');
  *   { type: 'tool-result', name: '...', callId: '...', result: {...} }
  *   { type: 'done', fullText: '...' }
  *   { type: 'error', error: '...' }
+ *
+ * @param {string} provider
+ * @param {string} model
+ * @param {Array} messages
+ * @param {string} apiKey
+ * @param {boolean} enableTools
+ * @param {AbortSignal|null} signal — optional AbortSignal for cancellation
+ * @param {string[]|null} enabledToolNames — optional tool allowlist; null = all tools
  */
-async function* streamCompletion(provider, model, messages, apiKey, enableTools = true) {
+async function* streamCompletion(provider, model, messages, apiKey, enableTools = true, signal = null, enabledToolNames = null) {
   const maxToolRounds = 10;
 
   try {
     switch (provider) {
       case 'openai':
-        yield* streamOpenAI(model, messages, apiKey, enableTools, maxToolRounds);
+        yield* streamOpenAI(model, messages, apiKey, enableTools, maxToolRounds, signal, enabledToolNames);
         break;
       case 'anthropic':
-        yield* streamAnthropic(model, messages, apiKey, enableTools, maxToolRounds);
+        yield* streamAnthropic(model, messages, apiKey, enableTools, maxToolRounds, signal, enabledToolNames);
         break;
       case 'google':
-        yield* streamGoogle(model, messages, apiKey, enableTools, maxToolRounds);
+        yield* streamGoogle(model, messages, apiKey, enableTools, maxToolRounds, signal, enabledToolNames);
         break;
       case 'vertexai':
-        yield* streamVertexAI(model, messages, enableTools, maxToolRounds);
+        yield* streamVertexAI(model, messages, enableTools, maxToolRounds, signal, enabledToolNames);
         break;
       default:
         yield { type: 'error', error: `Unknown provider: ${provider}` };
     }
   } catch (err) {
-    yield { type: 'error', error: err.message };
+    if (err.name === 'AbortError') {
+      yield { type: 'done', fullText: '' };
+    } else {
+      yield { type: 'error', error: err.message };
+    }
   }
 }
 
 // ─── OpenAI ─────────────────────────────────────────────
 
-async function* streamOpenAI(model, messages, apiKey, enableTools, maxRounds) {
+async function* streamOpenAI(model, messages, apiKey, enableTools, maxRounds, signal, enabledToolNames) {
   let currentMessages = [...messages];
   let fullText = '';
 
   for (let round = 0; round < maxRounds; round++) {
+    if (signal?.aborted) { yield { type: 'done', fullText }; return; }
+
     const body = {
       model,
       messages: currentMessages,
@@ -52,7 +66,7 @@ async function* streamOpenAI(model, messages, apiKey, enableTools, maxRounds) {
     };
 
     if (enableTools && round < maxRounds - 1) {
-      body.tools = toOpenAITools();
+      body.tools = toOpenAITools(enabledToolNames);
       body.tool_choice = 'auto';
     }
 
@@ -63,6 +77,7 @@ async function* streamOpenAI(model, messages, apiKey, enableTools, maxRounds) {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(body),
+      signal,
     });
 
     if (!response.ok) {
@@ -71,7 +86,7 @@ async function* streamOpenAI(model, messages, apiKey, enableTools, maxRounds) {
       return;
     }
 
-    const { toolCalls, text } = yield* parseOpenAIStream(response);
+    const { toolCalls, text } = yield* parseOpenAIStream(response, signal);
     fullText += text;
 
     if (toolCalls.length === 0) {
@@ -108,7 +123,7 @@ async function* streamOpenAI(model, messages, apiKey, enableTools, maxRounds) {
   yield { type: 'done', fullText };
 }
 
-async function* parseOpenAIStream(response) {
+async function* parseOpenAIStream(response, signal) {
   const toolCalls = [];
   let text = '';
 
@@ -116,6 +131,7 @@ async function* parseOpenAIStream(response) {
   let buffer = '';
 
   for await (const chunk of body) {
+    if (signal?.aborted) break;
     buffer += chunk.toString();
     const lines = buffer.split('\n');
     buffer = lines.pop() || '';
@@ -159,12 +175,14 @@ async function* parseOpenAIStream(response) {
 
 // ─── Anthropic ──────────────────────────────────────────
 
-async function* streamAnthropic(model, messages, apiKey, enableTools, maxRounds) {
+async function* streamAnthropic(model, messages, apiKey, enableTools, maxRounds, signal, enabledToolNames) {
   let currentMessages = formatAnthropicMessages(messages);
   let systemPrompt = extractSystemPrompt(messages);
   let fullText = '';
 
   for (let round = 0; round < maxRounds; round++) {
+    if (signal?.aborted) { yield { type: 'done', fullText }; return; }
+
     const body = {
       model,
       messages: currentMessages,
@@ -177,7 +195,7 @@ async function* streamAnthropic(model, messages, apiKey, enableTools, maxRounds)
     }
 
     if (enableTools && round < maxRounds - 1) {
-      body.tools = toAnthropicTools();
+      body.tools = toAnthropicTools(enabledToolNames);
     }
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -188,6 +206,7 @@ async function* streamAnthropic(model, messages, apiKey, enableTools, maxRounds)
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify(body),
+      signal,
     });
 
     if (!response.ok) {
@@ -196,7 +215,7 @@ async function* streamAnthropic(model, messages, apiKey, enableTools, maxRounds)
       return;
     }
 
-    const { toolUses, text, stopReason } = yield* parseAnthropicStream(response);
+    const { toolUses, text, stopReason } = yield* parseAnthropicStream(response, signal);
     fullText += text;
 
     if (toolUses.length === 0 || stopReason !== 'tool_use') {
@@ -238,7 +257,7 @@ async function* streamAnthropic(model, messages, apiKey, enableTools, maxRounds)
   yield { type: 'done', fullText };
 }
 
-async function* parseAnthropicStream(response) {
+async function* parseAnthropicStream(response, signal) {
   const toolUses = [];
   let text = '';
   let stopReason = '';
@@ -249,6 +268,7 @@ async function* parseAnthropicStream(response) {
   let buffer = '';
 
   for await (const chunk of body) {
+    if (signal?.aborted) break;
     buffer += chunk.toString();
     const lines = buffer.split('\n');
     buffer = lines.pop() || '';
@@ -305,12 +325,14 @@ async function* parseAnthropicStream(response) {
 
 // ─── Google / Gemini ────────────────────────────────────
 
-async function* streamGoogle(model, messages, apiKey, enableTools, maxRounds) {
+async function* streamGoogle(model, messages, apiKey, enableTools, maxRounds, signal, enabledToolNames) {
   let contents = formatGoogleMessages(messages);
   let systemInstruction = extractGoogleSystemInstruction(messages);
   let fullText = '';
 
   for (let round = 0; round < maxRounds; round++) {
+    if (signal?.aborted) { yield { type: 'done', fullText }; return; }
+
     const body = {
       contents,
     };
@@ -320,7 +342,7 @@ async function* streamGoogle(model, messages, apiKey, enableTools, maxRounds) {
     }
 
     if (enableTools && round < maxRounds - 1) {
-      body.tools = toGoogleTools();
+      body.tools = toGoogleTools(enabledToolNames);
     }
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse`;
@@ -329,6 +351,7 @@ async function* streamGoogle(model, messages, apiKey, enableTools, maxRounds) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal,
     });
 
     if (!response.ok) {
@@ -337,7 +360,7 @@ async function* streamGoogle(model, messages, apiKey, enableTools, maxRounds) {
       return;
     }
 
-    const { functionCalls, text } = yield* parseGoogleStream(response);
+    const { functionCalls, text } = yield* parseGoogleStream(response, signal);
     fullText += text;
 
     if (functionCalls.length === 0) {
@@ -373,7 +396,7 @@ async function* streamGoogle(model, messages, apiKey, enableTools, maxRounds) {
   yield { type: 'done', fullText };
 }
 
-async function* parseGoogleStream(response) {
+async function* parseGoogleStream(response, signal) {
   const functionCalls = [];
   let text = '';
 
@@ -381,6 +404,7 @@ async function* parseGoogleStream(response) {
   let buffer = '';
 
   for await (const chunk of body) {
+    if (signal?.aborted) break;
     buffer += chunk.toString();
     const lines = buffer.split('\n');
     buffer = lines.pop() || '';
@@ -456,7 +480,7 @@ function getVertexClient() {
   return vertexClient;
 }
 
-async function* streamVertexAI(model, messages, enableTools, maxRounds) {
+async function* streamVertexAI(model, messages, enableTools, maxRounds, signal, enabledToolNames) {
   const vertex = getVertexClient();
   const systemInstruction = extractGoogleSystemInstruction(messages);
   const contents = formatGoogleMessages(messages);
@@ -469,18 +493,21 @@ async function* streamVertexAI(model, messages, enableTools, maxRounds) {
     modelConfig.systemInstruction = { parts: [{ text: systemInstruction }] };
   }
   if (enableTools) {
-    modelConfig.tools = toGoogleTools();
+    modelConfig.tools = toGoogleTools(enabledToolNames);
   }
 
   const generativeModel = vertex.getGenerativeModel(modelConfig);
 
   for (let round = 0; round < maxRounds; round++) {
+    if (signal?.aborted) { yield { type: 'done', fullText }; return; }
+
     const streamResult = await generativeModel.generateContentStream({ contents });
 
     let text = '';
     const functionCalls = [];
 
     for await (const chunk of streamResult.stream) {
+      if (signal?.aborted) break;
       const parts = chunk.candidates?.[0]?.content?.parts || [];
       for (const part of parts) {
         if (part.text) {
@@ -496,6 +523,7 @@ async function* streamVertexAI(model, messages, enableTools, maxRounds) {
       }
     }
 
+    if (signal?.aborted) { yield { type: 'done', fullText: fullText + text }; return; }
     fullText += text;
 
     if (functionCalls.length === 0) {

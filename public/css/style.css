@@ -318,3 +318,26 @@ select:focus { border-color: var(--accent-primary); }
   .chat-messages { padding: 16px; }
   .chat-input-area { padding: 12px 16px; }
 }
+
+/* ─── Settings Modal (tabbed) ─── */
+.modal-lg { max-width: 600px; padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+.modal-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px 0; }
+.modal-header h3 { font-size: 18px; font-weight: 600; margin: 0; }
+.settings-tabs { display: flex; gap: 2px; padding: 16px 24px 0; border-bottom: 1px solid var(--border-subtle); margin-bottom: 0; }
+.settings-tab { background: none; border: none; border-bottom: 2px solid transparent; padding: 8px 14px; font-size: 13px; font-weight: 500; color: var(--text-secondary); cursor: pointer; transition: var(--transition-fast); margin-bottom: -1px; border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
+.settings-tab:hover { color: var(--text-primary); background: var(--bg-hover); }
+.settings-tab.active { color: var(--accent-primary); border-bottom-color: var(--accent-primary); }
+.settings-tab-panel { display: none; padding: 20px 24px 24px; overflow-y: auto; max-height: 70vh; }
+.settings-tab-panel.active { display: block; }
+.settings-desc { font-size: 13px; color: var(--text-secondary); margin-bottom: 18px; line-height: 1.5; }
+.form-group textarea { width: 100%; padding: 12px 14px; background: var(--bg-tertiary); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); color: var(--text-primary); font-size: 14px; font-family: inherit; transition: var(--transition-fast); outline: none; box-sizing: border-box; }
+.form-group textarea:focus { border-color: var(--accent-primary); box-shadow: 0 0 0 3px var(--accent-glow); }
+
+/* ─── Tools Grid ─── */
+.tools-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+.tool-group { background: var(--bg-tertiary); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px; }
+.tool-group-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 10px; }
+.tool-toggle { display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; user-select: none; }
+.tool-toggle:hover .tool-toggle-label { color: var(--text-primary); }
+.tool-checkbox { width: 15px; height: 15px; accent-color: var(--accent-primary); cursor: pointer; flex-shrink: 0; }
+.tool-toggle-label { font-size: 13px; color: var(--text-secondary); transition: var(--transition-fast); text-transform: capitalize; }
