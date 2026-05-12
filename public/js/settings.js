@@ -30,6 +30,8 @@ const Settings = {
   async open() {
     document.getElementById('modal-settings').classList.add('active');
     this._showTab('tab-agent');
+    // Render tools with defaults immediately so the tab is never empty
+    this._renderToolsGrid(null);
     await Promise.all([this.loadWorkspace(), this.loadKeys()]);
   },
 
