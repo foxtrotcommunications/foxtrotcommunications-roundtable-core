@@ -40,15 +40,15 @@ module.exports = {
   },
   async execute({ sql, project }) {
     try {
-      if (!config.vertexai.project && !project && !process.env.BQ_PROJECT) {
-        return { error: 'BigQuery not configured. Set GCP_PROJECT or BQ_PROJECT environment variable.' };
-      }
-
-      // Safety: block write operations
+      // Safety: block write operations (checked first, before config)
       for (const pattern of BLOCKED_PATTERNS) {
         if (pattern.test(sql)) {
           return { error: 'Only read-only queries (SELECT/WITH) are allowed.' };
         }
+      }
+
+      if (!config.vertexai.project && !project && !process.env.BQ_PROJECT) {
+        return { error: 'BigQuery not configured. Set GCP_PROJECT or BQ_PROJECT environment variable.' };
       }
 
       const client = getClient();
