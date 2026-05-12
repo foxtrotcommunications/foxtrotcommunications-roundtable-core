@@ -5,27 +5,27 @@
 # Prerequisites:
 #   1. Cloud SQL instance created:
 #      gcloud sql instances create roundtable-db --database-version=POSTGRES_14 \
-#        --tier=db-f1-micro --region=us-central1 --project=roundtable-public
+#        --tier=db-f1-micro --region=us-central1 --project=your-gcp-project
 #      gcloud sql databases create roundtable --instance=roundtable-db
 #
 #   2. Secrets created in Secret Manager:
-#      echo -n "postgresql://roundtable:PASSWORD@/roundtable?host=/cloudsql/roundtable-public:us-central1:roundtable-db" | \
-#        gcloud secrets create DATABASE_URL --data-file=- --project=roundtable-public
-#      openssl rand -hex 32 | gcloud secrets create SESSION_SECRET --data-file=- --project=roundtable-public
+#      echo -n "postgresql://roundtable:PASSWORD@/roundtable?host=/cloudsql/your-gcp-project:us-central1:roundtable-db" | \
+#        gcloud secrets create DATABASE_URL --data-file=- --project=your-gcp-project
+#      openssl rand -hex 32 | gcloud secrets create SESSION_SECRET --data-file=- --project=your-gcp-project
 #
 #   3. Artifact Registry repo created:
 #      gcloud artifacts repositories create roundtable --repository-format=docker \
-#        --location=us-central1 --project=roundtable-public
+#        --location=us-central1 --project=your-gcp-project
 #
 #   4. GCS bucket for workspace storage:
-#      gsutil mb -p roundtable-public -l us-central1 gs://roundtable-workspaces
+#      gsutil mb -p your-gcp-project -l us-central1 gs://roundtable-workspaces
 #
 #   5. Image built and pushed:
-#      gcloud builds submit --project=roundtable-public
+#      gcloud builds submit --project=your-gcp-project
 
 set -euo pipefail
 
-PROJECT_ID="${PROJECT_ID:-roundtable-public}"
+PROJECT_ID="${PROJECT_ID:-your-gcp-project}"
 REGION="${REGION:-us-central1}"
 WORKSPACE_ID="${1:?Usage: $0 <workspace-id> <workspace-name>}"
 WORKSPACE_NAME="${2:-$WORKSPACE_ID}"

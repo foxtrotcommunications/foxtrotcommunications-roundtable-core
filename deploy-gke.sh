@@ -9,7 +9,7 @@
 #     ./deploy-gke.sh <workspace-id> [workspace-name]
 #
 # Environment:
-#   GCP_PROJECT      — GCP project ID (default: roundtable-public)
+#   GCP_PROJECT      — GCP project ID (default: your-gcp-project)
 #   GCP_REGION       — GCP region (default: us-central1)
 #   CLOUDSQL_INSTANCE — Cloud SQL instance name (default: roundtable-db)
 #   AI_PROJECT       — GCP project for Vertex AI (default: same as GCP_PROJECT)
@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-GCP_PROJECT="${GCP_PROJECT:-roundtable-public}"
+GCP_PROJECT="${GCP_PROJECT:-your-gcp-project}"
 GCP_REGION="${GCP_REGION:-us-central1}"
 CLOUDSQL_INSTANCE="${CLOUDSQL_INSTANCE:-roundtable-db}"
 AI_PROJECT="${AI_PROJECT:-${GCP_PROJECT}}"
