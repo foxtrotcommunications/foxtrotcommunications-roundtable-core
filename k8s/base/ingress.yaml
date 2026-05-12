@@ -1,26 +1,32 @@
-# Ingress — exposes workspaces via subdomains or paths
-# Requires: nginx-ingress controller or GKE Gateway
+# Ingress — exposes workspaces externally with WebSocket support
 #
-# Pattern: each workspace gets a path prefix
-#   https://roundtable.example.com/backend → rt-backend service
-#   https://roundtable.example.com/data    → rt-data service
+# Works with:
+#   - nginx-ingress (GKE, EKS, AKS, bare metal)
+#   - AWS ALB Ingress Controller (see overlays/aws/)
+#   - Azure Application Gateway Ingress (see overlays/azure/)
 #
-# For WebSocket support with nginx-ingress:
+# For nginx-ingress install:
 #   kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/cloud/deploy.yaml
+#
+# Add workspace paths as you deploy them:
+#   /          → rt-dev (default workspace)
+#   /backend   → rt-backend
+#   /data      → rt-data
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: roundtable-ingress
   annotations:
+    # WebSocket support
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
-    nginx.ingress.kubernetes.io/websocket-services: "rt-dev"
+    # Session affinity for Socket.IO
     nginx.ingress.kubernetes.io/affinity: "cookie"
     nginx.ingress.kubernetes.io/session-cookie-name: "rt-affinity"
+    nginx.ingress.kubernetes.io/session-cookie-max-age: "3600"
 spec:
   ingressClassName: nginx
   rules:
-    # Add a rule for each workspace
     - http:
         paths:
           - path: /
