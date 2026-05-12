@@ -23,7 +23,7 @@ const App = {
     const wsMeta = document.getElementById('chat-workspace-meta');
     if (wsName) wsName.textContent = (this.workspace && this.workspace.name) || 'Roundtable';
     if (wsMeta && this.workspace) {
-      wsMeta.textContent = `${this.workspace.ai_provider || 'vertexai'} · ${this.workspace.ai_model || 'gemini-2.0-flash'}`;
+      wsMeta.textContent = `${this.workspace.ai_provider || 'vertexai'} · ${this.workspace.ai_model || 'gemini-2.0-flash-001'}`;
     }
 
     Chat.init();
