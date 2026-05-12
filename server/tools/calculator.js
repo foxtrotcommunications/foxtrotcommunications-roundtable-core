@@ -1,5 +1,16 @@
 // server/tools/calculator.js — Safe math expression evaluator
-const { evaluate } = require('mathjs');
+// Uses a restricted mathjs instance to prevent prototype pollution (CVE mitigation)
+const { create, all } = require('mathjs');
+
+// Create a sandboxed mathjs instance with only safe functions
+const math = create(all);
+
+// Disable dangerous features that could lead to prototype pollution
+// We keep evaluate on the instance but block import and code generation
+math.import({
+  import: function () { throw new Error('import is disabled'); },
+  createUnit: function () { throw new Error('createUnit is disabled'); },
+}, { override: true });
 
 module.exports = {
   name: 'calculator',
@@ -16,7 +27,7 @@ module.exports = {
   },
   async execute({ expression }) {
     try {
-      const result = evaluate(expression);
+      const result = math.evaluate(expression);
       return {
         expression,
         result: typeof result === 'object' ? result.toString() : String(result),

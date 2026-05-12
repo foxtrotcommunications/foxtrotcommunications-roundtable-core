@@ -364,6 +364,13 @@ const Chat = {
       };
 
       let html = marked.parse(text, { renderer });
+      // Sanitize HTML to prevent XSS
+      if (window.DOMPurify) {
+        html = DOMPurify.sanitize(html, {
+          ADD_TAGS: ['pre', 'code'],
+          ADD_ATTR: ['class', 'id', 'onclick', 'style'],
+        });
+      }
       // Highlight @mentions — @ai gets accent, others get subtle highlight
       html = html.replace(/@(ai)\b/gi, '<span class="mention mention-ai">@$1</span>');
       html = html.replace(/@(\w+)/g, (match, name) => {

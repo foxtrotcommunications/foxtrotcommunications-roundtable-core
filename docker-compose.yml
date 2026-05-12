@@ -1,44 +1,46 @@
-version: "3.8"
+version: '3.8'
 
 services:
   roundtable:
     build: .
     ports:
-      - "3000:3000"
-    volumes:
-      - roundtable-data:/data
-      - roundtable-workspace:/app/workspace
-    env_file:
-      - .env
+      - "${PORT:-3000}:3000"
     environment:
       - NODE_ENV=production
-      - DB_PATH=/data/roundtable.db
+      - PORT=3000
+      - DATABASE_URL=postgresql://roundtable:roundtable@postgres:5432/roundtable
+      - SESSION_SECRET=${SESSION_SECRET:-change-me-in-production}
+      - WORKSPACE_ID=${WORKSPACE_ID:-dev}
+      - WORKSPACE_NAME=${WORKSPACE_NAME:-Development}
+      - EMBED_MODE=${EMBED_MODE:-false}
+      - SECURE_COOKIES=${SECURE_COOKIES:-false}
+      # AI providers (optional — users can also set their own keys in-app)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY:-}
+      - GCP_PROJECT=${GCP_PROJECT:-}
+      - GCP_LOCATION=${GCP_LOCATION:-us-central1}
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
-  # ─── Optional: PostgreSQL ──────────────────────
-  # Uncomment to use Postgres instead of SQLite
-  # postgres:
-  #   image: postgres:16-alpine
-  #   volumes:
-  #     - pg-data:/var/lib/postgresql/data
-  #   environment:
-  #     POSTGRES_DB: roundtable
-  #     POSTGRES_USER: roundtable
-  #     POSTGRES_PASSWORD_FILE: /run/secrets/db_password
-  #   secrets:
-  #     - db_password
-  #   restart: unless-stopped
-
-  # When using Postgres, update roundtable service:
-  #   environment:
-  #     - DB_ADAPTER=postgresql
-  #     - DATABASE_URL=postgresql://roundtable:password@postgres:5432/roundtable
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: roundtable
+      POSTGRES_PASSWORD: roundtable
+      POSTGRES_DB: roundtable
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U roundtable"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
 
 volumes:
-  roundtable-data:
-  roundtable-workspace:
-  # pg-data:
-
-# secrets:
-#   db_password:
-#     file: ./secrets/db_password.txt
+  pgdata:
