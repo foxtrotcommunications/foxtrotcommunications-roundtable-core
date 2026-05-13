@@ -44,7 +44,7 @@ npm run dev
 
 ### Prerequisites
 
-- **Node.js** 20+ (tested on Node 25)
+- **Node.js** 20+ (tested on Node 20, 22)
 - **PostgreSQL** — required for session and data persistence
 
 ## Deployment
