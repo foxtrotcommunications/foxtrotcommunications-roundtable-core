@@ -86,22 +86,31 @@ if [[ "${1:-}" == "--setup" ]]; then
     --condition=None --quiet >/dev/null 2>&1
   echo "  ✓ Vertex AI user role granted on ${AI_PROJECT}"
 
-  # Grant BigQuery access — least-privilege:
-  #   jobUser at project level (required to run query jobs)
-  #   dataViewer at dataset level only for each authorized dataset
-  FOXTROT_DATA_PROJECT="foxtrot-communications-public"
-  gcloud projects add-iam-policy-binding "${FOXTROT_DATA_PROJECT}" \
-    --member="serviceAccount:${GCP_SA_EMAIL}" \
-    --role="roles/bigquery.jobUser" \
-    --condition=None --quiet >/dev/null 2>&1
-  echo "  ✓ BigQuery jobUser granted on ${FOXTROT_DATA_PROJECT}"
+  # Grant BigQuery access — least-privilege (optional):
+  #   Set BQ_DATA_PROJECT and BQ_DATASETS to grant cross-project BigQuery access.
+  #   BQ_DATA_PROJECT — the GCP project containing the datasets
+  #   BQ_DATASETS     — space-separated list of dataset names to grant READER on
+  #
+  # Example:
+  #   BQ_DATA_PROJECT=my-data-project BQ_DATASETS="dataset1 dataset2" ./deploy-gke.sh --setup
+  BQ_DATA_PROJECT="${BQ_DATA_PROJECT:-}"
+  BQ_DATASETS="${BQ_DATASETS:-}"
 
-  # Grant READER on each authorized dataset via BigQuery REST API (idempotent)
-  BQ_TOKEN=$(gcloud auth print-access-token)
-  for FOXTROT_DATASET in forge_synthetic_fhir omop_vocab omop_vocabulary; do
-    CURRENT_ACCESS=$(curl -s -H "Authorization: Bearer ${BQ_TOKEN}" \
-      "https://bigquery.googleapis.com/bigquery/v2/projects/${FOXTROT_DATA_PROJECT}/datasets/${FOXTROT_DATASET}" \
-      | python3 -c "
+  if [[ -n "${BQ_DATA_PROJECT}" ]]; then
+    # jobUser at project level (required to run query jobs)
+    gcloud projects add-iam-policy-binding "${BQ_DATA_PROJECT}" \
+      --member="serviceAccount:${GCP_SA_EMAIL}" \
+      --role="roles/bigquery.jobUser" \
+      --condition=None --quiet >/dev/null 2>&1
+    echo "  ✓ BigQuery jobUser granted on ${BQ_DATA_PROJECT}"
+
+    if [[ -n "${BQ_DATASETS}" ]]; then
+      # Grant READER on each authorized dataset via BigQuery REST API (idempotent)
+      BQ_TOKEN=$(gcloud auth print-access-token)
+      for BQ_DATASET in ${BQ_DATASETS}; do
+        CURRENT_ACCESS=$(curl -s -H "Authorization: Bearer ${BQ_TOKEN}" \
+          "https://bigquery.googleapis.com/bigquery/v2/projects/${BQ_DATA_PROJECT}/datasets/${BQ_DATASET}" \
+          | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
 access=d.get('access',[])
@@ -109,13 +118,17 @@ if not any(a.get('userByEmail')=='${GCP_SA_EMAIL}' for a in access):
     access.append({'role':'READER','userByEmail':'${GCP_SA_EMAIL}'})
 print(json.dumps({'access':access}))
 " 2>/dev/null)
-    curl -s -X PATCH \
-      -H "Authorization: Bearer ${BQ_TOKEN}" \
-      -H "Content-Type: application/json" \
-      "https://bigquery.googleapis.com/bigquery/v2/projects/${FOXTROT_DATA_PROJECT}/datasets/${FOXTROT_DATASET}" \
-      -d "${CURRENT_ACCESS}" >/dev/null 2>&1
-    echo "  ✓ BigQuery READER on ${FOXTROT_DATA_PROJECT}.${FOXTROT_DATASET}"
-  done
+        curl -s -X PATCH \
+          -H "Authorization: Bearer ${BQ_TOKEN}" \
+          -H "Content-Type: application/json" \
+          "https://bigquery.googleapis.com/bigquery/v2/projects/${BQ_DATA_PROJECT}/datasets/${BQ_DATASET}" \
+          -d "${CURRENT_ACCESS}" >/dev/null 2>&1
+        echo "  ✓ BigQuery READER on ${BQ_DATA_PROJECT}.${BQ_DATASET}"
+      done
+    fi
+  else
+    echo "  ⊘ BQ_DATA_PROJECT not set — skipping cross-project BigQuery IAM grants"
+  fi
 
   # 3. Apply base config
   echo ""
