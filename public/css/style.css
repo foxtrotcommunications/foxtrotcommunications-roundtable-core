@@ -221,7 +221,7 @@ html, body { height: 100%; font-family: 'Inter', system-ui, sans-serif; backgrou
 .code-copy-btn { background: none; border: 1px solid var(--border-subtle); color: var(--text-secondary); font-size: 11px; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-family: inherit; transition: var(--transition-fast); }
 .code-copy-btn:hover { background: var(--surface-hover); color: var(--text-primary); border-color: var(--border-accent); }
 .code-block-wrapper pre { margin: 0; border: none; border-radius: 0; }
-.code-block-wrapper pre code { font-size: 13px; }
+.code-block-wrapper pre code { font-size: 13px; color: #c9d1d9; font-family: 'SF Mono', Monaco, 'Fira Code', monospace; }
 
 /* ─── Tool Result Cards ─── */
 .search-results { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; }
