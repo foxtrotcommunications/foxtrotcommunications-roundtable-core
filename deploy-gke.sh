@@ -169,7 +169,7 @@ gcloud container clusters get-credentials "${CLUSTER_NAME}" \
 
 # Deploy using GCP overlay (includes Cloud SQL proxy sidecar)
 export WORKSPACE_ID WORKSPACE_NAME NAMESPACE CLOUDSQL_CONNECTION GCP_SA_EMAIL
-export ROUNDTABLE_IMAGE="us-central1-docker.pkg.dev/${GCP_PROJECT}/roundtable/roundtable:latest"
+export ROUNDTABLE_IMAGE="us-central1-docker.pkg.dev/${GCP_PROJECT}/roundtable/roundtable:$(git rev-parse --short HEAD)"
 envsubst < k8s/overlays/gcp/workspace.yaml | kubectl apply -f - -n "${NAMESPACE}"
 
 # Bind Workload Identity for this workspace's service account
