@@ -34,6 +34,17 @@ function setupChatHandlers(io, socket) {
       const aiModel = (workspace && workspace.ai_model) || 'gemini-2.5-flash';
       const toolsEnabled = workspace ? (workspace.tools_enabled ?? true) : true;
 
+      // Parse per-workspace data source config
+      let dataSources = {};
+      if (workspace?.data_sources) {
+        try {
+          dataSources = typeof workspace.data_sources === 'string'
+            ? JSON.parse(workspace.data_sources)
+            : workspace.data_sources;
+        } catch (_) {}
+      }
+      const workspaceConfig = { dataSources };
+
       // Resolve enabled tool names from workspace config (null = all tools)
       let enabledToolNames = null;
       if (workspace && workspace.enabled_tools) {
@@ -98,10 +109,11 @@ function setupChatHandlers(io, socket) {
       // Always prepend GCP / tool environment context
       const gcpProject = config.vertexai?.project || process.env.GCP_PROJECT || '';
       const gcpRegion  = process.env.GCP_LOCATION || 'us-central1';
+      const bqProject  = dataSources?.bigquery?.project || gcpProject;
       const envCtx = `You are a helpful AI assistant with direct access to tools. Key environment facts:
 - GCP Project: ${gcpProject}
 - GCP Region: ${gcpRegion}
-- BigQuery billing project: ${gcpProject} (use this as the project when running queries)
+- BigQuery billing project: ${bqProject} (use this as the default project when running queries)
 - For BigQuery public datasets use fully-qualified names: \`project.dataset.table\` (e.g. \`bigquery-public-data.usa_names.usa_1910_2013\`)
 - ALWAYS call tools directly when asked. Never ask the user for config values the environment already provides (project ID, region, etc.).
 - If a tool call fails with a transient error, try again with the same or corrected inputs. Do NOT tell the user you cannot do something without first attempting it with a tool.`;
@@ -127,7 +139,7 @@ function setupChatHandlers(io, socket) {
       try {
         for await (const event of streamCompletion(
           aiProvider, aiModel, messages, apiKey, toolsEnabled,
-          abortController.signal, enabledToolNames
+          abortController.signal, enabledToolNames, workspaceConfig
         )) {
           if (abortController.signal.aborted) break;
 

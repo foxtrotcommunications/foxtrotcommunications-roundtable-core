@@ -113,13 +113,16 @@ function toGoogleTools(enabledNames) {
 
 /**
  * Execute a tool by name
+ * @param {string} name
+ * @param {object} args — tool arguments from the AI
+ * @param {object} [workspaceConfig] — per-workspace config (data_sources, etc.)
  */
-async function executeTool(name, args) {
+async function executeTool(name, args, workspaceConfig = {}) {
   const tool = tools[name];
   if (!tool) {
     throw new Error(`Unknown tool: ${name}`);
   }
-  return tool.execute(args);
+  return tool.execute(args, workspaceConfig);
 }
 
 module.exports = {

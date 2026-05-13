@@ -34,7 +34,8 @@ module.exports = {
     },
     required: ['sql'],
   },
-  async execute({ sql, catalog, schema }) {
+  async execute({ sql, catalog, schema }, workspaceConfig = {}) {
+    const dbCfg = workspaceConfig?.dataSources?.databricks || {};
     try {
       // Safety: block write operations (checked first, before config)
       for (const pattern of BLOCKED_PATTERNS) {
@@ -43,22 +44,22 @@ module.exports = {
         }
       }
 
-      if (!process.env.DATABRICKS_HOST || !process.env.DATABRICKS_TOKEN) {
-        return { error: 'Databricks not configured. Set DATABRICKS_HOST, DATABRICKS_TOKEN, and DATABRICKS_HTTP_PATH environment variables.' };
+      const host     = dbCfg.host     || process.env.DATABRICKS_HOST;
+      const token    = dbCfg.token    || process.env.DATABRICKS_TOKEN;
+      const httpPath = dbCfg.httpPath || process.env.DATABRICKS_HTTP_PATH;
+
+      if (!host || !token) {
+        return { error: 'Databricks not configured. Add a Databricks connection in workspace Data Sources settings.' };
       }
 
       const { DBSQLClient } = require('@databricks/sql');
       const client = new DBSQLClient();
 
-      await client.connect({
-        host: process.env.DATABRICKS_HOST,
-        path: process.env.DATABRICKS_HTTP_PATH,
-        token: process.env.DATABRICKS_TOKEN,
-      });
+      await client.connect({ host, path: httpPath, token });
 
       const session = await client.openSession({
-        initialCatalog: catalog || process.env.DATABRICKS_CATALOG || undefined,
-        initialSchema: schema || process.env.DATABRICKS_SCHEMA || undefined,
+        initialCatalog: catalog || dbCfg.catalog || process.env.DATABRICKS_CATALOG || undefined,
+        initialSchema: schema || dbCfg.schema || process.env.DATABRICKS_SCHEMA || undefined,
       });
 
       try {
