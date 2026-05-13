@@ -86,6 +86,18 @@ if [[ "${1:-}" == "--setup" ]]; then
     --condition=None --quiet >/dev/null 2>&1
   echo "  ✓ Vertex AI user role granted on ${AI_PROJECT}"
 
+  # Grant BigQuery access on the Foxtrot application data project (cross-project)
+  FOXTROT_DATA_PROJECT="foxtrot-communications-public"
+  gcloud projects add-iam-policy-binding "${FOXTROT_DATA_PROJECT}" \
+    --member="serviceAccount:${GCP_SA_EMAIL}" \
+    --role="roles/bigquery.jobUser" \
+    --condition=None --quiet >/dev/null 2>&1
+  gcloud projects add-iam-policy-binding "${FOXTROT_DATA_PROJECT}" \
+    --member="serviceAccount:${GCP_SA_EMAIL}" \
+    --role="roles/bigquery.dataViewer" \
+    --condition=None --quiet >/dev/null 2>&1
+  echo "  ✓ BigQuery access granted on ${FOXTROT_DATA_PROJECT}"
+
   # 3. Apply base config
   echo ""
   echo "→ Step 3/5: Applying ConfigMap..."
