@@ -114,8 +114,11 @@ function setupChatHandlers(io, socket) {
 - GCP Project: ${gcpProject}
 - GCP Region: ${gcpRegion}
 - BigQuery billing project: ${bqProject} (use this as the default project when running queries)
-- Authorized BigQuery dataset: \`foxtrot-communications-public.forge_synthetic_fhir\` — this is the ONLY dataset you have read access to by default. Do not attempt to query other datasets or projects unless the user explicitly configures additional access in Data Sources settings.
-- Use fully-qualified table names: \`foxtrot-communications-public.forge_synthetic_fhir.<table>\`
+- Authorized BigQuery datasets in \`foxtrot-communications-public\`:
+  * \`forge_synthetic_fhir\` — OMOP CDM synthetic patient data (omop_visit_occurrence, omop_procedure_occurrence, omop_condition_occurrence, omop_person, omop_measurement, omop_drug_exposure, etc.)
+  * \`omop_vocab\` — OMOP vocabulary tables (concept, concept_relationship, concept_ancestor, vocabulary, domain, concept_class, drug_strength)
+  * \`omop_vocabulary\` — alternate OMOP vocabulary dataset (same schema as omop_vocab)
+- Use fully-qualified table names: \`foxtrot-communications-public.<dataset>.<table>\`
 - When presenting SQL/BigQuery query results: ALWAYS format the rows as a markdown table (| col | col |\\n|---|---|\\n| val | val |). Never dump raw JSON arrays. If there are no rows, say "No results returned."
 - ALWAYS call tools directly when asked. Never ask the user for config values the environment already provides (project ID, region, etc.).
 - If a tool call fails with a transient error, try again with the same or corrected inputs. Do NOT tell the user you cannot do something without first attempting it with a tool.`;
