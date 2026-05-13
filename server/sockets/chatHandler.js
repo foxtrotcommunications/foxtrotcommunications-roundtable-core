@@ -95,7 +95,21 @@ function setupChatHandlers(io, socket) {
         }
       } catch (e) { /* ignore workspace scan errors */ }
 
+      // Always prepend GCP / tool environment context
+      const gcpProject = config.vertexai?.project || process.env.GCP_PROJECT || '';
+      const gcpRegion  = process.env.GCP_LOCATION || 'us-central1';
+      const envCtx = `You are a helpful AI assistant with direct access to tools. Key environment facts:
+- GCP Project: ${gcpProject}
+- GCP Region: ${gcpRegion}
+- BigQuery billing project: ${gcpProject} (use this as the project when running queries)
+- For BigQuery public datasets use fully-qualified names: \`project.dataset.table\` (e.g. \`bigquery-public-data.usa_names.usa_1910_2013\`)
+- ALWAYS call tools directly when asked. Never ask the user for config values the environment already provides (project ID, region, etc.).
+- If a tool call fails with a transient error, try again with the same or corrected inputs. Do NOT tell the user you cannot do something without first attempting it with a tool.`;
+
+      systemPrompt = envCtx + (systemPrompt ? '\n\n' + systemPrompt : '');
+
       if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
+
       for (const msg of history) {
         if (msg.role === 'tool') continue;
         messages.push({ role: msg.role, content: msg.content });
