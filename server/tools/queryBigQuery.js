@@ -1,20 +1,6 @@
 // server/tools/queryBigQuery.js — Execute read-only SQL against Google BigQuery
 const config = require('../config');
 
-// Lazy-loaded client (only initialized when first used)
-let bqClient = null;
-
-function getClient() {
-  if (!bqClient) {
-    const { BigQuery } = require('@google-cloud/bigquery');
-    bqClient = new BigQuery({
-      projectId: config.vertexai.project || process.env.BQ_PROJECT,
-      location: process.env.BQ_LOCATION || config.vertexai.location || 'us-central1',
-    });
-  }
-  return bqClient;
-}
-
 // Blocked keywords to prevent data modification
 const BLOCKED_PATTERNS = [
   /\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|CREATE|MERGE|GRANT|REVOKE)\b/i,
@@ -33,31 +19,45 @@ module.exports = {
       },
       project: {
         type: 'string',
-        description: 'Optional: GCP project ID (defaults to workspace GCP_PROJECT)',
+        description: 'Optional: GCP billing project ID override (defaults to workspace BigQuery project setting)',
       },
     },
     required: ['sql'],
   },
-  async execute({ sql, project }) {
+  async execute({ sql, project }, workspaceConfig = {}) {
     try {
-      // Safety: block write operations (checked first, before config)
+      // Safety: block write operations
       for (const pattern of BLOCKED_PATTERNS) {
         if (pattern.test(sql)) {
           return { error: 'Only read-only queries (SELECT/WITH) are allowed.' };
         }
       }
 
-      if (!config.vertexai.project && !project && !process.env.BQ_PROJECT) {
-        return { error: 'BigQuery not configured. Set GCP_PROJECT or BQ_PROJECT environment variable.' };
+      // Resolve billing project: arg > workspace data_sources > env > config
+      const billingProject =
+        project ||
+        workspaceConfig?.dataSources?.bigquery?.project ||
+        process.env.BQ_PROJECT ||
+        config.vertexai?.project;
+
+      if (!billingProject) {
+        return { error: 'BigQuery not configured. Set a BigQuery project in workspace Data Sources settings or ensure GCP_PROJECT is set.' };
       }
 
-      const client = getClient();
+      // Build a fresh client per call so workspace-level project overrides work cleanly
+      const { BigQuery } = require('@google-cloud/bigquery');
+      const client = new BigQuery({
+        projectId: billingProject,
+        location: workspaceConfig?.dataSources?.bigquery?.location ||
+                  process.env.BQ_LOCATION ||
+                  config.vertexai?.location ||
+                  'US',
+      });
+
       const options = {
         query: sql,
-        location: process.env.BQ_LOCATION || config.vertexai.location || 'us-central1',
-        maximumBytesBilled: process.env.BQ_MAX_BYTES || '1073741824', // 1GB default
+        maximumBytesBilled: process.env.BQ_MAX_BYTES || '1073741824', // 1 GB default
       };
-      if (project) options.projectId = project;
 
       const [rows] = await client.query(options);
 
@@ -72,6 +72,7 @@ module.exports = {
         totalRows: rows.length,
         truncated,
         columns: resultRows.length > 0 ? Object.keys(resultRows[0]) : [],
+        billingProject,
       };
     } catch (err) {
       return {

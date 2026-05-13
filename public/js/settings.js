@@ -24,6 +24,7 @@ const Settings = {
     this._bindAgentSave();
     this._bindToolsButtons();
     this._bindKeySave();
+    this._bindDataSourcesSave();
   },
 
   // ─── Open modal and load current workspace state ───────────────
@@ -78,6 +79,23 @@ const Settings = {
         try { enabledTools = JSON.parse(ws.enabled_tools); } catch (_) {}
       }
       this._renderToolsGrid(enabledTools);
+
+      // Data Sources tab
+      let ds = {};
+      if (ws.data_sources) {
+        try { ds = typeof ws.data_sources === 'string' ? JSON.parse(ws.data_sources) : ws.data_sources; } catch (_) {}
+      }
+      const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+      set('ds-bq-project',  ds.bigquery?.project);
+      set('ds-bq-location', ds.bigquery?.location);
+      set('ds-sf-account',  ds.snowflake?.account);
+      set('ds-sf-username', ds.snowflake?.username);
+      set('ds-sf-password', ds.snowflake?.password);
+      set('ds-sf-warehouse',ds.snowflake?.warehouse);
+      set('ds-sf-database', ds.snowflake?.database);
+      set('ds-db-host',     ds.databricks?.host);
+      set('ds-db-token',    ds.databricks?.token);
+      set('ds-db-http-path',ds.databricks?.httpPath);
     } catch (err) {
       console.error('Failed to load workspace settings:', err);
     }
@@ -202,6 +220,44 @@ const Settings = {
       App.showToast('API key saved', 'success');
     } catch (err) {
       App.showToast(err.message, 'error');
+    }
+  },
+
+  // ─── Data Sources ──────────────────────────────────────────────
+  _bindDataSourcesSave() {
+    document.getElementById('btn-save-data')?.addEventListener('click', () => this.saveDataSources());
+  },
+
+  async saveDataSources() {
+    const get = (id) => document.getElementById(id)?.value?.trim() || undefined;
+    const dataSources = {
+      bigquery: {
+        project:  get('ds-bq-project'),
+        location: get('ds-bq-location'),
+      },
+      snowflake: {
+        account:   get('ds-sf-account'),
+        username:  get('ds-sf-username'),
+        password:  get('ds-sf-password'),
+        warehouse: get('ds-sf-warehouse'),
+        database:  get('ds-sf-database'),
+      },
+      databricks: {
+        host:     get('ds-db-host'),
+        token:    get('ds-db-token'),
+        httpPath: get('ds-db-http-path'),
+      },
+    };
+    // Strip empty sections
+    if (!Object.values(dataSources.bigquery).some(Boolean))   delete dataSources.bigquery;
+    if (!Object.values(dataSources.snowflake).some(Boolean))  delete dataSources.snowflake;
+    if (!Object.values(dataSources.databricks).some(Boolean)) delete dataSources.databricks;
+
+    try {
+      await API.updateWorkspaceInfo({ dataSources });
+      App.showToast('Data source settings saved', 'success');
+    } catch (err) {
+      App.showToast(err.message || 'Failed to save', 'error');
     }
   },
 

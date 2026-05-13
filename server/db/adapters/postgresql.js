@@ -97,9 +97,12 @@ class PostgreSQLAdapter {
       CREATE INDEX IF NOT EXISTS idx_messages_workspace ON messages(workspace_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_workspaces_status ON workspaces(status);
     `);
-    // Add enabled_tools column to existing deployments (idempotent)
+    // Idempotent column additions for existing deployments
     await this.pool.query(`
       ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS enabled_tools TEXT DEFAULT NULL;
+    `);
+    await this.pool.query(`
+      ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS data_sources JSONB DEFAULT NULL;
     `);
     console.log('[DB] Migrations complete');
   }
@@ -168,6 +171,10 @@ class PostgreSQLAdapter {
       values.push(fields.enabledTools === null ? null : JSON.stringify(fields.enabledTools));
     }
     if (fields.repos !== undefined) { updates.push(`repos = $${idx++}`); values.push(JSON.stringify(fields.repos)); }
+    if (fields.dataSources !== undefined) {
+      updates.push(`data_sources = $${idx++}`);
+      values.push(fields.dataSources === null ? null : JSON.stringify(fields.dataSources));
+    }
     if (updates.length === 0) return this.getWorkspace(id);
     values.push(id);
     await this._exec(`UPDATE workspaces SET ${updates.join(', ')} WHERE id = $${idx}`, values);

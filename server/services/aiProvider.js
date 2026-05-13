@@ -20,23 +20,24 @@ const config = require('../config');
  * @param {boolean} enableTools
  * @param {AbortSignal|null} signal — optional AbortSignal for cancellation
  * @param {string[]|null} enabledToolNames — optional tool allowlist; null = all tools
+ * @param {object} [workspaceConfig] — per-workspace config { dataSources: {...} }
  */
-async function* streamCompletion(provider, model, messages, apiKey, enableTools = true, signal = null, enabledToolNames = null) {
+async function* streamCompletion(provider, model, messages, apiKey, enableTools = true, signal = null, enabledToolNames = null, workspaceConfig = {}) {
   const maxToolRounds = 10;
 
   try {
     switch (provider) {
       case 'openai':
-        yield* streamOpenAI(model, messages, apiKey, enableTools, maxToolRounds, signal, enabledToolNames);
+        yield* streamOpenAI(model, messages, apiKey, enableTools, maxToolRounds, signal, enabledToolNames, workspaceConfig);
         break;
       case 'anthropic':
-        yield* streamAnthropic(model, messages, apiKey, enableTools, maxToolRounds, signal, enabledToolNames);
+        yield* streamAnthropic(model, messages, apiKey, enableTools, maxToolRounds, signal, enabledToolNames, workspaceConfig);
         break;
       case 'google':
-        yield* streamGoogle(model, messages, apiKey, enableTools, maxToolRounds, signal, enabledToolNames);
+        yield* streamGoogle(model, messages, apiKey, enableTools, maxToolRounds, signal, enabledToolNames, workspaceConfig);
         break;
       case 'vertexai':
-        yield* streamVertexAI(model, messages, enableTools, maxToolRounds, signal, enabledToolNames);
+        yield* streamVertexAI(model, messages, enableTools, maxToolRounds, signal, enabledToolNames, workspaceConfig);
         break;
       default:
         yield { type: 'error', error: `Unknown provider: ${provider}` };
@@ -52,7 +53,7 @@ async function* streamCompletion(provider, model, messages, apiKey, enableTools 
 
 // ─── OpenAI ─────────────────────────────────────────────
 
-async function* streamOpenAI(model, messages, apiKey, enableTools, maxRounds, signal, enabledToolNames) {
+async function* streamOpenAI(model, messages, apiKey, enableTools, maxRounds, signal, enabledToolNames, workspaceConfig = {}) {
   let currentMessages = [...messages];
   let fullText = '';
 
@@ -109,7 +110,7 @@ async function* streamOpenAI(model, messages, apiKey, enableTools, maxRounds, si
     for (const tc of toolCalls) {
       yield { type: 'tool-call', name: tc.name, args: JSON.parse(tc.arguments), callId: tc.id };
 
-      const result = await executeTool(tc.name, JSON.parse(tc.arguments));
+      const result = await executeTool(tc.name, JSON.parse(tc.arguments), workspaceConfig);
       yield { type: 'tool-result', name: tc.name, callId: tc.id, result };
 
       currentMessages.push({
@@ -241,7 +242,7 @@ async function* streamAnthropic(model, messages, apiKey, enableTools, maxRounds,
     for (const tu of toolUses) {
       yield { type: 'tool-call', name: tu.name, args: tu.input, callId: tu.id };
 
-      const result = await executeTool(tu.name, tu.input);
+      const result = await executeTool(tu.name, tu.input, workspaceConfig);
       yield { type: 'tool-result', name: tu.name, callId: tu.id, result };
 
       toolResults.push({
@@ -325,7 +326,7 @@ async function* parseAnthropicStream(response, signal) {
 
 // ─── Google / Gemini ────────────────────────────────────
 
-async function* streamGoogle(model, messages, apiKey, enableTools, maxRounds, signal, enabledToolNames) {
+async function* streamGoogle(model, messages, apiKey, enableTools, maxRounds, signal, enabledToolNames, workspaceConfig = {}) {
   let contents = formatGoogleMessages(messages);
   let systemInstruction = extractGoogleSystemInstruction(messages);
   let fullText = '';
@@ -382,7 +383,7 @@ async function* streamGoogle(model, messages, apiKey, enableTools, maxRounds, si
       const callId = `call_${Date.now()}_${fc.name}`;
       yield { type: 'tool-call', name: fc.name, args: fc.args, callId };
 
-      const result = await executeTool(fc.name, fc.args);
+      const result = await executeTool(fc.name, fc.args, workspaceConfig);
       yield { type: 'tool-result', name: fc.name, callId, result };
 
       functionResponses.push({
@@ -480,7 +481,7 @@ function getVertexClient() {
   return vertexClient;
 }
 
-async function* streamVertexAI(model, messages, enableTools, maxRounds, signal, enabledToolNames) {
+async function* streamVertexAI(model, messages, enableTools, maxRounds, signal, enabledToolNames, workspaceConfig = {}) {
   const vertex = getVertexClient();
   const systemInstruction = extractGoogleSystemInstruction(messages);
   const contents = formatGoogleMessages(messages);
@@ -545,7 +546,7 @@ async function* streamVertexAI(model, messages, enableTools, maxRounds, signal, 
       const callId = `call_${Date.now()}_${fc.name}`;
       yield { type: 'tool-call', name: fc.name, args: fc.args, callId };
 
-      const result = await executeTool(fc.name, fc.args);
+      const result = await executeTool(fc.name, fc.args, workspaceConfig);
       yield { type: 'tool-result', name: fc.name, callId, result };
 
       functionResponses.push({

@@ -75,7 +75,8 @@ module.exports = {
     },
     required: ['sql'],
   },
-  async execute({ sql, database, schema, warehouse }) {
+  async execute({ sql, database, schema, warehouse }, workspaceConfig = {}) {
+    const sfCfg = workspaceConfig?.dataSources?.snowflake || {};
     try {
       // Safety: block write operations (checked first, before config)
       for (const pattern of BLOCKED_PATTERNS) {
@@ -84,11 +85,20 @@ module.exports = {
         }
       }
 
-      if (!process.env.SNOWFLAKE_ACCOUNT) {
-        return { error: 'Snowflake not configured. Set SNOWFLAKE_ACCOUNT, SNOWFLAKE_USERNAME, and SNOWFLAKE_PASSWORD environment variables.' };
+      const account = sfCfg.account || process.env.SNOWFLAKE_ACCOUNT;
+      if (!account) {
+        return { error: 'Snowflake not configured. Add a Snowflake connection in workspace Data Sources settings.' };
       }
 
-      const conn = createConnection({ database, schema, warehouse });
+      const conn = createConnection({
+        account,
+        username: sfCfg.username || process.env.SNOWFLAKE_USERNAME,
+        password: sfCfg.password || process.env.SNOWFLAKE_PASSWORD,
+        warehouse: warehouse || sfCfg.warehouse || process.env.SNOWFLAKE_WAREHOUSE || '',
+        database: database || sfCfg.database || process.env.SNOWFLAKE_DATABASE || '',
+        schema: schema || sfCfg.schema || process.env.SNOWFLAKE_SCHEMA || '',
+        role: sfCfg.role || process.env.SNOWFLAKE_ROLE || '',
+      });
       await connectAsync(conn);
 
       try {

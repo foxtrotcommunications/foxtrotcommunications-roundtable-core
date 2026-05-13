@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Roundtable</title>
-  <link rel="stylesheet" href="/css/style.css?v=3">
+  <link rel="stylesheet" href="/css/style.css?v=4">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
@@ -81,6 +81,7 @@
       <div class="settings-tabs">
         <button class="settings-tab active" data-tab="tab-agent" id="stab-agent">AI Agent</button>
         <button class="settings-tab" data-tab="tab-tools" id="stab-tools">Tools</button>
+        <button class="settings-tab" data-tab="tab-data" id="stab-data">Data Sources</button>
         <button class="settings-tab" data-tab="tab-keys" id="stab-keys">API Keys</button>
       </div>
 
@@ -144,18 +145,78 @@
         <button class="btn btn-primary btn-sm" id="btn-save-key" style="margin-bottom:16px;">Save Key</button>
         <div id="saved-keys"></div>
       </div>
+
+      <!-- Tab: Data Sources -->
+      <div class="settings-tab-panel" id="tab-data">
+        <p class="settings-desc">Configure data warehouse connections for this workspace. The AI uses these credentials when running queries.</p>
+
+        <div class="form-group">
+          <label style="font-size:13px;font-weight:600;color:var(--accent);">🔷 Google BigQuery</label>
+          <label for="ds-bq-project" style="margin-top:10px;">Billing Project</label>
+          <input type="text" id="ds-bq-project" placeholder="e.g. foxtrotcommunications-public">
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">GCP project used for query billing. Leave blank to use the workspace default.</div>
+        </div>
+        <div class="form-group">
+          <label for="ds-bq-location">Dataset Location</label>
+          <input type="text" id="ds-bq-location" placeholder="US (default)">
+        </div>
+
+        <hr style="border-color:var(--border-subtle);margin:20px 0;">
+
+        <div class="form-group">
+          <label style="font-size:13px;font-weight:600;color:var(--accent);">❄️ Snowflake</label>
+          <label for="ds-sf-account" style="margin-top:10px;">Account</label>
+          <input type="text" id="ds-sf-account" placeholder="abc12345.us-east-1">
+        </div>
+        <div class="form-group">
+          <label for="ds-sf-username">Username</label>
+          <input type="text" id="ds-sf-username" placeholder="MYUSER">
+        </div>
+        <div class="form-group">
+          <label for="ds-sf-password">Password</label>
+          <input type="password" id="ds-sf-password" placeholder="••••••••">
+        </div>
+        <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label for="ds-sf-warehouse">Warehouse</label>
+            <input type="text" id="ds-sf-warehouse" placeholder="COMPUTE_WH">
+          </div>
+          <div>
+            <label for="ds-sf-database">Default Database</label>
+            <input type="text" id="ds-sf-database" placeholder="MY_DB">
+          </div>
+        </div>
+
+        <hr style="border-color:var(--border-subtle);margin:20px 0;">
+
+        <div class="form-group">
+          <label style="font-size:13px;font-weight:600;color:var(--accent);">🧱 Databricks</label>
+          <label for="ds-db-host" style="margin-top:10px;">Host</label>
+          <input type="text" id="ds-db-host" placeholder="adb-1234567890.12.azuredatabricks.net">
+        </div>
+        <div class="form-group">
+          <label for="ds-db-token">Personal Access Token</label>
+          <input type="password" id="ds-db-token" placeholder="dapi...">
+        </div>
+        <div class="form-group">
+          <label for="ds-db-http-path">SQL Warehouse HTTP Path</label>
+          <input type="text" id="ds-db-http-path" placeholder="/sql/1.0/warehouses/abc123">
+        </div>
+
+        <button class="btn btn-primary btn-sm" id="btn-save-data">Save Data Sources</button>
+      </div>
     </div>
   </div>
 
   <div class="toast-container" id="toast-container"></div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/js/api.js?v=3"></script>
-  <script src="/js/socket.js?v=3"></script>
-  <script src="/js/chat.js?v=3"></script>
-  <script src="/js/presence.js?v=3"></script>
-  <script src="/js/settings.js?v=3"></script>
-  <script src="/js/codePanel.js?v=3"></script>
-  <script src="/js/app.js?v=3"></script>
+  <script src="/js/api.js?v=4"></script>
+  <script src="/js/socket.js?v=4"></script>
+  <script src="/js/chat.js?v=4"></script>
+  <script src="/js/presence.js?v=4"></script>
+  <script src="/js/settings.js?v=4"></script>
+  <script src="/js/codePanel.js?v=4"></script>
+  <script src="/js/app.js?v=4"></script>
 </body>
 </html>
