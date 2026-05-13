@@ -21,7 +21,7 @@ GCP_PROJECT="${GCP_PROJECT:-your-gcp-project}"
 GCP_REGION="${GCP_REGION:-us-central1}"
 CLOUDSQL_INSTANCE="${CLOUDSQL_INSTANCE:-roundtable-db}"
 AI_PROJECT="${AI_PROJECT:-${GCP_PROJECT}}"
-CLUSTER_NAME="roundtable"
+CLUSTER_NAME="roundtable-standard"
 GCP_SA_NAME="roundtable-gke"
 GCP_SA_EMAIL="${GCP_SA_NAME}@${GCP_PROJECT}.iam.gserviceaccount.com"
 CLOUDSQL_CONNECTION="${GCP_PROJECT}:${GCP_REGION}:${CLOUDSQL_INSTANCE}"
@@ -39,9 +39,17 @@ if [[ "${1:-}" == "--setup" ]]; then
     --region="${GCP_REGION}" --project="${GCP_PROJECT}" >/dev/null 2>&1; then
     echo "  ✓ Cluster '${CLUSTER_NAME}' already exists"
   else
-    gcloud container clusters create-auto "${CLUSTER_NAME}" \
+    gcloud container clusters create "${CLUSTER_NAME}" \
       --region="${GCP_REGION}" \
       --project="${GCP_PROJECT}" \
+      --machine-type=e2-standard-2 \
+      --num-nodes=1 --min-nodes=1 --max-nodes=3 \
+      --enable-autoscaling \
+      --spot \
+      --disk-type=pd-standard \
+      --disk-size=50 \
+      --workload-pool="${GCP_PROJECT}.svc.id.goog" \
+      --release-channel=stable \
       --quiet
     echo "  ✓ Cluster created"
   fi
