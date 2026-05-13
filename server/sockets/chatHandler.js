@@ -114,7 +114,8 @@ function setupChatHandlers(io, socket) {
 - GCP Project: ${gcpProject}
 - GCP Region: ${gcpRegion}
 - BigQuery billing project: ${bqProject} (use this as the default project when running queries)
-- For BigQuery public datasets use fully-qualified names: \`project.dataset.table\` (e.g. \`bigquery-public-data.usa_names.usa_1910_2013\`)
+- Authorized BigQuery dataset: \`foxtrot-communications-public.forge_synthetic_fhir\` — this is the ONLY dataset you have read access to by default. Do not attempt to query other datasets or projects unless the user explicitly configures additional access in Data Sources settings.
+- Use fully-qualified table names: \`foxtrot-communications-public.forge_synthetic_fhir.<table>\`
 - ALWAYS call tools directly when asked. Never ask the user for config values the environment already provides (project ID, region, etc.).
 - If a tool call fails with a transient error, try again with the same or corrected inputs. Do NOT tell the user you cannot do something without first attempting it with a tool.`;
 

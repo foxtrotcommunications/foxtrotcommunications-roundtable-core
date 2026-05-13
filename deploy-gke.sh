@@ -86,17 +86,35 @@ if [[ "${1:-}" == "--setup" ]]; then
     --condition=None --quiet >/dev/null 2>&1
   echo "  ✓ Vertex AI user role granted on ${AI_PROJECT}"
 
-  # Grant BigQuery access on the Foxtrot application data project (cross-project)
+  # Grant BigQuery access — least-privilege:
+  #   jobUser at project level (required to run query jobs)
+  #   dataViewer at dataset level only — forge_synthetic_fhir (synthetic/safe data)
   FOXTROT_DATA_PROJECT="foxtrot-communications-public"
+  FOXTROT_DATASET="forge_synthetic_fhir"
   gcloud projects add-iam-policy-binding "${FOXTROT_DATA_PROJECT}" \
     --member="serviceAccount:${GCP_SA_EMAIL}" \
     --role="roles/bigquery.jobUser" \
     --condition=None --quiet >/dev/null 2>&1
-  gcloud projects add-iam-policy-binding "${FOXTROT_DATA_PROJECT}" \
-    --member="serviceAccount:${GCP_SA_EMAIL}" \
-    --role="roles/bigquery.dataViewer" \
-    --condition=None --quiet >/dev/null 2>&1
-  echo "  ✓ BigQuery access granted on ${FOXTROT_DATA_PROJECT}"
+  echo "  ✓ BigQuery jobUser granted on ${FOXTROT_DATA_PROJECT}"
+
+  # Grant READER on the specific dataset via BigQuery REST API
+  BQ_TOKEN=$(gcloud auth print-access-token)
+  CURRENT_ACCESS=$(curl -s -H "Authorization: Bearer ${BQ_TOKEN}" \
+    "https://bigquery.googleapis.com/bigquery/v2/projects/${FOXTROT_DATA_PROJECT}/datasets/${FOXTROT_DATASET}" \
+    | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+access=d.get('access',[])
+if not any(a.get('userByEmail')=='${GCP_SA_EMAIL}' for a in access):
+    access.append({'role':'READER','userByEmail':'${GCP_SA_EMAIL}'})
+print(json.dumps({'access':access}))
+" 2>/dev/null)
+  curl -s -X PATCH \
+    -H "Authorization: Bearer ${BQ_TOKEN}" \
+    -H "Content-Type: application/json" \
+    "https://bigquery.googleapis.com/bigquery/v2/projects/${FOXTROT_DATA_PROJECT}/datasets/${FOXTROT_DATASET}" \
+    -d "${CURRENT_ACCESS}" >/dev/null 2>&1
+  echo "  ✓ BigQuery READER granted on ${FOXTROT_DATA_PROJECT}.${FOXTROT_DATASET} (dataset-level only)"
 
   # 3. Apply base config
   echo ""
