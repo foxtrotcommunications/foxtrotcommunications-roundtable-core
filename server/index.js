@@ -88,7 +88,16 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-app.use(express.static(path.join(__dirname, '..', 'public')));
+// Versioned static assets — long cache (CSS/JS have ?vN busters)
+app.use(express.static(path.join(__dirname, '..', 'public'), {
+  maxAge: '1h',
+  // Never cache the HTML shell — it's the source of truth for asset versions
+  setHeaders(res, filePath) {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-store');
+    }
+  },
+}));
 
 // Rate limiters
 const authLimiter = rateLimit({

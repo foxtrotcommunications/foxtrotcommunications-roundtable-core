@@ -334,41 +334,23 @@ const Chat = {
   formatContent(text) {
     if (!text) return '';
 
-    // Use marked for full markdown rendering
+    // Use marked with DEFAULT renderer (no custom code renderer — we post-process in _processCodeBlocks)
     if (window.marked) {
-      // Note: highlight option was removed in marked v5+; use custom renderer below
       marked.setOptions({ gfm: true, breaks: true });
+      let html = marked.parse(text);
 
-      // Custom renderer for code blocks with copy button
-      // NOTE: We put plain escaped text here (NOT pre-highlighted HTML) so DOMPurify
-      // has nothing to strip. hljs is applied after DOM insertion via _processCodeBlocks().
-      const renderer = new marked.Renderer();
-      renderer.code = function({ text: code, lang } = {}) {
-        const safeCode = (code || '')
-          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const id = 'code-' + Math.random().toString(36).substr(2, 6);
-        const langLabel = lang || 'code';
-        return `<div class="code-block-wrapper">
-          <div class="code-block-header">
-            <span>${langLabel}</span>
-            <button class="code-copy-btn" data-copy-target="${id}">📋 Copy</button>
-          </div>
-          <pre><code id="${id}" class="language-${lang || 'plaintext'}" data-lang="${lang || ''}">${safeCode}</code></pre>
-        </div>`;
-      };
-
-      let html = marked.parse(text, { renderer });
-      // Sanitize HTML to prevent XSS — allow data-attributes for our code block machinery
+      // Sanitize HTML to prevent XSS
       if (window.DOMPurify) {
         html = DOMPurify.sanitize(html, {
           ADD_TAGS: ['pre', 'code'],
-          ADD_ATTR: ['class', 'id', 'style', 'data-copy-target', 'data-lang'],
+          ADD_ATTR: ['class', 'id', 'style'],
         });
       }
-      // Highlight @mentions — @ai gets accent, others get subtle highlight
+
+      // Highlight @mentions
       html = html.replace(/@(ai)\b/gi, '<span class="mention mention-ai">@$1</span>');
       html = html.replace(/@(\w+)/g, (match, name) => {
-        if (name.toLowerCase() === 'ai') return match; // already handled
+        if (name.toLowerCase() === 'ai') return match;
         return `<span class="mention">@${name}</span>`;
       });
       return html;
@@ -378,10 +360,12 @@ const Chat = {
     let html = this.escapeHtml(text);
     html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
       const id = 'code-' + Math.random().toString(36).substr(2, 6);
+      const langLabel = lang || 'code';
+      const safeCode = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       return `<div class="code-block-wrapper">
-        <div class="code-block-header"><span>${lang || 'code'}</span>
-          <button class="code-copy-btn" onclick="Chat.copyCode('${id}')">📋 Copy</button></div>
-        <pre><code id="${id}" class="language-${lang || 'plaintext'}">${code}</code></pre></div>`;
+        <div class="code-block-header"><span>${langLabel}</span>
+          <button class="code-copy-btn" data-copy-target="${id}">📋 Copy</button></div>
+        <pre><code id="${id}" class="language-${lang || 'plaintext'}" data-lang="${lang || ''}">${safeCode}</code></pre></div>`;
     });
     html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
     html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
@@ -397,27 +381,58 @@ const Chat = {
     }
   },
 
-  // Apply hljs highlighting and copy button listeners to code blocks within a container.
-  // Must be called AFTER container is in the DOM (innerHTML has been set).
+  // Post-process code blocks after DOM insertion:
+  // 1. Wrap bare <pre><code> elements (from marked default renderer) with our header+copy UI
+  // 2. Apply hljs syntax highlighting
+  // 3. Wire up copy buttons via event listeners
   _processCodeBlocks(container) {
     if (!container) return;
 
-    // Highlight all code blocks
-    container.querySelectorAll('pre code[data-lang]').forEach((block) => {
-      const lang = block.dataset.lang;
+    // Step 1: Wrap any bare <pre><code> (produced by marked default renderer) with our UI
+    container.querySelectorAll('pre > code:not([data-processed])').forEach((codeEl) => {
+      const pre = codeEl.parentElement;
+      if (pre.closest('.code-block-wrapper')) return; // already wrapped
+
+      const id = 'code-' + Math.random().toString(36).substr(2, 6);
+      const langClass = [...codeEl.classList].find((c) => c.startsWith('language-')) || '';
+      const lang = langClass.replace('language-', '');
+      const langLabel = lang || 'code';
+
+      codeEl.id = id;
+      codeEl.dataset.processed = '1';
+
+      // Wrap <pre> in our custom block
+      const wrapper = document.createElement('div');
+      wrapper.className = 'code-block-wrapper';
+      wrapper.innerHTML = `<div class="code-block-header">
+        <span>${langLabel}</span>
+        <button class="code-copy-btn" data-copy-target="${id}">📋 Copy</button>
+      </div>`;
+      pre.parentNode.insertBefore(wrapper, pre);
+      wrapper.appendChild(pre);
+    });
+
+    // Step 2: Apply hljs highlighting to all code blocks
+    container.querySelectorAll('pre > code').forEach((block) => {
+      if (block.dataset.highlighted) return; // don't double-highlight
       if (window.hljs) {
         try {
-          if (lang && hljs.getLanguage(lang)) {
+          const langClass = [...block.classList].find((c) => c.startsWith('language-')) || '';
+          const lang = langClass.replace('language-', '');
+          if (lang && lang !== 'plaintext' && hljs.getLanguage(lang)) {
             block.innerHTML = hljs.highlight(block.textContent, { language: lang }).value;
           } else if (block.textContent.trim()) {
             block.innerHTML = hljs.highlightAuto(block.textContent).value;
           }
+          block.dataset.highlighted = '1';
         } catch (_) { /* leave as plain text */ }
       }
     });
 
-    // Wire copy buttons via event listeners (not onclick — DOMPurify strips onclick)
+    // Step 3: Wire copy buttons via event listeners (not onclick — DOMPurify strips onclick)
     container.querySelectorAll('.code-copy-btn[data-copy-target]').forEach((btn) => {
+      if (btn.dataset.listenerAdded) return;
+      btn.dataset.listenerAdded = '1';
       btn.addEventListener('click', () => {
         const target = document.getElementById(btn.dataset.copyTarget);
         if (target) {
