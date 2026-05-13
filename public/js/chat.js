@@ -334,25 +334,25 @@ const Chat = {
 
     // Use marked for full markdown rendering
     if (window.marked) {
-      marked.setOptions({
-        gfm: true,
-        breaks: true,
-        highlight: function(code, lang) {
-          if (window.hljs && lang && hljs.getLanguage(lang)) {
-            return hljs.highlight(code, { language: lang }).value;
-          }
-          return code;
-        },
-      });
+      // Note: highlight option was removed in marked v5+; use custom renderer below
+      marked.setOptions({ gfm: true, breaks: true });
 
-      // Custom renderer for code blocks with copy button
+      // Custom renderer for code blocks with copy button + syntax highlighting
       const renderer = new marked.Renderer();
-      renderer.code = function({ text: code, lang }) {
+      renderer.code = function({ text: code, lang } = {}) {
+        const safeCode = code || '';
         const id = 'code-' + Math.random().toString(36).substr(2, 6);
         const langLabel = lang || 'code';
-        let highlighted = code;
+        let highlighted = safeCode
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         if (window.hljs && lang && hljs.getLanguage(lang)) {
-          highlighted = hljs.highlight(code, { language: lang }).value;
+          try {
+            highlighted = hljs.highlight(safeCode, { language: lang }).value;
+          } catch (_) {}
+        } else if (window.hljs && safeCode) {
+          try {
+            highlighted = hljs.highlightAuto(safeCode).value;
+          } catch (_) {}
         }
         return `<div class="code-block-wrapper">
           <div class="code-block-header">
