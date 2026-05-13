@@ -56,6 +56,8 @@ const sessionMiddleware = session({
     pool: sessionPool,
     tableName: 'user_sessions',
     createTableIfMissing: true,
+    ttl: 7 * 24 * 60 * 60,       // 7 days in seconds
+    pruneSessionInterval: 60 * 60, // prune expired rows every hour
   }),
   secret: config.sessionSecret,
   resave: false,
