@@ -293,6 +293,46 @@ const Chat = {
       if (data.result.pushError) commitHtml += `<br><span style="color:var(--error);">Push failed: ${this.escapeHtml(data.result.pushError)}</span>`;
       if (data.result.prError) commitHtml += `<br><span style="color:var(--error);">PR failed: ${this.escapeHtml(data.result.prError)}</span>`;
       body.innerHTML += `<div class="tool-result-success">${commitHtml}</div>`;
+    } else if (data.result.rows && data.result.columns) {
+      // BigQuery / Snowflake / Databricks query result — render as table
+      const { rows, columns, totalRows, truncated, sql, billingProject } = data.result;
+      const maxDisplay = 50; // cap display rows for performance
+      const displayRows = rows.slice(0, maxDisplay);
+
+      let tableHtml = `<div style="margin-top:8px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+          <span style="font-size:11px;color:var(--text-muted);font-family:'SF Mono',monospace;">${this.escapeHtml(sql || '')}</span>
+          <span style="font-size:11px;color:var(--text-muted);">${totalRows} row${totalRows !== 1 ? 's' : ''}${truncated ? ' (truncated)' : ''}</span>
+        </div>`;
+
+      if (columns.length === 0 || rows.length === 0) {
+        tableHtml += `<div style="font-size:12px;color:var(--text-muted);padding:8px 0;">No rows returned.</div>`;
+      } else {
+        tableHtml += `<div style="overflow-x:auto;border-radius:6px;border:1px solid var(--border-subtle);">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;font-family:'SF Mono',Monaco,monospace;">
+            <thead><tr style="background:var(--bg-elevated);">`;
+        for (const col of columns) {
+          tableHtml += `<th style="padding:7px 12px;text-align:left;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;white-space:nowrap;">${this.escapeHtml(String(col))}</th>`;
+        }
+        tableHtml += `</tr></thead><tbody>`;
+        for (let i = 0; i < displayRows.length; i++) {
+          const row = displayRows[i];
+          const rowBg = i % 2 === 0 ? 'transparent' : 'var(--bg-secondary)';
+          tableHtml += `<tr style="background:${rowBg};">`;
+          for (const col of columns) {
+            const val = row[col];
+            const display = val === null || val === undefined ? '<span style="color:var(--text-muted);">null</span>' : this.escapeHtml(String(val));
+            tableHtml += `<td style="padding:6px 12px;border-bottom:1px solid var(--border-subtle);color:var(--text-primary);white-space:nowrap;max-width:300px;overflow:hidden;text-overflow:ellipsis;">${display}</td>`;
+          }
+          tableHtml += `</tr>`;
+        }
+        tableHtml += `</tbody></table></div>`;
+        if (displayRows.length < rows.length) {
+          tableHtml += `<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Showing ${displayRows.length} of ${rows.length} rows</div>`;
+        }
+      }
+      tableHtml += `</div>`;
+      body.innerHTML += tableHtml;
     } else if (data.result.error) {
       body.innerHTML += `<div class="tool-result-error">❌ ${this.escapeHtml(data.result.error)}</div>`;
     } else if (data.result.result !== undefined) {
