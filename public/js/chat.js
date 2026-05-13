@@ -103,6 +103,7 @@ const Chat = {
       </div>
     `;
     this.messagesEl.appendChild(el);
+    this._processCodeBlocks(el);
   },
 
   // ─── User Cursor Presence ─────────────────────────
@@ -158,6 +159,7 @@ const Chat = {
     this.streamingContent += content;
     if (this.streamingEl) {
       this.streamingEl.querySelector('.message-content').innerHTML = this.formatContent(this.streamingContent);
+      this._processCodeBlocks(this.streamingEl);
       this.scrollToBottom();
     }
   },
@@ -337,38 +339,30 @@ const Chat = {
       // Note: highlight option was removed in marked v5+; use custom renderer below
       marked.setOptions({ gfm: true, breaks: true });
 
-      // Custom renderer for code blocks with copy button + syntax highlighting
+      // Custom renderer for code blocks with copy button
+      // NOTE: We put plain escaped text here (NOT pre-highlighted HTML) so DOMPurify
+      // has nothing to strip. hljs is applied after DOM insertion via _processCodeBlocks().
       const renderer = new marked.Renderer();
       renderer.code = function({ text: code, lang } = {}) {
-        const safeCode = code || '';
+        const safeCode = (code || '')
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         const id = 'code-' + Math.random().toString(36).substr(2, 6);
         const langLabel = lang || 'code';
-        let highlighted = safeCode
-          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        if (window.hljs && lang && hljs.getLanguage(lang)) {
-          try {
-            highlighted = hljs.highlight(safeCode, { language: lang }).value;
-          } catch (_) {}
-        } else if (window.hljs && safeCode) {
-          try {
-            highlighted = hljs.highlightAuto(safeCode).value;
-          } catch (_) {}
-        }
         return `<div class="code-block-wrapper">
           <div class="code-block-header">
             <span>${langLabel}</span>
-            <button class="code-copy-btn" onclick="Chat.copyCode('${id}')">📋 Copy</button>
+            <button class="code-copy-btn" data-copy-target="${id}">📋 Copy</button>
           </div>
-          <pre><code id="${id}" class="language-${lang || 'plaintext'}">${highlighted}</code></pre>
+          <pre><code id="${id}" class="language-${lang || 'plaintext'}" data-lang="${lang || ''}">${safeCode}</code></pre>
         </div>`;
       };
 
       let html = marked.parse(text, { renderer });
-      // Sanitize HTML to prevent XSS
+      // Sanitize HTML to prevent XSS — allow data-attributes for our code block machinery
       if (window.DOMPurify) {
         html = DOMPurify.sanitize(html, {
           ADD_TAGS: ['pre', 'code'],
-          ADD_ATTR: ['class', 'id', 'onclick', 'style'],
+          ADD_ATTR: ['class', 'id', 'style', 'data-copy-target', 'data-lang'],
         });
       }
       // Highlight @mentions — @ai gets accent, others get subtle highlight
@@ -401,6 +395,38 @@ const Chat = {
     if (el) {
       navigator.clipboard.writeText(el.textContent).then(() => App.showToast('Code copied!', 'success'));
     }
+  },
+
+  // Apply hljs highlighting and copy button listeners to code blocks within a container.
+  // Must be called AFTER container is in the DOM (innerHTML has been set).
+  _processCodeBlocks(container) {
+    if (!container) return;
+
+    // Highlight all code blocks
+    container.querySelectorAll('pre code[data-lang]').forEach((block) => {
+      const lang = block.dataset.lang;
+      if (window.hljs) {
+        try {
+          if (lang && hljs.getLanguage(lang)) {
+            block.innerHTML = hljs.highlight(block.textContent, { language: lang }).value;
+          } else if (block.textContent.trim()) {
+            block.innerHTML = hljs.highlightAuto(block.textContent).value;
+          }
+        } catch (_) { /* leave as plain text */ }
+      }
+    });
+
+    // Wire copy buttons via event listeners (not onclick — DOMPurify strips onclick)
+    container.querySelectorAll('.code-copy-btn[data-copy-target]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const target = document.getElementById(btn.dataset.copyTarget);
+        if (target) {
+          navigator.clipboard.writeText(target.textContent)
+            .then(() => App.showToast('Code copied!', 'success'))
+            .catch(() => App.showToast('Copy failed', 'error'));
+        }
+      });
+    });
   },
 
   escapeHtml(str) { const d = document.createElement('div'); d.textContent = str; return d.innerHTML; },
