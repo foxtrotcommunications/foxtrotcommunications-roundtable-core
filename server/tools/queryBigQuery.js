@@ -61,10 +61,26 @@ module.exports = {
 
       const [rows] = await client.query(options);
 
+      // BigQuery client returns special wrapper objects (BigQueryDate, BigQueryTimestamp, etc.)
+      // that serialize as [object Object]. Flatten to primitives.
+      function flatten(val) {
+        if (val === null || val === undefined) return val;
+        if (val.value !== undefined) return val.value; // BigQueryDate, BigQueryTimestamp, BigQueryInt, etc.
+        if (typeof val === 'object' && !Array.isArray(val)) {
+          const out = {};
+          for (const [k, v] of Object.entries(val)) {
+            out[k] = flatten(v);
+          }
+          return out;
+        }
+        if (Array.isArray(val)) return val.map(flatten);
+        return val;
+      }
+
       // Cap output
       const maxRows = 100;
       const truncated = rows.length > maxRows;
-      const resultRows = truncated ? rows.slice(0, maxRows) : rows;
+      const resultRows = (truncated ? rows.slice(0, maxRows) : rows).map(flatten);
 
       return {
         sql,
