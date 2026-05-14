@@ -36,8 +36,8 @@ export default function WorkspacePage({ user, onLogout }: Props) {
         </div>
         <div className="sidebar-rooms" />
         <div className="sidebar-footer">
-          <div className="user-avatar">{user.display_name.charAt(0).toUpperCase()}</div>
-          <div className="user-info"><div className="user-name">{user.display_name}</div></div>
+          <div className="user-avatar">{(user.displayName || user.username).charAt(0).toUpperCase()}</div>
+          <div className="user-info"><div className="user-name">{user.displayName || user.username}</div></div>
           <button className="btn btn-ghost btn-sm" id="btn-settings" onClick={() => setSettingsOpen(true)} title="Settings">⚙️</button>
           <button className="btn btn-ghost btn-sm" onClick={onLogout} title="Logout">↪</button>
         </div>
