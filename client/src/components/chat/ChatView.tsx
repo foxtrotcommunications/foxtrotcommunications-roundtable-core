@@ -106,15 +106,19 @@ export default function ChatView({
                 <span className="message-time">now</span>
               </div>
               <div className="message-content">
-                {streamingContent ? (
+                {streamingContent && (
                   <MessageContent content={streamingContent} />
-                ) : (
-                  <div className="streaming-indicator">
-                    <span className="streaming-dot" />
-                    <span className="streaming-dot" />
-                    <span className="streaming-dot" />
-                  </div>
                 )}
+                <div className="streaming-indicator">
+                  <span className="streaming-dot" />
+                  <span className="streaming-dot" />
+                  <span className="streaming-dot" />
+                  <span className="streaming-label">
+                    {toolCalls.size > 0
+                      ? `Working — ${Array.from(toolCalls.values()).filter(t => !t.result).length > 0 ? 'running tools…' : 'thinking…'}`
+                      : streamingContent ? 'generating…' : ''}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
