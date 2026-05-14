@@ -14,9 +14,10 @@ router.get('/workspace', (req, res) => {
     if (!fs.existsSync(WORKSPACE_DIR)) {
       return res.json({ repos: [] });
     }
+    const SKIP_DIRS = new Set(['lost+found', '.Trash', '.Trash-1000', 'System Volume Information']);
     const entries = fs.readdirSync(WORKSPACE_DIR, { withFileTypes: true });
     const repos = entries
-      .filter((e) => e.isDirectory())
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !SKIP_DIRS.has(e.name))
       .map((e) => {
         const isGit = fs.existsSync(path.join(WORKSPACE_DIR, e.name, '.git'));
         let branch = '';
