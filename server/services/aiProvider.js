@@ -1,6 +1,6 @@
 // server/services/aiProvider.js — Unified multi-provider AI interface with tool support
 const fetch = require('node-fetch');
-const { VertexAI } = require('@google-cloud/vertexai');
+const { GoogleGenAI } = require('@google/genai');
 const { executeTool, toOpenAITools, toAnthropicTools, toGoogleTools } = require('../tools');
 const config = require('../config');
 
@@ -467,58 +467,64 @@ function formatGoogleMessages(messages) {
     }));
 }
 
-// ─── Vertex AI (Google Cloud ADC) ───────────────────────
+// ─── Vertex AI (Google Cloud ADC) — @google/genai SDK ───
 
-let vertexClient = null;
+let genaiClient = null;
 
-function getVertexClient() {
-  if (!vertexClient) {
+function getGenAIClient() {
+  if (!genaiClient) {
     const project = config.vertexai.project;
     const location = config.vertexai.location;
     if (!project) throw new Error('GCP_PROJECT not set. Required for Vertex AI.');
-    vertexClient = new VertexAI({ project, location });
+    genaiClient = new GoogleGenAI({
+      vertexai: true,
+      project,
+      location,
+    });
   }
-  return vertexClient;
+  return genaiClient;
 }
 
 async function* streamVertexAI(model, messages, enableTools, maxRounds, signal, enabledToolNames, workspaceConfig = {}) {
-  const vertex = getVertexClient();
+  const ai = getGenAIClient();
   const systemInstruction = extractGoogleSystemInstruction(messages);
   const contents = formatGoogleMessages(messages);
   let fullText = '';
 
-  const modelConfig = {
-    model,
-  };
-  if (systemInstruction) {
-    modelConfig.systemInstruction = { parts: [{ text: systemInstruction }] };
-  }
-  if (enableTools) {
-    modelConfig.tools = toGoogleTools(enabledToolNames);
-  }
-
-  const generativeModel = vertex.getGenerativeModel(modelConfig);
-
   for (let round = 0; round < maxRounds; round++) {
     if (signal?.aborted) { yield { type: 'done', fullText }; return; }
 
-    const streamResult = await generativeModel.generateContentStream({ contents });
+    const requestConfig = {};
+    if (systemInstruction) {
+      requestConfig.systemInstruction = systemInstruction;
+    }
+    if (enableTools && round < maxRounds - 1) {
+      requestConfig.tools = toGoogleTools(enabledToolNames);
+    }
+
+    const stream = await ai.models.generateContentStream({
+      model,
+      contents,
+      config: requestConfig,
+    });
 
     let text = '';
     const functionCalls = [];
 
-    for await (const chunk of streamResult.stream) {
+    for await (const chunk of stream) {
       if (signal?.aborted) break;
-      const parts = chunk.candidates?.[0]?.content?.parts || [];
-      for (const part of parts) {
-        if (part.text) {
-          text += part.text;
-          yield { type: 'text-delta', content: part.text };
-        }
-        if (part.functionCall) {
+
+      // New SDK exposes .text and .functionCalls directly on the chunk
+      if (chunk.text) {
+        text += chunk.text;
+        yield { type: 'text-delta', content: chunk.text };
+      }
+
+      if (chunk.functionCalls) {
+        for (const fc of chunk.functionCalls) {
           functionCalls.push({
-            name: part.functionCall.name,
-            args: part.functionCall.args || {},
+            name: fc.name,
+            args: fc.args || {},
           });
         }
       }
