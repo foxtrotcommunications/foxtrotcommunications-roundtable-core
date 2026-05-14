@@ -529,6 +529,7 @@ async function* streamVertexAI(model, messages, enableTools, maxRounds, signal, 
 
     let text = '';
     const functionCalls = [];
+    const rawModelParts = []; // Preserve original parts for thought_signature support
 
     for await (const chunk of stream) {
       if (signal?.aborted) break;
@@ -547,6 +548,12 @@ async function* streamVertexAI(model, messages, enableTools, maxRounds, signal, 
           });
         }
       }
+
+      // Preserve raw parts from each chunk (includes thought_signature for Gemini 3.1+)
+      const candidateParts = chunk.candidates?.[0]?.content?.parts;
+      if (candidateParts) {
+        rawModelParts.push(...candidateParts);
+      }
     }
 
     if (signal?.aborted) { yield { type: 'done', fullText: fullText + text }; return; }
@@ -557,10 +564,10 @@ async function* streamVertexAI(model, messages, enableTools, maxRounds, signal, 
       return;
     }
 
-    // Add model response with function calls
+    // Add model response preserving original parts (includes thought_signature)
     contents.push({
       role: 'model',
-      parts: functionCalls.map((fc) => ({
+      parts: rawModelParts.length > 0 ? rawModelParts : functionCalls.map((fc) => ({
         functionCall: { name: fc.name, args: fc.args },
       })),
     });
