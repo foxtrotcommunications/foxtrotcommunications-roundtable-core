@@ -104,7 +104,19 @@ export function useChat(socket: Socket | null) {
       setStreaming(false);
     };
 
-    const onAiComplete = () => {
+    const onAiComplete = (data: { fullText?: string }) => {
+      // The server sends fullText with the complete AI response.
+      // We need to add it as a message since the server doesn't emit new-message for AI responses.
+      if (data?.fullText) {
+        setMessages(prev => [...prev, {
+          id: Date.now(),
+          workspace_id: '',
+          user_id: null,
+          role: 'assistant' as const,
+          content: data.fullText!,
+          created_at: new Date().toISOString(),
+        }]);
+      }
       setStreaming(false);
       streamingContentRef.current = '';
       setStreamingContent('');
