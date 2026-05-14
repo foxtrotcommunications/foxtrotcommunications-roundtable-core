@@ -99,18 +99,34 @@ if (hasReactBuild) {
 
 // SPA routes MUST come before express.static to override public/index.html
 app.get('/', (req, res, next) => {
-  if (hasReactBuild) return res.sendFile(reactIndexPath);
+  if (hasReactBuild) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    return res.sendFile(reactIndexPath);
+  }
   next();
 });
 
 app.get('/app', (req, res) => {
-  if (hasReactBuild) return res.sendFile(reactIndexPath);
+  if (hasReactBuild) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    return res.sendFile(reactIndexPath);
+  }
   res.sendFile(path.join(__dirname, '..', 'public', 'app.html'));
 });
 
 // React client static assets (JS/CSS bundles)
 if (hasReactBuild) {
-  app.use(express.static(clientDistPath, { maxAge: '1h' }));
+  app.use(express.static(clientDistPath, {
+    maxAge: '7d', // Vite hashes filenames — safe to cache long-term
+    setHeaders(res, filePath) {
+      // HTML entry point must always be revalidated
+      if (filePath.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+      }
+    },
+  }));
 }
 
 // Versioned static assets — long cache (CSS/JS have ?vN busters)
