@@ -52,7 +52,7 @@ router.get('/workspace/:repo/tree', (req, res) => {
       const items = [];
       for (const entry of entries) {
         // Skip hidden files and common junk
-        if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === '__pycache__') {
+        if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === '__pycache__' || entry.name === 'lost+found') {
           continue;
         }
         const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;

@@ -33,7 +33,7 @@ module.exports = {
         const items = fs.readdirSync(dir, { withFileTypes: true });
         for (const item of items) {
           if (entries.length >= maxEntries) return;
-          if (item.name.startsWith('.') || item.name === 'node_modules') continue;
+          if (item.name.startsWith('.') || item.name === 'node_modules' || item.name === 'lost+found') continue;
 
           const rel = prefix ? `${prefix}/${item.name}` : item.name;
           if (item.isDirectory()) {
