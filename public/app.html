@@ -1,3 +1,6 @@
+<!-- DEPRECATED: This vanilla JS frontend is superseded by the React app in client/.
+     It remains as a lightweight fallback but receives no new features.
+     The React SPA at / is the primary frontend. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -34,6 +37,9 @@
             <textarea class="chat-input" id="chat-input" placeholder="Message the workspace... use @ai to prompt the AI" rows="1"></textarea>
             <button class="chat-send-btn" id="chat-send" title="Send">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            </button>
+            <button class="chat-send-btn" id="chat-stop" title="Stop generation" style="display:none; background: var(--danger);">
+              <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
             </button>
           </div>
         </div>
@@ -153,7 +159,7 @@
         <div class="form-group">
           <label style="font-size:13px;font-weight:600;color:var(--accent);">🔷 Google BigQuery</label>
           <label for="ds-bq-project" style="margin-top:10px;">Billing Project</label>
-          <input type="text" id="ds-bq-project" placeholder="e.g. foxtrotcommunications-public">
+          <input type="text" id="ds-bq-project" placeholder="e.g. my-gcp-project">
           <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">GCP project used for query billing. Leave blank to use the workspace default.</div>
         </div>
         <div class="form-group">

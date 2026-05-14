@@ -5,3 +5,5 @@ workspace/
 *.log
 snowflake.log
 .DS_Store
+client/dist/
+client/node_modules/

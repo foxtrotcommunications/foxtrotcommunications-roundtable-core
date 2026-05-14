@@ -88,10 +88,34 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
+// React SPA — serve from client/dist if available
+const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
+const fs = require('fs');
+const reactIndexPath = path.join(clientDistPath, 'index.html');
+const hasReactBuild = fs.existsSync(reactIndexPath);
+if (hasReactBuild) {
+  console.log('[Server] React client build found at client/dist/');
+}
+
+// SPA routes MUST come before express.static to override public/index.html
+app.get('/', (req, res, next) => {
+  if (hasReactBuild) return res.sendFile(reactIndexPath);
+  next();
+});
+
+app.get('/app', (req, res) => {
+  if (hasReactBuild) return res.sendFile(reactIndexPath);
+  res.sendFile(path.join(__dirname, '..', 'public', 'app.html'));
+});
+
+// React client static assets (JS/CSS bundles)
+if (hasReactBuild) {
+  app.use(express.static(clientDistPath, { maxAge: '1h' }));
+}
+
 // Versioned static assets — long cache (CSS/JS have ?vN busters)
 app.use(express.static(path.join(__dirname, '..', 'public'), {
   maxAge: '1h',
-  // Never cache the HTML shell — it's the source of truth for asset versions
   setHeaders(res, filePath) {
     if (filePath.endsWith('.html')) {
       res.setHeader('Cache-Control', 'no-store');
@@ -220,9 +244,7 @@ app.delete('/api/keys/:id', requireAuth, async (req, res) => {
   res.json({ success: true });
 });
 
-app.get('/app', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'public', 'app.html'));
-});
+
 
 // Heartbeat interval
 let heartbeatInterval;
