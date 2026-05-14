@@ -9,7 +9,7 @@ const BLOCKED_PATTERNS = [
 
 module.exports = {
   name: 'query_bigquery',
-  description: 'Execute a read-only SQL query against Google BigQuery. Returns rows as JSON. Use fully qualified table names: `project.dataset.table`. Limited to SELECT/WITH statements. Max 1000 rows returned.',
+  description: 'Execute a read-only SQL query against Google BigQuery. Returns rows as JSON. Use fully qualified table names: `project.dataset.table`. Limited to SELECT/WITH statements. Max 100 rows returned. Always include a LIMIT clause.',
   parameters: {
     type: 'object',
     properties: {
@@ -62,7 +62,7 @@ module.exports = {
       const [rows] = await client.query(options);
 
       // Cap output
-      const maxRows = 1000;
+      const maxRows = 100;
       const truncated = rows.length > maxRows;
       const resultRows = truncated ? rows.slice(0, maxRows) : rows;
 
