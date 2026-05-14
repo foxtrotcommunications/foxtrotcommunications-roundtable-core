@@ -65,6 +65,7 @@ const App = {
     });
 
     chatSend?.addEventListener('click', () => this.sendMessage());
+    document.getElementById('chat-stop')?.addEventListener('click', () => Socket.stopGeneration());
 
     // Close modals on overlay click
     document.querySelectorAll('.modal-overlay').forEach((overlay) => {
