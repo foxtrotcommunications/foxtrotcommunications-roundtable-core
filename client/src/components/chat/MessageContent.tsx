@@ -1,10 +1,25 @@
 import { useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import rehypeHighlight from 'rehype-highlight';
 import CodeBlock from './CodeBlock';
 
 interface Props { content: string; }
+
+/**
+ * Extract text content from React children, which may be strings,
+ * arrays, or React elements (e.g. from rehype-highlight spans).
+ */
+function extractText(node: unknown): string {
+  if (node == null) return '';
+  if (typeof node === 'string') return node;
+  if (typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(extractText).join('');
+  if (typeof node === 'object' && node !== null) {
+    const el = node as { props?: { children?: unknown } };
+    if (el.props?.children != null) return extractText(el.props.children);
+  }
+  return '';
+}
 
 export default function MessageContent({ content }: Props) {
   // Highlight @mentions in the raw text before markdown parsing
@@ -13,7 +28,6 @@ export default function MessageContent({ content }: Props) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
-      rehypePlugins={[rehypeHighlight]}
       components={{
         // Custom code block renderer with copy button
         code({ className, children, ...props }) {
@@ -25,7 +39,7 @@ export default function MessageContent({ content }: Props) {
           if (match || isBlock) {
             return (
               <CodeBlock language={match?.[1] || 'plaintext'}>
-                {String(children).replace(/\n$/, '')}
+                {extractText(children)}
               </CodeBlock>
             );
           }
