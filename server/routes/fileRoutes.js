@@ -186,4 +186,101 @@ router.get('/workspace/:repo/raw', (req, res) => {
   }
 });
 
+/**
+ * POST /api/workspace/upload — upload files to workspace root or a subdirectory
+ * Supports: multipart/form-data with field name "files" (multiple)
+ * Query params:
+ *   dir — target subdirectory within workspace (e.g. "my-repo/data")
+ */
+const multer = require('multer');
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB per file
+});
+
+router.post('/workspace/upload', upload.array('files', 20), (req, res) => {
+  try {
+    const targetDir = req.query.dir || '';
+    const destBase = path.resolve(WORKSPACE_DIR, String(targetDir));
+
+    // Path traversal protection
+    if (!destBase.startsWith(WORKSPACE_DIR)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Ensure destination exists
+    fs.mkdirSync(destBase, { recursive: true });
+
+    const results = [];
+    for (const file of (req.files || [])) {
+      // Sanitize filename — strip path separators
+      const safeName = path.basename(file.originalname);
+      const destPath = path.resolve(destBase, safeName);
+
+      // Double-check path traversal
+      if (!destPath.startsWith(WORKSPACE_DIR)) {
+        results.push({ name: safeName, error: 'Invalid path' });
+        continue;
+      }
+
+      fs.writeFileSync(destPath, file.buffer);
+      results.push({
+        name: safeName,
+        size: file.size,
+        path: path.relative(WORKSPACE_DIR, destPath),
+      });
+    }
+
+    res.json({ uploaded: results, dir: targetDir || '/' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/workspace/:repo/upload — upload files into a specific repo directory
+ * Query params:
+ *   path — subdirectory within the repo (e.g. "data/schemas")
+ */
+router.post('/workspace/:repo/upload', upload.array('files', 20), (req, res) => {
+  try {
+    const repoPath = path.resolve(WORKSPACE_DIR, req.params.repo);
+    if (!repoPath.startsWith(WORKSPACE_DIR) || !fs.existsSync(repoPath)) {
+      return res.status(404).json({ error: 'Repository not found' });
+    }
+
+    const subDir = req.query.path || '';
+    const destBase = path.resolve(repoPath, String(subDir));
+
+    if (!destBase.startsWith(WORKSPACE_DIR)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    fs.mkdirSync(destBase, { recursive: true });
+
+    const results = [];
+    for (const file of (req.files || [])) {
+      const safeName = path.basename(file.originalname);
+      const destPath = path.resolve(destBase, safeName);
+
+      if (!destPath.startsWith(WORKSPACE_DIR)) {
+        results.push({ name: safeName, error: 'Invalid path' });
+        continue;
+      }
+
+      fs.writeFileSync(destPath, file.buffer);
+      results.push({
+        name: safeName,
+        size: file.size,
+        path: path.relative(WORKSPACE_DIR, destPath),
+      });
+    }
+
+    res.json({ uploaded: results, repo: req.params.repo, dir: subDir || '/' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
+

@@ -14,8 +14,12 @@ export default function CodePanel({ isOpen, onActiveRepoChange }: Props) {
   const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [wordWrap, setWordWrap] = useState(() => localStorage.getItem('code-word-wrap') === 'true');
+  const [uploading, setUploading] = useState(false);
+  const [treeKey, setTreeKey] = useState(0); // force re-render after upload
+  const [dragOver, setDragOver] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const treeRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load repos
   const loadRepos = useCallback(async () => {
@@ -35,7 +39,7 @@ export default function CodePanel({ isOpen, onActiveRepoChange }: Props) {
 
   // Listen for workspace-changed events to refresh
   useEffect(() => {
-    const handler = () => loadRepos();
+    const handler = () => { loadRepos(); setTreeKey(k => k + 1); };
     window.addEventListener('workspace-changed', handler);
     return () => window.removeEventListener('workspace-changed', handler);
   }, [loadRepos]);
@@ -50,6 +54,62 @@ export default function CodePanel({ isOpen, onActiveRepoChange }: Props) {
     const next = !wordWrap;
     setWordWrap(next);
     localStorage.setItem('code-word-wrap', String(next));
+  };
+
+  // Upload files
+  const uploadFiles = async (files: FileList | File[]) => {
+    if (files.length === 0) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      for (const file of Array.from(files)) {
+        formData.append('files', file);
+      }
+      const uploadUrl = selectedRepo
+        ? `/api/workspace/${encodeURIComponent(selectedRepo)}/upload`
+        : '/api/workspace/upload?dir=uploads';
+      const res = await fetch(
+        uploadUrl,
+        { method: 'POST', body: formData, credentials: 'same-origin' }
+      );
+      if (!res.ok) {
+        const err = await res.json();
+        console.error('Upload failed:', err.error);
+      }
+      // Refresh the tree
+      setTreeKey(k => k + 1);
+    } catch (err) {
+      console.error('Upload error:', err);
+    }
+    setUploading(false);
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) uploadFiles(e.target.files);
+    // Reset so the same file can be re-uploaded
+    e.target.value = '';
+  };
+
+  // Drag and drop
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+    if (e.dataTransfer.files.length > 0) {
+      uploadFiles(e.dataTransfer.files);
+    }
   };
 
   // Panel resize
@@ -106,7 +166,26 @@ export default function CodePanel({ isOpen, onActiveRepoChange }: Props) {
       <div
         ref={panelRef}
         className={`code-panel${isOpen ? ' open' : ''}`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
       >
+        {/* Drag overlay */}
+        {dragOver && (
+          <div style={{
+            position: 'absolute', inset: 0, zIndex: 10,
+            background: 'rgba(99, 102, 241, 0.15)',
+            border: '2px dashed var(--accent-primary)',
+            borderRadius: 'var(--radius-md)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            pointerEvents: 'none',
+          }}>
+            <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--accent-secondary)' }}>
+              📥 Drop files to upload
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <div className="code-panel-header">
           <select
@@ -119,6 +198,20 @@ export default function CodePanel({ isOpen, onActiveRepoChange }: Props) {
               <option key={r.name} value={r.name}>{r.name} ({r.branch})</option>
             ))}
           </select>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            style={{ display: 'none' }}
+            onChange={handleFileInputChange}
+          />
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            title="Upload files"
+            style={{ fontSize: 14 }}
+          >{uploading ? '⏳' : '📤'}</button>
           <button
             className={`btn btn-ghost btn-sm code-panel-wrap-btn${wordWrap ? ' active' : ''}`}
             onClick={handleWordWrapToggle}
@@ -127,19 +220,21 @@ export default function CodePanel({ isOpen, onActiveRepoChange }: Props) {
         </div>
 
         {/* Body */}
-        <div className="code-panel-body">
+        <div className="code-panel-body" style={{ position: 'relative' }}>
           {repos.length === 0 ? (
             <div className="file-tree-empty">
               <div style={{ fontSize: 24, marginBottom: 8 }}>📂</div>
               <div>No repos cloned yet</div>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
                 Ask <span className="mention mention-ai">@ai</span> to clone a repository
+                <br />or drag & drop files here
               </div>
             </div>
           ) : selectedRepo && (
             <>
               <div ref={treeRef} style={{ height: 220, flexShrink: 0, overflow: 'hidden' }}>
                 <FileTree
+                  key={treeKey}
                   repo={selectedRepo}
                   selectedFile={selectedFile}
                   onFileSelect={(path) => setSelectedFile(path)}
