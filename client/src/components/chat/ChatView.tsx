@@ -14,11 +14,12 @@ interface Props {
   onStopGeneration: () => void;
   onTyping: () => void;
   typingUsers: PresenceUser[];
+  currentUsername?: string;
 }
 
 export default function ChatView({
   messages, streaming, streamingContent, toolCalls,
-  onSendMessage, onStopGeneration, onTyping, typingUsers,
+  onSendMessage, onStopGeneration, onTyping, typingUsers, currentUsername,
 }: Props) {
   const messagesRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -88,7 +89,10 @@ export default function ChatView({
           }
           // Skip assistant messages with no visible content (from tool-call-only turns)
           if (msg.role === 'assistant' && (!msg.content || !msg.content.trim())) return null;
-          return <Message key={msg.id} message={msg} />;
+          const isMentioned = currentUsername && msg.content
+            ? new RegExp(`@${currentUsername}\\b`, 'i').test(msg.content)
+            : false;
+          return <Message key={msg.id} message={msg} highlighted={isMentioned} />;
         })}
 
         {/* Live tool calls during streaming */}

@@ -2,16 +2,16 @@ import MessageContent from './MessageContent';
 import { getUserColor, formatTime } from './utils';
 import type { ChatMessage } from '../../types/message';
 
-interface Props { message: ChatMessage; }
+interface Props { message: ChatMessage; highlighted?: boolean; }
 
-export default function Message({ message }: Props) {
+export default function Message({ message, highlighted }: Props) {
   const isAssistant = message.role === 'assistant';
   const name = isAssistant ? 'AI Assistant' : (message.display_name || message.username || 'User');
   const initial = isAssistant ? 'AI' : name.charAt(0).toUpperCase();
   const colorKey = message.username || message.display_name || 'user';
 
   return (
-    <div className="message" data-msg-id={message.id}>
+    <div className={`message${highlighted ? ' message-mentioned' : ''}`} data-msg-id={message.id}>
       <div
         className={`message-avatar ${message.role}`}
         style={isAssistant ? undefined : { background: getUserColor(colorKey) }}
