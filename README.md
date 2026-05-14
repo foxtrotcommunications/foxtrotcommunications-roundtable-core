@@ -168,9 +168,9 @@ All 14 tools are enabled by default. Individual tools can be toggled per workspa
 | **read_url** | Fetch and extract text from web pages |
 | **calculator** | Evaluate math expressions (powered by mathjs) |
 | **run_code** | Execute JavaScript in a sandboxed environment |
-| **query_bigquery** | Query Google BigQuery (read-only, max 1000 rows) |
-| **query_snowflake** | Query Snowflake (read-only, max 1000 rows) |
-| **query_databricks** | Query Databricks SQL Warehouse (read-only, max 1000 rows) |
+| **query_bigquery** | Query Google BigQuery (read-only, max 100 rows) |
+| **query_snowflake** | Query Snowflake (read-only, max 100 rows) |
+| **query_databricks** | Query Databricks SQL Warehouse (read-only, max 100 rows) |
 | **shell_exec** | Execute allowlisted shell commands in the workspace |
 | **read_file** | Read files from the workspace directory |
 | **write_file** | Write files to the workspace directory |
@@ -184,7 +184,7 @@ Data warehouse tools enforce **read-only access** — INSERT, UPDATE, DELETE, DR
 ## Architecture
 
 ```
-Browser (Vanilla JS + Socket.IO)
+Browser (React + Socket.IO)
     ↕ WebSocket
 Express + Socket.IO Server
     ↕                    ↕                        ↕
@@ -215,7 +215,7 @@ Deployment model (workspace-per-container):
 
 - **Backend**: Node.js 20, Express, Socket.IO
 - **Database**: PostgreSQL (sessions, messages, workspace registry)
-- **Frontend**: Vanilla HTML/CSS/JS (no build step)
+- **Frontend**: React + TypeScript (Vite, `client/dist/`)
 - **Real-time**: Socket.IO for WebSocket communication
 - **Container**: Alpine-based Docker image (~60MB)
 
