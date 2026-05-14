@@ -279,6 +279,11 @@ export default function CodePanel({ isOpen, onActiveRepoChange, addToast }: Prop
                 repo={selectedRepo}
                 filePath={selectedFile}
                 wordWrap={wordWrap}
+                onFileDeleted={() => {
+                  setSelectedFile(null);
+                  setTreeKey(k => k + 1);
+                  addToast?.('File deleted', 'success');
+                }}
               />
             </>
           )}
