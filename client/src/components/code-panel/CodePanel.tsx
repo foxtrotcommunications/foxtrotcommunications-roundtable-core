@@ -7,9 +7,10 @@ interface Repo { name: string; branch: string; }
 interface Props {
   isOpen: boolean;
   onActiveRepoChange: (repo: string | null) => void;
+  addToast?: (message: string, type?: 'success' | 'error') => void;
 }
 
-export default function CodePanel({ isOpen, onActiveRepoChange }: Props) {
+export default function CodePanel({ isOpen, onActiveRepoChange, addToast }: Props) {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -74,10 +75,15 @@ export default function CodePanel({ isOpen, onActiveRepoChange }: Props) {
       );
       if (!res.ok) {
         const err = await res.json();
-        console.error('Upload failed:', err.error);
+        addToast?.(`Upload failed: ${err.error}`, 'error');
+      } else {
+        const data = await res.json();
+        const count = data.uploaded?.length || 0;
+        addToast?.(`${count} file${count !== 1 ? 's' : ''} uploaded`, 'success');
       }
-      // Refresh the tree
+      // Refresh the tree + repo list (new dirs appear)
       setTreeKey(k => k + 1);
+      loadRepos();
     } catch (err) {
       console.error('Upload error:', err);
     }

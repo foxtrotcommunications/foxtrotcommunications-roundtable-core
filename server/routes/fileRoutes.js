@@ -16,16 +16,19 @@ router.get('/workspace', (req, res) => {
     }
     const entries = fs.readdirSync(WORKSPACE_DIR, { withFileTypes: true });
     const repos = entries
-      .filter((e) => e.isDirectory() && fs.existsSync(path.join(WORKSPACE_DIR, e.name, '.git')))
+      .filter((e) => e.isDirectory())
       .map((e) => {
+        const isGit = fs.existsSync(path.join(WORKSPACE_DIR, e.name, '.git'));
         let branch = '';
-        try {
-          branch = fs
-            .readFileSync(path.join(WORKSPACE_DIR, e.name, '.git', 'HEAD'), 'utf-8')
-            .trim()
-            .replace('ref: refs/heads/', '');
-        } catch (_) {}
-        return { name: e.name, branch };
+        if (isGit) {
+          try {
+            branch = fs
+              .readFileSync(path.join(WORKSPACE_DIR, e.name, '.git', 'HEAD'), 'utf-8')
+              .trim()
+              .replace('ref: refs/heads/', '');
+          } catch (_) {}
+        }
+        return { name: e.name, branch: isGit ? branch : 'uploads' };
       });
     res.json({ repos });
   } catch (err) {
@@ -91,6 +94,11 @@ router.get('/workspace/:repo/status', (req, res) => {
     const repoPath = path.resolve(WORKSPACE_DIR, req.params.repo);
     if (!repoPath.startsWith(WORKSPACE_DIR) || !fs.existsSync(repoPath)) {
       return res.status(404).json({ error: 'Repository not found' });
+    }
+
+    // Non-git directories return empty status
+    if (!fs.existsSync(path.join(repoPath, '.git'))) {
+      return res.json({ repo: req.params.repo, files: {} });
     }
 
     const { execSync } = require('child_process');

@@ -101,6 +101,7 @@ export default function WorkspacePage({ user, onLogout }: Props) {
         <CodePanel
           isOpen={codePanelOpen}
           onActiveRepoChange={setActiveRepo}
+          addToast={addToast}
         />
       </div>
 
