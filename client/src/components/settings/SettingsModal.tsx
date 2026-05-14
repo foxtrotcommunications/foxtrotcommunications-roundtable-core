@@ -10,11 +10,32 @@ const TOOL_CATALOG = [
   { group: '🗄️ Data', tools: ['query_bigquery', 'query_snowflake', 'query_databricks'] },
 ];
 
-const MODEL_HINTS: Record<string, string> = {
-  vertexai: 'gemini-2.5-flash · gemini-2.5-pro · gemini-1.5-flash-002',
-  openai: 'gpt-4o · gpt-4o-mini · o1-preview',
-  anthropic: 'claude-opus-4-5 · claude-sonnet-4-5 · claude-3-5-haiku-20241022',
-  google: 'gemini-2.0-flash-001 · gemini-1.5-pro-002',
+const MODEL_OPTIONS: Record<string, { value: string; label: string }[]> = {
+  vertexai: [
+    { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+    { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+    { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
+    { value: 'gemini-1.5-flash-002', label: 'Gemini 1.5 Flash' },
+    { value: 'gemini-1.5-pro-002', label: 'Gemini 1.5 Pro' },
+  ],
+  openai: [
+    { value: 'gpt-4o', label: 'GPT-4o' },
+    { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+    { value: 'gpt-4.1', label: 'GPT-4.1' },
+    { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini' },
+    { value: 'o3-mini', label: 'o3-mini' },
+  ],
+  anthropic: [
+    { value: 'claude-opus-4-5', label: 'Claude Opus 4.5' },
+    { value: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5' },
+    { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' },
+  ],
+  google: [
+    { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+    { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+    { value: 'gemini-2.0-flash-001', label: 'Gemini 2.0 Flash' },
+    { value: 'gemini-1.5-pro-002', label: 'Gemini 1.5 Pro' },
+  ],
 };
 
 interface Props {
@@ -156,8 +177,37 @@ export default function SettingsModal({ onClose, onSaved, addToast }: Props) {
             </div>
             <div className="form-group">
               <label>Model</label>
-              <input value={model} onChange={e => setModel(e.target.value)} placeholder="e.g. gemini-2.5-flash" />
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{MODEL_HINTS[provider] ? `Suggested: ${MODEL_HINTS[provider]}` : ''}</div>
+              {(() => {
+                const options = MODEL_OPTIONS[provider] || [];
+                const isKnownModel = options.some(o => o.value === model);
+                return (
+                  <>
+                    <select
+                      value={isKnownModel ? model : '__custom__'}
+                      onChange={e => {
+                        if (e.target.value === '__custom__') {
+                          setModel('');
+                        } else {
+                          setModel(e.target.value);
+                        }
+                      }}
+                    >
+                      {options.map(o => (
+                        <option key={o.value} value={o.value}>{o.label} ({o.value})</option>
+                      ))}
+                      <option value="__custom__">Custom model…</option>
+                    </select>
+                    {(!isKnownModel || model === '') && (
+                      <input
+                        value={model}
+                        onChange={e => setModel(e.target.value)}
+                        placeholder="Enter custom model ID…"
+                        style={{ marginTop: 8 }}
+                      />
+                    )}
+                  </>
+                );
+              })()}
             </div>
             <div className="form-group">
               <label>System Prompt</label>
