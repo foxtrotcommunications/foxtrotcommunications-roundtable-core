@@ -134,9 +134,29 @@ function setupChatHandlers(io, socket) {
 - When presenting SQL/BigQuery query results: Format the data as a markdown table (| col | col |\\n|---|---|\\n| val | val |). IMPORTANT: Show at most 50 rows in your markdown table. If there are more, show the first 50 and note the total count. Never dump raw JSON arrays. If there are no rows, say "No results returned."
 - When writing SQL queries: ALWAYS include a LIMIT clause (default LIMIT 100) unless the user specifically asks for all rows or an aggregate (COUNT, SUM, etc.).
 - ALWAYS call tools directly when asked. Never ask the user for config values the environment already provides (project ID, region, etc.).
-- If a tool call fails with a transient error, try again with the same or corrected inputs. Do NOT tell the user you cannot do something without first attempting it with a tool.`;
+- If a tool call fails with a transient error, try again with the same or corrected inputs. Do NOT tell the user you cannot do something without first attempting it with a tool.
+- CRITICAL: If a BigQuery query fails with "Access Denied" or "Table not found", do NOT guess alternative table names. Instead, STOP and tell the user the exact error. You may ONLY use table names from the schema definitions provided below or that you have confirmed exist via a successful query.
+- If you fail a query 3 times, STOP retrying and summarize what you tried and what went wrong.`;
 
       systemPrompt = envCtx + (systemPrompt ? '\n\n' + systemPrompt : '');
+
+      // Auto-inject schema YAML files from workspace/uploads/ into the system prompt
+      try {
+        const uploadsDir = require('path').resolve(__dirname, '..', '..', 'workspace', 'uploads');
+        const fs = require('fs');
+        if (fs.existsSync(uploadsDir)) {
+          const schemaFiles = fs.readdirSync(uploadsDir)
+            .filter(f => f.endsWith('.yaml') || f.endsWith('.yml'));
+          if (schemaFiles.length > 0) {
+            let schemaCtx = '\n\n--- DATA SCHEMA DEFINITIONS ---\nThe following schemas define ALL available tables and columns. Use ONLY these table names in queries. Do NOT guess or invent table names.\n';
+            for (const sf of schemaFiles) {
+              const content = fs.readFileSync(require('path').join(uploadsDir, sf), 'utf8');
+              schemaCtx += `\n### ${sf}\n\`\`\`yaml\n${content}\n\`\`\`\n`;
+            }
+            systemPrompt += schemaCtx;
+          }
+        }
+      } catch (e) { /* ignore schema scan errors */ }
 
       if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
 
