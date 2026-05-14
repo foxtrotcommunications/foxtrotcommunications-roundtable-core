@@ -12,6 +12,12 @@ dataset:
     All IDs are deterministic via ABS(FARM_FINGERPRINT(...)).
     Concept IDs use SNOMED (conditions/procedures), RxNorm (drugs), LOINC (measurements).
     All table names use the omop_ prefix as deployed by dbt.
+  important: >
+    NEVER guess or hardcode concept_id values. Always look them up first from the
+    vocabulary dataset (foxtrot-communications-public.omop_vocab.concept):
+      SELECT concept_id, concept_name FROM `foxtrot-communications-public.omop_vocab.concept`
+      WHERE LOWER(concept_name) LIKE '%search term%' AND standard_concept = 'S'
+    Example: Myocardial infarction = concept_id 4329847 (SNOMED 22298006).
 
 tables:
 
