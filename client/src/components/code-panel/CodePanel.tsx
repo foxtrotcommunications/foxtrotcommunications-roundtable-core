@@ -8,9 +8,10 @@ interface Props {
   isOpen: boolean;
   onActiveRepoChange: (repo: string | null) => void;
   addToast?: (message: string, type?: 'success' | 'error') => void;
+  onClose?: () => void;
 }
 
-export default function CodePanel({ isOpen, onActiveRepoChange, addToast }: Props) {
+export default function CodePanel({ isOpen, onActiveRepoChange, addToast, onClose }: Props) {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -223,6 +224,14 @@ export default function CodePanel({ isOpen, onActiveRepoChange, addToast }: Prop
             onClick={handleWordWrapToggle}
             title="Toggle word wrap"
           >↩</button>
+          {onClose && (
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={onClose}
+              title="Close panel"
+              style={{ fontSize: 14, marginLeft: 'auto' }}
+            >✕</button>
+          )}
         </div>
 
         {/* Body */}

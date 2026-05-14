@@ -35,6 +35,31 @@ export default function WorkspacePage({ user, onLogout }: Props) {
     return () => { socket.off('workspace-changed', handler); };
   }, [socket]);
 
+  // ─── @mention notifications ───────────────────────────
+  useEffect(() => {
+    if (!socket) return;
+    const onMessage = (msg: { role: string; content: string; username?: string; display_name?: string }) => {
+      if (msg.role === 'user' && msg.username !== user.username) {
+        const mentionPattern = new RegExp(`@${user.username}\\b`, 'i');
+        const displayMentionPattern = user.displayName
+          ? new RegExp(`@${user.displayName}\\b`, 'i')
+          : null;
+        if (mentionPattern.test(msg.content) || displayMentionPattern?.test(msg.content)) {
+          const sender = msg.display_name || msg.username || 'Someone';
+          addToast(`${sender} mentioned you`, 'info');
+          // Browser notification
+          if (Notification.permission === 'granted') {
+            new Notification('Roundtable', { body: `${sender} mentioned you: ${msg.content.substring(0, 100)}` });
+          } else if (Notification.permission !== 'denied') {
+            Notification.requestPermission();
+          }
+        }
+      }
+    };
+    socket.on('message', onMessage);
+    return () => { socket.off('message', onMessage); };
+  }, [socket, user.username, user.displayName, addToast]);
+
   const handleSettingsSaved = useCallback(() => {
     api.getWorkspaceInfo().then(setWorkspace).catch(() => {});
     addToast('Settings saved', 'success');
@@ -51,29 +76,8 @@ export default function WorkspacePage({ user, onLogout }: Props) {
   }, [chat, activeRepo]);
 
   return (
-    <div className="app-layout">
-      {/* Sidebar */}
-      <div className="sidebar">
-        <div className="sidebar-header">
-          <span className="sidebar-brand"><span className="sidebar-brand-text">Roundtable</span></span>
-        </div>
-        <div className="sidebar-rooms" />
-        <div className="sidebar-footer">
-          <div className="user-avatar">{(user.displayName || user.username).charAt(0).toUpperCase()}</div>
-          <div className="user-info"><div className="user-name">{user.displayName || user.username}</div></div>
-          <button className="btn btn-ghost btn-sm" id="btn-settings" onClick={() => setSettingsOpen(true)} title="Settings">⚙️</button>
-          <button
-            className={`btn btn-ghost btn-sm${codePanelOpen ? ' active' : ''}`}
-            id="btn-code-panel"
-            onClick={toggleCodePanel}
-            title="Code Explorer"
-            style={codePanelOpen ? { background: 'var(--accent-glow)', color: 'var(--accent-primary)' } : {}}
-          >📁</button>
-          <button className="btn btn-ghost btn-sm" onClick={onLogout} title="Logout">↪</button>
-        </div>
-      </div>
-
-      {/* Main area */}
+    <div className="app-layout no-sidebar">
+      {/* Main area — no sidebar */}
       <div className="main-area">
         <div id="chat-view">
           <div className="chat-header">
@@ -83,6 +87,14 @@ export default function WorkspacePage({ user, onLogout }: Props) {
             </div>
             <div className="chat-header-actions">
               <PresenceBar users={presence.users} />
+              <button className="btn btn-ghost btn-sm" onClick={() => setSettingsOpen(true)} title="Settings">⚙️</button>
+              <button
+                className={`btn btn-ghost btn-sm${codePanelOpen ? ' active' : ''}`}
+                onClick={toggleCodePanel}
+                title="Code Explorer"
+                style={codePanelOpen ? { background: 'var(--accent-glow)', color: 'var(--accent-primary)' } : {}}
+              >📁</button>
+              <button className="btn btn-ghost btn-sm" onClick={onLogout} title="Logout">↪</button>
             </div>
           </div>
 
@@ -95,6 +107,7 @@ export default function WorkspacePage({ user, onLogout }: Props) {
             onStopGeneration={chat.stopGeneration}
             onTyping={presence.sendTypingStart}
             typingUsers={presence.users.filter(u => u.activity === 'composing')}
+            currentUsername={user.username}
           />
         </div>
 
@@ -102,6 +115,7 @@ export default function WorkspacePage({ user, onLogout }: Props) {
           isOpen={codePanelOpen}
           onActiveRepoChange={setActiveRepo}
           addToast={addToast}
+          onClose={() => { setCodePanelOpen(false); localStorage.setItem('code-panel-open', 'false'); }}
         />
       </div>
 
