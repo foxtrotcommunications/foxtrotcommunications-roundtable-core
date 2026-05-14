@@ -469,24 +469,43 @@ function formatGoogleMessages(messages) {
 
 // ─── Vertex AI (Google Cloud ADC) — @google/genai SDK ───
 
-let genaiClient = null;
+let genaiRegionalClient = null;
+let genaiGlobalClient = null;
 
-function getGenAIClient() {
-  if (!genaiClient) {
-    const project = config.vertexai.project;
+/**
+ * Preview models (e.g. gemini-3.1-pro-preview) are only available on the
+ * global Vertex AI endpoint. GA models use the regional endpoint.
+ */
+function getGenAIClient(model) {
+  const project = config.vertexai.project;
+  if (!project) throw new Error('GCP_PROJECT not set. Required for Vertex AI.');
+
+  const isPreview = model && model.includes('-preview');
+
+  if (isPreview) {
+    if (!genaiGlobalClient) {
+      genaiGlobalClient = new GoogleGenAI({
+        vertexai: true,
+        project,
+        location: 'global',
+      });
+    }
+    return genaiGlobalClient;
+  }
+
+  if (!genaiRegionalClient) {
     const location = config.vertexai.location;
-    if (!project) throw new Error('GCP_PROJECT not set. Required for Vertex AI.');
-    genaiClient = new GoogleGenAI({
+    genaiRegionalClient = new GoogleGenAI({
       vertexai: true,
       project,
       location,
     });
   }
-  return genaiClient;
+  return genaiRegionalClient;
 }
 
 async function* streamVertexAI(model, messages, enableTools, maxRounds, signal, enabledToolNames, workspaceConfig = {}) {
-  const ai = getGenAIClient();
+  const ai = getGenAIClient(model);
   const systemInstruction = extractGoogleSystemInstruction(messages);
   const contents = formatGoogleMessages(messages);
   let fullText = '';
