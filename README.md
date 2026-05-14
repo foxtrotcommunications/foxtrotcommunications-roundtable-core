@@ -22,7 +22,7 @@ Multiple users collaborate on AI conversations in real-time — with built-in to
 - **Presence** — See who's online in each workspace
 - **Streaming** — AI responses stream token-by-token to all participants
 - **Embeddable** — Embed in other apps via iframe with `EMBED_MODE=true`
-- **No Build Step** — Pure HTML/CSS/JS frontend, zero build toolchain
+- **React + TypeScript** — Modern frontend with Vite, hot-reload dev server
 
 ## Quick Start
 

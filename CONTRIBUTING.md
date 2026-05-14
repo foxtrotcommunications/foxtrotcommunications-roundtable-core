@@ -24,7 +24,7 @@ npm run dev
 
 ## Code Style
 
-- **No build step** — the frontend is vanilla HTML/CSS/JS
+- **React + TypeScript** — the frontend is in `client/` (Vite + React)
 - **CommonJS** — the server uses `require()`, not ESM
 - **Tool pattern** — new tools go in `server/tools/` and follow the existing `{ name, description, parameters, execute }` pattern
 - **Tests** — go in `tests/` mirroring the `server/` directory structure
