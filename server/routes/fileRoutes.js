@@ -196,6 +196,29 @@ router.get('/workspace/:repo/raw', (req, res) => {
 });
 
 /**
+ * DELETE /api/workspace/:repo/file?path=... — delete a file from a repo
+ */
+router.delete('/workspace/:repo/file', (req, res) => {
+  try {
+    const filePath = req.query.path;
+    if (!filePath) return res.status(400).json({ error: 'path query parameter required' });
+
+    const fullPath = path.resolve(WORKSPACE_DIR, req.params.repo, filePath);
+    if (!fullPath.startsWith(WORKSPACE_DIR)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    if (!fs.existsSync(fullPath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    fs.unlinkSync(fullPath);
+    res.json({ deleted: filePath });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * POST /api/workspace/upload — upload files to workspace root or a subdirectory
  * Supports: multipart/form-data with field name "files" (multiple)
  * Query params:

@@ -15,6 +15,7 @@ interface Props {
   repo: string;
   filePath: string | null;
   wordWrap: boolean;
+  onFileDeleted?: (path: string) => void;
 }
 
 const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'svg'];
@@ -26,7 +27,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
 }
 
-export default function FileViewer({ repo, filePath, wordWrap }: Props) {
+export default function FileViewer({ repo, filePath, wordWrap, onFileDeleted }: Props) {
   const [file, setFile] = useState<FileData | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -58,6 +59,29 @@ export default function FileViewer({ repo, filePath, wordWrap }: Props) {
     load();
   }, [repo, filePath]);
 
+  const handleDelete = async () => {
+    if (!filePath) return;
+    if (!confirm(`Delete ${filePath}?`)) return;
+    try {
+      const res = await fetch(
+        `/api/workspace/${encodeURIComponent(repo)}/file?path=${encodeURIComponent(filePath)}`,
+        { method: 'DELETE', credentials: 'same-origin' }
+      );
+      if (res.ok) {
+        onFileDeleted?.(filePath);
+      }
+    } catch { /* ignore */ }
+  };
+
+  const deleteBtn = (
+    <button
+      className="btn btn-ghost btn-sm"
+      onClick={handleDelete}
+      title="Delete file"
+      style={{ fontSize: 12, padding: '2px 6px', color: 'var(--error)', marginLeft: 8 }}
+    >🗑</button>
+  );
+
   if (!filePath) {
     return (
       <div className="file-viewer">
@@ -88,7 +112,7 @@ export default function FileViewer({ repo, filePath, wordWrap }: Props) {
       <div className="file-viewer">
         <div className="file-viewer-header">
           <span className="file-viewer-path">{filePath}</span>
-          <span className="file-viewer-meta">{ext.toUpperCase()}</span>
+          <span className="file-viewer-meta">{ext.toUpperCase()}{deleteBtn}</span>
         </div>
         <div className="file-viewer-media">
           <img src={rawUrl} alt={filePath} />
@@ -103,7 +127,7 @@ export default function FileViewer({ repo, filePath, wordWrap }: Props) {
       <div className="file-viewer">
         <div className="file-viewer-header">
           <span className="file-viewer-path">{filePath}</span>
-          <span className="file-viewer-meta">{ext.toUpperCase()}</span>
+          <span className="file-viewer-meta">{ext.toUpperCase()}{deleteBtn}</span>
         </div>
         <div className="file-viewer-media">
           <video controls src={rawUrl} style={{ maxWidth: '100%' }} />
@@ -119,7 +143,7 @@ export default function FileViewer({ repo, filePath, wordWrap }: Props) {
       <div className="file-viewer">
         <div className="file-viewer-header">
           <span className="file-viewer-path">{filePath}</span>
-          <span className="file-viewer-meta">{file.lines} lines · {formatSize(file.size)}</span>
+          <span className="file-viewer-meta">{file.lines} lines · {formatSize(file.size)}{deleteBtn}</span>
         </div>
         <div className="rendered-markdown" style={{ margin: 0, borderRadius: 0, maxHeight: 'none' }}>
           <ReactMarkdown>{file.content}</ReactMarkdown>
@@ -141,7 +165,7 @@ export default function FileViewer({ repo, filePath, wordWrap }: Props) {
     <div className="file-viewer">
       <div className="file-viewer-header">
         <span className="file-viewer-path">{filePath}</span>
-        <span className="file-viewer-meta">{file.lines} lines · {formatSize(file.size)}</span>
+        <span className="file-viewer-meta">{file.lines} lines · {formatSize(file.size)}{deleteBtn}</span>
       </div>
       <pre className={`file-viewer-code${wordWrap ? ' word-wrap' : ''}`}>
         <code
