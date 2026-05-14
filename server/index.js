@@ -88,24 +88,40 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
+// React SPA — serve from client/dist if available
+const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
+const fs = require('fs');
+const reactIndexPath = path.join(clientDistPath, 'index.html');
+const hasReactBuild = fs.existsSync(reactIndexPath);
+if (hasReactBuild) {
+  console.log('[Server] React client build found at client/dist/');
+}
+
+// SPA routes MUST come before express.static to override public/index.html
+app.get('/', (req, res, next) => {
+  if (hasReactBuild) return res.sendFile(reactIndexPath);
+  next();
+});
+
+app.get('/app', (req, res) => {
+  if (hasReactBuild) return res.sendFile(reactIndexPath);
+  res.sendFile(path.join(__dirname, '..', 'public', 'app.html'));
+});
+
+// React client static assets (JS/CSS bundles)
+if (hasReactBuild) {
+  app.use(express.static(clientDistPath, { maxAge: '1h' }));
+}
+
 // Versioned static assets — long cache (CSS/JS have ?vN busters)
 app.use(express.static(path.join(__dirname, '..', 'public'), {
   maxAge: '1h',
-  // Never cache the HTML shell — it's the source of truth for asset versions
   setHeaders(res, filePath) {
     if (filePath.endsWith('.html')) {
       res.setHeader('Cache-Control', 'no-store');
     }
   },
 }));
-
-// React client build — serve built assets (JS/CSS) from client/dist/
-const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
-const fs = require('fs');
-if (fs.existsSync(clientDistPath)) {
-  app.use(express.static(clientDistPath, { maxAge: '1h' }));
-  console.log('[Server] React client build found at client/dist/');
-}
 
 // Rate limiters
 const authLimiter = rateLimit({
@@ -228,20 +244,7 @@ app.delete('/api/keys/:id', requireAuth, async (req, res) => {
   res.json({ success: true });
 });
 
-// Serve React SPA for both / and /app when client/dist is available
-const reactIndexPath = path.join(__dirname, '..', 'client', 'dist', 'index.html');
-const _fs = require('fs');
-const hasReactBuild = _fs.existsSync(reactIndexPath);
 
-app.get('/', (req, res, next) => {
-  if (hasReactBuild) return res.sendFile(reactIndexPath);
-  next(); // fall through to express.static serving public/index.html
-});
-
-app.get('/app', (req, res) => {
-  if (hasReactBuild) return res.sendFile(reactIndexPath);
-  res.sendFile(path.join(__dirname, '..', 'public', 'app.html'));
-});
 
 // Heartbeat interval
 let heartbeatInterval;
