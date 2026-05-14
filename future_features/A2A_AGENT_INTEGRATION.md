@@ -1,5 +1,7 @@
 # A2A Agent Integration — Implementation Plan
 
+> **Note:** This is an internal roadmap document. URLs, agent names, and repo paths reference Foxtrot Communications' internal services as examples. When implementing, replace these with your own agent endpoints.
+
 **Roundtable as a Multi-Agent Multiplayer Workspace**
 
 > Enable Roundtable workspaces to discover, register, and invoke remote AI agents via the [A2A protocol](https://github.com/a2aproject/A2A). Multiple humans and multiple agents collaborate in the same real-time workspace.
