@@ -86,6 +86,8 @@ export default function ChatView({
               );
             } catch { return null; }
           }
+          // Skip assistant messages with no visible content (from tool-call-only turns)
+          if (msg.role === 'assistant' && (!msg.content || !msg.content.trim())) return null;
           return <Message key={msg.id} message={msg} />;
         })}
 
