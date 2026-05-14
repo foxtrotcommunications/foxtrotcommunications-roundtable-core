@@ -173,10 +173,22 @@ html, body { height: 100%; font-family: 'Inter', system-ui, sans-serif; backgrou
 .chat-header-info p { font-size: 12px; color: var(--text-secondary); }
 .chat-header-actions { display: flex; gap: 8px; align-items: center; }
 
-.presence-bar { display: flex; gap: -4px; align-items: center; }
-.presence-avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--bg-tertiary); border: 2px solid var(--bg-secondary); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; margin-left: -6px; position: relative; }
+.presence-bar { position: relative; display: flex; align-items: center; }
+.presence-toggle { display: flex; align-items: center; gap: 8px; background: var(--bg-tertiary); border: 1px solid var(--border-subtle); border-radius: 20px; padding: 4px 12px 4px 4px; cursor: pointer; color: var(--text-secondary); font-size: 12px; transition: all 0.15s ease; }
+.presence-toggle:hover { background: var(--bg-hover); border-color: var(--border-default); }
+.presence-avatars { display: flex; align-items: center; }
+.presence-avatar { width: 24px; height: 24px; border-radius: 50%; background: var(--bg-tertiary); border: 2px solid var(--bg-secondary); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; margin-left: -6px; position: relative; color: #fff; }
 .presence-avatar:first-child { margin-left: 0; }
-.presence-dot { position: absolute; bottom: -1px; right: -1px; width: 8px; height: 8px; background: var(--success); border-radius: 50%; border: 2px solid var(--bg-secondary); }
+.presence-dot { position: absolute; bottom: -1px; right: -1px; width: 7px; height: 7px; background: var(--success); border-radius: 50%; border: 1.5px solid var(--bg-secondary); }
+.presence-count { font-weight: 500; white-space: nowrap; }
+.presence-dropdown { position: absolute; top: calc(100% + 8px); right: 0; background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: 12px; padding: 8px 0; min-width: 200px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); z-index: 100; animation: fadeIn 0.15s ease; }
+.presence-dropdown-header { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); padding: 4px 14px 8px; border-bottom: 1px solid var(--border-subtle); margin-bottom: 4px; }
+.presence-user-row { display: flex; align-items: center; gap: 10px; padding: 6px 14px; }
+.presence-avatar-sm { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; position: relative; color: #fff; flex-shrink: 0; }
+.presence-user-info { display: flex; flex-direction: column; }
+.presence-user-name { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+.presence-user-status { font-size: 11px; color: var(--success); }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
 
 .chat-messages { flex: 1; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 4px; }
 
