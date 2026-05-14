@@ -1,3 +1,13 @@
+# ─── Stage 1: Build React client ───
+FROM node:20-alpine AS client-build
+
+WORKDIR /build
+COPY client/package*.json ./
+RUN npm install --ignore-scripts
+COPY client/ ./
+RUN npm run build
+
+# ─── Stage 2: Runtime ───
 FROM node:20-alpine AS runtime
 
 WORKDIR /app
@@ -12,6 +22,9 @@ RUN npm ci --production
 # Copy source
 COPY server/ ./server/
 COPY public/ ./public/
+
+# Copy React client build from stage 1
+COPY --from=client-build /build/dist ./client/dist/
 
 # Create workspace directory
 RUN mkdir -p /app/workspace

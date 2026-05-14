@@ -1,5 +1,5 @@
 {
-  "name": "foxtrotcommunications-roundtable",
+  "name": "roundtable",
   "version": "0.1.0",
   "description": "Real-time multiplayer AI chat sharing platform — collaborate on AI conversations together",
   "main": "server/index.js",

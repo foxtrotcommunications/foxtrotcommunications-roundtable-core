@@ -29,6 +29,10 @@ const Socket = {
     });
     socket.on('ai-start', () => {
       Chat.showStreaming(true);
+      const sendBtn = document.getElementById('chat-send');
+      const stopBtn = document.getElementById('chat-stop');
+      if (sendBtn) sendBtn.style.display = 'none';
+      if (stopBtn) stopBtn.style.display = 'flex';
     });
     socket.on('ai-chunk', (data) => {
       Chat.appendAIChunk(data.content);
@@ -46,6 +50,10 @@ const Socket = {
     socket.on('ai-complete', (data) => {
       Chat.finalizeAIResponse();
       Chat.showStreaming(false);
+      const sendBtn = document.getElementById('chat-send');
+      const stopBtn = document.getElementById('chat-stop');
+      if (sendBtn) sendBtn.style.display = 'flex';
+      if (stopBtn) stopBtn.style.display = 'none';
     });
 
     // Code panel: auto-refresh when workspace changes
@@ -57,6 +65,10 @@ const Socket = {
   sendMessage(content) {
     const activeRepo = (typeof CodePanel !== 'undefined' && CodePanel.currentRepo) || null;
     if (socket) socket.emit('send-message', { content, activeRepo });
+  },
+
+  stopGeneration() {
+    if (socket) socket.emit('stop-generation');
   },
 
   // ─── Activity & Cursor ────────────────────────────

@@ -131,7 +131,8 @@ function setupChatHandlers(io, socket) {
 - GCP Project: ${gcpProject}
 - GCP Region: ${gcpRegion}
 - BigQuery billing project: ${bqProject} (use this as the default project when running queries)${bqDatasetCtx}
-- When presenting SQL/BigQuery query results: ALWAYS format the rows as a markdown table (| col | col |\\n|---|---|\\n| val | val |). Never dump raw JSON arrays. If there are no rows, say "No results returned."
+- When presenting SQL/BigQuery query results: Format the data as a markdown table (| col | col |\\n|---|---|\\n| val | val |). IMPORTANT: Show at most 50 rows in your markdown table. If there are more, show the first 50 and note the total count. Never dump raw JSON arrays. If there are no rows, say "No results returned."
+- When writing SQL queries: ALWAYS include a LIMIT clause (default LIMIT 100) unless the user specifically asks for all rows or an aggregate (COUNT, SUM, etc.).
 - ALWAYS call tools directly when asked. Never ask the user for config values the environment already provides (project ID, region, etc.).
 - If a tool call fails with a transient error, try again with the same or corrected inputs. Do NOT tell the user you cannot do something without first attempting it with a tool.`;
 
