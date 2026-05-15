@@ -1,15 +1,18 @@
-// server/db/adapter.js — Database adapter factory (PostgreSQL)
+// server/db/adapter.js — Database adapter factory (PostgreSQL or SQLite)
 const config = require('../config');
 
 let adapter = null;
 
 async function initAdapter() {
-  if (!config.databaseUrl) {
-    throw new Error('DATABASE_URL is required. Set it in .env or environment variables.');
+  if (config.databaseUrl) {
+    const PostgreSQLAdapter = require('./adapters/postgresql');
+    adapter = new PostgreSQLAdapter(config.databaseUrl);
+  } else {
+    console.log('[DB] No DATABASE_URL set — using SQLite for local development');
+    console.log('[DB] Set DATABASE_URL to use PostgreSQL (required for production)');
+    const SQLiteAdapter = require('./adapters/sqlite');
+    adapter = new SQLiteAdapter('./data/roundtable.db');
   }
-
-  const PostgreSQLAdapter = require('./adapters/postgresql');
-  adapter = new PostgreSQLAdapter(config.databaseUrl);
   await adapter.initialize();
   return adapter;
 }
@@ -19,4 +22,8 @@ function getAdapter() {
   return adapter;
 }
 
-module.exports = { initAdapter, getAdapter };
+function isPostgres() {
+  return !!config.databaseUrl;
+}
+
+module.exports = { initAdapter, getAdapter, isPostgres };
