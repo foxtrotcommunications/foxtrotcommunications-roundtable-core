@@ -34,6 +34,7 @@
     "@google-cloud/bigquery": "^8.3.1",
     "@google/genai": "^2.2.0",
     "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^12.10.0",
     "connect-pg-simple": "^10.0.0",
     "dotenv": "^16.4.7",
     "express": "^4.21.1",

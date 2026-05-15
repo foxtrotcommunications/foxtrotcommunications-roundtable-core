@@ -3,12 +3,10 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const session = require('express-session');
-const pgSession = require('connect-pg-simple')(session);
-const { Pool } = require('pg');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const config = require('./config');
-const { initAdapter, getAdapter } = require('./db/adapter');
+const { initAdapter, getAdapter, isPostgres } = require('./db/adapter');
 const { setupSockets } = require('./sockets');
 
 const authRoutes = require('./routes/auth');
@@ -49,16 +47,25 @@ if (isProd && (!config.sessionSecret || config.sessionSecret === 'roundtable-dev
   process.exit(1);
 }
 
-// Postgres-backed sessions (survives container restarts)
-const sessionPool = new Pool({ connectionString: config.databaseUrl });
-const sessionMiddleware = session({
-  store: new pgSession({
+// Session store: PostgreSQL when DATABASE_URL is set, in-memory for local dev
+let sessionStore;
+if (isPostgres()) {
+  const pgSession = require('connect-pg-simple')(session);
+  const { Pool } = require('pg');
+  const sessionPool = new Pool({ connectionString: config.databaseUrl });
+  sessionStore = new pgSession({
     pool: sessionPool,
     tableName: 'user_sessions',
     createTableIfMissing: true,
     ttl: 7 * 24 * 60 * 60,       // 7 days in seconds
     pruneSessionInterval: 60 * 60, // prune expired rows every hour
-  }),
+  });
+} else {
+  console.log('[Session] Using in-memory session store (dev mode — sessions lost on restart)');
+}
+
+const sessionMiddleware = session({
+  store: sessionStore,              // undefined = express-session MemoryStore
   secret: config.sessionSecret,
   resave: false,
   saveUninitialized: false,
@@ -288,7 +295,7 @@ async function start() {
   ║                                                   ║
   ║   Local:  http://localhost:${config.port}                ║
   ║   Workspace: ${config.workspaceId.padEnd(36)}║
-  ║   DB:     PostgreSQL                              ║
+  ║   DB:     ${(isPostgres() ? 'PostgreSQL' : 'SQLite (dev)').padEnd(38)}║
   ║                                                   ║
   ╚═══════════════════════════════════════════════════╝
     `);
