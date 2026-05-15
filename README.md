@@ -249,6 +249,7 @@ Deployment model (workspace-per-container):
 See the [`docs/use-cases/`](docs/use-cases/) directory for detailed deployment scenarios:
 
 - **[Cross-Workspace Compliance Investigation](docs/use-cases/cross-workspace-compliance.md)** — How a hedge fund compliance team can bridge workspaces to investigate securities transactions across desks, with full audit trails and AI-mediated cross-team collaboration.
+- **[Hedge Fund TCO Analysis](docs/use-cases/hedge-fund-tco.md)** — Total cost of ownership comparison: replacing $1.3M/yr in disconnected AI tools with a single Roundtable deployment at ~$30K/yr infrastructure cost.
 
 ## Testing
 
