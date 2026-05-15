@@ -15,9 +15,9 @@ WORKDIR /app
 # Git is required for git_clone, git_status tools
 RUN apk add --no-cache git
 
-# Copy package files and install production deps
+# Copy package files and install production deps (skip optional: better-sqlite3 needs native build tools)
 COPY package*.json ./
-RUN npm ci --production
+RUN npm ci --omit=dev --omit=optional
 
 # Copy source
 COPY server/ ./server/

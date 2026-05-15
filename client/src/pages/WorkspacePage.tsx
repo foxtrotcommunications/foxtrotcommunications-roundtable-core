@@ -69,6 +69,11 @@ export default function WorkspacePage({ user, onLogout }: Props) {
     const next = !codePanelOpen;
     setCodePanelOpen(next);
     localStorage.setItem('code-panel-open', String(next));
+    // Clear inline resize styles when closing so CSS transition works
+    if (!next) {
+      const panel = document.querySelector('.code-panel') as HTMLElement;
+      if (panel) { panel.style.width = ''; panel.style.minWidth = ''; }
+    }
   };
 
   const handleSendMessage = useCallback((content: string) => {
@@ -115,7 +120,13 @@ export default function WorkspacePage({ user, onLogout }: Props) {
           isOpen={codePanelOpen}
           onActiveRepoChange={setActiveRepo}
           addToast={addToast}
-          onClose={() => { setCodePanelOpen(false); localStorage.setItem('code-panel-open', 'false'); }}
+          onClose={() => {
+            setCodePanelOpen(false);
+            localStorage.setItem('code-panel-open', 'false');
+            // Clear inline styles from resize drag — they override CSS class transition
+            const panel = document.querySelector('.code-panel') as HTMLElement;
+            if (panel) { panel.style.width = ''; panel.style.minWidth = ''; }
+          }}
         />
       </div>
 

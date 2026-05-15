@@ -273,7 +273,18 @@ app.delete('/api/keys/:id', requireAuth, async (req, res) => {
 let heartbeatInterval;
 
 async function start() {
-  await initAdapter();
+  // Retry DB init — Cloud SQL proxy sidecar may take 15-20s to be ready
+  const maxRetries = 10;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await initAdapter();
+      break;
+    } catch (err) {
+      if (attempt === maxRetries) throw err;
+      console.log(`[DB] Connection failed (attempt ${attempt}/${maxRetries}): ${err.code || err.message}. Retrying in 3s...`);
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
 
   // Register this workspace in the shared DB
   const db = getAdapter();
