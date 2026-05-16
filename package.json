@@ -32,7 +32,7 @@
   "dependencies": {
     "@databricks/sql": "^1.14.0",
     "@google-cloud/bigquery": "^8.3.1",
-    "@google-cloud/vertexai": "^1.12.0",
+    "@google/genai": "^2.2.0",
     "bcryptjs": "^2.4.3",
     "connect-pg-simple": "^10.0.0",
     "dotenv": "^16.4.7",
@@ -41,10 +41,14 @@
     "express-session": "^1.18.1",
     "helmet": "^8.1.0",
     "mathjs": "^15.2.0",
+    "multer": "^2.1.1",
     "node-fetch": "^2.7.0",
     "pg": "^8.20.0",
     "snowflake-sdk": "^2.4.1",
     "socket.io": "^4.8.1"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.9.1"
   },
   "devDependencies": {
     "jest": "^29.7.0",

@@ -14,18 +14,22 @@ router.get('/workspace', (req, res) => {
     if (!fs.existsSync(WORKSPACE_DIR)) {
       return res.json({ repos: [] });
     }
+    const SKIP_DIRS = new Set(['lost+found', '.Trash', '.Trash-1000', 'System Volume Information']);
     const entries = fs.readdirSync(WORKSPACE_DIR, { withFileTypes: true });
     const repos = entries
-      .filter((e) => e.isDirectory() && fs.existsSync(path.join(WORKSPACE_DIR, e.name, '.git')))
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !SKIP_DIRS.has(e.name))
       .map((e) => {
+        const isGit = fs.existsSync(path.join(WORKSPACE_DIR, e.name, '.git'));
         let branch = '';
-        try {
-          branch = fs
-            .readFileSync(path.join(WORKSPACE_DIR, e.name, '.git', 'HEAD'), 'utf-8')
-            .trim()
-            .replace('ref: refs/heads/', '');
-        } catch (_) {}
-        return { name: e.name, branch };
+        if (isGit) {
+          try {
+            branch = fs
+              .readFileSync(path.join(WORKSPACE_DIR, e.name, '.git', 'HEAD'), 'utf-8')
+              .trim()
+              .replace('ref: refs/heads/', '');
+          } catch (_) {}
+        }
+        return { name: e.name, branch: isGit ? branch : 'uploads' };
       });
     res.json({ repos });
   } catch (err) {
@@ -48,7 +52,7 @@ router.get('/workspace/:repo/tree', (req, res) => {
       const items = [];
       for (const entry of entries) {
         // Skip hidden files and common junk
-        if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === '__pycache__') {
+        if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === '__pycache__' || entry.name === 'lost+found') {
           continue;
         }
         const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
@@ -91,6 +95,11 @@ router.get('/workspace/:repo/status', (req, res) => {
     const repoPath = path.resolve(WORKSPACE_DIR, req.params.repo);
     if (!repoPath.startsWith(WORKSPACE_DIR) || !fs.existsSync(repoPath)) {
       return res.status(404).json({ error: 'Repository not found' });
+    }
+
+    // Non-git directories return empty status
+    if (!fs.existsSync(path.join(repoPath, '.git'))) {
+      return res.json({ repo: req.params.repo, files: {} });
     }
 
     const { execSync } = require('child_process');
@@ -186,4 +195,124 @@ router.get('/workspace/:repo/raw', (req, res) => {
   }
 });
 
+/**
+ * DELETE /api/workspace/:repo/file?path=... — delete a file from a repo
+ */
+router.delete('/workspace/:repo/file', (req, res) => {
+  try {
+    const filePath = req.query.path;
+    if (!filePath) return res.status(400).json({ error: 'path query parameter required' });
+
+    const fullPath = path.resolve(WORKSPACE_DIR, req.params.repo, filePath);
+    if (!fullPath.startsWith(WORKSPACE_DIR)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    if (!fs.existsSync(fullPath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    fs.unlinkSync(fullPath);
+    res.json({ deleted: filePath });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/workspace/upload — upload files to workspace root or a subdirectory
+ * Supports: multipart/form-data with field name "files" (multiple)
+ * Query params:
+ *   dir — target subdirectory within workspace (e.g. "my-repo/data")
+ */
+const multer = require('multer');
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB per file
+});
+
+router.post('/workspace/upload', upload.array('files', 20), (req, res) => {
+  try {
+    const targetDir = req.query.dir || '';
+    const destBase = path.resolve(WORKSPACE_DIR, String(targetDir));
+
+    // Path traversal protection
+    if (!destBase.startsWith(WORKSPACE_DIR)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Ensure destination exists
+    fs.mkdirSync(destBase, { recursive: true });
+
+    const results = [];
+    for (const file of (req.files || [])) {
+      // Sanitize filename — strip path separators
+      const safeName = path.basename(file.originalname);
+      const destPath = path.resolve(destBase, safeName);
+
+      // Double-check path traversal
+      if (!destPath.startsWith(WORKSPACE_DIR)) {
+        results.push({ name: safeName, error: 'Invalid path' });
+        continue;
+      }
+
+      fs.writeFileSync(destPath, file.buffer);
+      results.push({
+        name: safeName,
+        size: file.size,
+        path: path.relative(WORKSPACE_DIR, destPath),
+      });
+    }
+
+    res.json({ uploaded: results, dir: targetDir || '/' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/workspace/:repo/upload — upload files into a specific repo directory
+ * Query params:
+ *   path — subdirectory within the repo (e.g. "data/schemas")
+ */
+router.post('/workspace/:repo/upload', upload.array('files', 20), (req, res) => {
+  try {
+    const repoPath = path.resolve(WORKSPACE_DIR, req.params.repo);
+    if (!repoPath.startsWith(WORKSPACE_DIR) || !fs.existsSync(repoPath)) {
+      return res.status(404).json({ error: 'Repository not found' });
+    }
+
+    const subDir = req.query.path || '';
+    const destBase = path.resolve(repoPath, String(subDir));
+
+    if (!destBase.startsWith(WORKSPACE_DIR)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    fs.mkdirSync(destBase, { recursive: true });
+
+    const results = [];
+    for (const file of (req.files || [])) {
+      const safeName = path.basename(file.originalname);
+      const destPath = path.resolve(destBase, safeName);
+
+      if (!destPath.startsWith(WORKSPACE_DIR)) {
+        results.push({ name: safeName, error: 'Invalid path' });
+        continue;
+      }
+
+      fs.writeFileSync(destPath, file.buffer);
+      results.push({
+        name: safeName,
+        size: file.size,
+        path: path.relative(WORKSPACE_DIR, destPath),
+      });
+    }
+
+    res.json({ uploaded: results, repo: req.params.repo, dir: subDir || '/' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
+

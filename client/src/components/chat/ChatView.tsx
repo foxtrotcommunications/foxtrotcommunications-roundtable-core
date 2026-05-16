@@ -4,21 +4,30 @@ import ToolCard from './ToolCard';
 import MessageContent from './MessageContent';
 import type { ChatMessage, ToolCall, ToolResult } from '../../types/message';
 import type { PresenceUser } from '../../types/workspace';
+import type { TokenUsage } from '../../hooks/useSocket';
 
 interface Props {
   messages: ChatMessage[];
   streaming: boolean;
   streamingContent: string;
   toolCalls: Map<string, { call: ToolCall; result?: ToolResult }>;
+  lastUsage: TokenUsage | null;
   onSendMessage: (content: string, activeRepo?: string) => void;
   onStopGeneration: () => void;
   onTyping: () => void;
   typingUsers: PresenceUser[];
+  currentUsername?: string;
+}
+
+function formatTokenCount(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'k';
+  return n.toString();
 }
 
 export default function ChatView({
-  messages, streaming, streamingContent, toolCalls,
-  onSendMessage, onStopGeneration, onTyping, typingUsers,
+  messages, streaming, streamingContent, toolCalls, lastUsage,
+  onSendMessage, onStopGeneration, onTyping, typingUsers, currentUsername,
 }: Props) {
   const messagesRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -86,7 +95,12 @@ export default function ChatView({
               );
             } catch { return null; }
           }
-          return <Message key={msg.id} message={msg} />;
+          // Skip assistant messages with no visible content (from tool-call-only turns)
+          if (msg.role === 'assistant' && (!msg.content || !msg.content.trim())) return null;
+          const isMentioned = currentUsername && msg.content
+            ? new RegExp(`@${currentUsername}\\b`, 'i').test(msg.content)
+            : false;
+          return <Message key={msg.id} message={msg} highlighted={isMentioned} />;
         })}
 
         {/* Live tool calls during streaming */}
@@ -104,17 +118,33 @@ export default function ChatView({
                 <span className="message-time">now</span>
               </div>
               <div className="message-content">
-                {streamingContent ? (
+                {streamingContent && (
                   <MessageContent content={streamingContent} />
-                ) : (
-                  <div className="streaming-indicator">
-                    <span className="streaming-dot" />
-                    <span className="streaming-dot" />
-                    <span className="streaming-dot" />
-                  </div>
                 )}
+                <div className="streaming-indicator">
+                  <span className="streaming-dot" />
+                  <span className="streaming-dot" />
+                  <span className="streaming-dot" />
+                  <span className="streaming-label">
+                    {toolCalls.size > 0
+                      ? `Working — ${Array.from(toolCalls.values()).filter(t => !t.result).length > 0 ? 'running tools…' : 'thinking…'}`
+                      : streamingContent ? 'generating…' : ''}
+                  </span>
+                </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Token usage indicator — shown after AI completes */}
+        {!streaming && lastUsage && lastUsage.totalTokens > 0 && (
+          <div className="token-usage-bar">
+            <span className="token-usage-icon">⚡</span>
+            <span className="token-usage-detail">{formatTokenCount(lastUsage.promptTokens)} in</span>
+            <span className="token-usage-sep">·</span>
+            <span className="token-usage-detail">{formatTokenCount(lastUsage.completionTokens)} out</span>
+            <span className="token-usage-sep">·</span>
+            <span className="token-usage-total">{formatTokenCount(lastUsage.totalTokens)} tokens</span>
           </div>
         )}
       </div>

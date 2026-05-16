@@ -4,8 +4,38 @@
 
 Multiple users collaborate on AI conversations in real-time — with built-in tools for querying data warehouses, executing code, and managing files. Each workspace is an isolated container with its own AI, tools, and persistent storage.
 
+Roundtable is designed as a **platform for agent orchestration** — connect your own A2A agents, MCP servers, or custom tools and let the AI route between them. Build agents in any language, deploy them anywhere, and plug them into a shared workspace where your whole team works together.
+
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-98%20passing-brightgreen.svg)](#testing)
+
+## Quick Start
+
+**Zero config. No database. No `.env` file.**
+
+```bash
+git clone https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable.git
+cd foxtrotcommunications-roundtable
+npm install
+npm run dev
+
+# Open http://localhost:3000
+```
+
+Roundtable auto-detects the environment: if no `DATABASE_URL` is set, it uses SQLite and in-memory sessions for instant local development.
+
+### Three Deployment Paths
+
+| Path | Database | Command | Time | Use Case |
+|------|----------|---------|------|----------|
+| **Local dev** | SQLite (auto) | `npm run dev` | ~3 min | Development, testing, evaluation |
+| **Docker quickstart** | PostgreSQL (compose) | `docker compose -f docker-compose.quickstart.yml up` | ~3 min | Quick demo on a VM |
+| **GKE production** | PostgreSQL (Cloud SQL) | `./deploy-gke.sh dev Development` | ~5 min | Enterprise deployment |
+
+### Prerequisites
+
+- **Node.js** 20+ (tested on Node 20, 22)
+- **PostgreSQL** — required only for production (local dev uses SQLite automatically)
 
 ## Features
 
@@ -17,6 +47,8 @@ Multiple users collaborate on AI conversations in real-time — with built-in to
 - **Configurable Agent** — Set the AI provider, model, and system prompt per workspace — no redeploy needed
 - **Data Warehouse Queries** — AI can query BigQuery, Snowflake, and Databricks in real-time
 - **Workspace-per-Container** — Each workspace is an isolated container with its own identity
+- **Workspace Bridges** — Open cross-workspace channels for AI-mediated collaboration between teams ([use case →](docs/use-cases/cross-workspace-compliance.md))
+- **A2A Agent Protocol** — Plug in external agents built in any language via the A2A standard
 - **Multi-Cloud** — Deploy on Cloud Run, GKE, EKS, AKS, or any Kubernetes cluster
 - **BYOK** — Bring Your Own Key; users configure their own API keys, or use server-level defaults
 - **Presence** — See who's online in each workspace
@@ -24,53 +56,41 @@ Multiple users collaborate on AI conversations in real-time — with built-in to
 - **Embeddable** — Embed in other apps via iframe with `EMBED_MODE=true`
 - **React + TypeScript** — Modern frontend with Vite, hot-reload dev server
 
-## Quick Start
-
-```bash
-# Clone
-git clone https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable.git
-cd foxtrotcommunications-roundtable
-
-# Configure
-cp .env.example .env
-# Edit .env: set SESSION_SECRET, DATABASE_URL, and optional AI API keys
-
-# Install & run
-npm install
-npm run dev
-
-# Open http://localhost:3000
-```
-
-### Prerequisites
-
-- **Node.js** 20+ (tested on Node 20, 22)
-- **PostgreSQL** — required for session and data persistence
-
 ## Deployment
 
-### Docker
+### Docker Quickstart (VM)
+
+Pull a pre-built image — no source build required. Port 80, `http://<vm-ip>` just works.
+
+```bash
+curl -O https://raw.githubusercontent.com/foxtrotcommunications/foxtrotcommunications-roundtable/main/docker-compose.quickstart.yml
+docker compose -f docker-compose.quickstart.yml up
+```
+
+### Docker (Build from Source)
 
 ```bash
 docker build -t roundtable:latest .
 docker run -p 3000:3000 --env-file .env roundtable:latest
 ```
 
-### Cloud Run (Google Cloud)
+### Docker Compose (Full Stack)
 
 ```bash
-./deploy-cloudrun.sh
+docker compose up
 ```
+
+Starts Roundtable + PostgreSQL. Edit `docker-compose.yml` to configure AI keys and workspace settings.
 
 ### GKE (Google Kubernetes Engine)
 
 ```bash
 # First time: creates Autopilot cluster, IAM, secrets, nginx-ingress
-./deploy-gke.sh --setup
+GCP_PROJECT=your-project ./deploy-gke.sh --setup
 
 # Deploy a workspace
-./deploy-gke.sh dev Development
-./deploy-gke.sh backend "Backend Team"
+GCP_PROJECT=your-project ./deploy-gke.sh dev Development
+GCP_PROJECT=your-project ./deploy-gke.sh backend "Backend Team"
 ```
 
 ### Any Kubernetes Cluster (EKS, AKS, bare metal)
@@ -95,8 +115,8 @@ See [`k8s/overlays/tls/`](k8s/overlays/tls/) for HTTPS setup with cert-manager +
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `3000` | Server port |
-| `SESSION_SECRET` | (required in prod) | Secret for session cookies |
-| `DATABASE_URL` | (required) | PostgreSQL connection string |
+| `SESSION_SECRET` | dev default | Secret for session cookies (required in production) |
+| `DATABASE_URL` | (none) | PostgreSQL connection string. If unset, uses SQLite for local dev |
 | `WORKSPACE_ID` | `default` | Unique workspace identity |
 | `WORKSPACE_NAME` | `Roundtable` | Display name for the workspace |
 | `EMBED_MODE` | `false` | Allow iframe embedding |
@@ -168,9 +188,9 @@ All 14 tools are enabled by default. Individual tools can be toggled per workspa
 | **read_url** | Fetch and extract text from web pages |
 | **calculator** | Evaluate math expressions (powered by mathjs) |
 | **run_code** | Execute JavaScript in a sandboxed environment |
-| **query_bigquery** | Query Google BigQuery (read-only, max 1000 rows) |
-| **query_snowflake** | Query Snowflake (read-only, max 1000 rows) |
-| **query_databricks** | Query Databricks SQL Warehouse (read-only, max 1000 rows) |
+| **query_bigquery** | Query Google BigQuery (read-only, max 100 rows) |
+| **query_snowflake** | Query Snowflake (read-only, max 100 rows) |
+| **query_databricks** | Query Databricks SQL Warehouse (read-only, max 100 rows) |
 | **shell_exec** | Execute allowlisted shell commands in the workspace |
 | **read_file** | Read files from the workspace directory |
 | **write_file** | Write files to the workspace directory |
@@ -184,7 +204,7 @@ Data warehouse tools enforce **read-only access** — INSERT, UPDATE, DELETE, DR
 ## Architecture
 
 ```
-Browser (Vanilla JS + Socket.IO)
+Browser (React + Socket.IO)
     ↕ WebSocket
 Express + Socket.IO Server
     ↕                    ↕                        ↕
@@ -197,27 +217,39 @@ PostgreSQL          AI Providers              Data Warehouses
 ```
 Deployment model (workspace-per-container):
 
-┌─────────────────────────┐
-│  Cloud Run / GKE / EKS  │
-├─────────────────────────┤
-│ ┌─────────┐ ┌─────────┐ │
-│ │ rt-dev  │ │rt-backend│ │    Each workspace = 1 container
-│ │ :3000   │ │ :3000   │ │    All share the same PostgreSQL
-│ └────┬────┘ └────┬────┘ │
-│      │           │      │
-│      └─────┬─────┘      │
-│            ▼            │
-│     ┌────────────┐      │
-│     │ PostgreSQL │      │
-│     └────────────┘      │
-└─────────────────────────┘
+┌─────────────────────────────────────────┐
+│         Cloud Run / GKE / EKS           │
+├─────────────────────────────────────────┤
+│ ┌───────────┐ ┌───────────┐ ┌────────┐ │
+│ │ rt-dev    │ │ rt-backend│ │ rt-ops │ │   Each workspace = 1 container
+│ │ :3000     │ │ :3000     │ │ :3000  │ │   All share the same PostgreSQL
+│ └─────┬─────┘ └─────┬─────┘ └───┬────┘ │
+│       │             │           │       │
+│       └──────┬──────┘───────────┘       │
+│              ▼                          │
+│       ┌────────────┐                    │
+│       │ PostgreSQL │                    │
+│       └────────────┘                    │
+│              ▲                          │
+│       ┌──────┴──────┐                   │
+│       │  A2A Agents │  External agents  │
+│       │  MCP Servers│  plug in here     │
+│       └─────────────┘                   │
+└─────────────────────────────────────────┘
 ```
 
 - **Backend**: Node.js 20, Express, Socket.IO
-- **Database**: PostgreSQL (sessions, messages, workspace registry)
-- **Frontend**: Vanilla HTML/CSS/JS (no build step)
+- **Database**: PostgreSQL (production) or SQLite (local dev)
+- **Frontend**: React + TypeScript (Vite, `client/dist/`)
 - **Real-time**: Socket.IO for WebSocket communication
 - **Container**: Alpine-based Docker image (~60MB)
+
+## Use Cases
+
+See the [`docs/use-cases/`](docs/use-cases/) directory for detailed deployment scenarios:
+
+- **[Cross-Workspace Compliance Investigation](docs/use-cases/cross-workspace-compliance.md)** — How a hedge fund compliance team can bridge workspaces to investigate securities transactions across desks, with full audit trails and AI-mediated cross-team collaboration.
+- **[Hedge Fund TCO Analysis](docs/use-cases/hedge-fund-tco.md)** — Total cost of ownership comparison: replacing $1.3M/yr in disconnected AI tools with a single Roundtable deployment at ~$30K/yr infrastructure cost.
 
 ## Testing
 

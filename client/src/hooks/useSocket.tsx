@@ -45,6 +45,13 @@ export interface ChatState {
   streaming: boolean;
   streamingContent: string;
   toolCalls: Map<string, { call: ToolCall; result?: ToolResult }>;
+  lastUsage: TokenUsage | null;
+}
+
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
 }
 
 export function useChat(socket: Socket | null) {
@@ -53,6 +60,7 @@ export function useChat(socket: Socket | null) {
   const streamingContentRef = useRef('');
   const [streamingContent, setStreamingContent] = useState('');
   const [toolCalls, setToolCalls] = useState<Map<string, { call: ToolCall; result?: ToolResult }>>(new Map());
+  const [lastUsage, setLastUsage] = useState<TokenUsage | null>(null);
 
   useEffect(() => {
     if (!socket) return;
@@ -66,6 +74,11 @@ export function useChat(socket: Socket | null) {
       streamingContentRef.current = '';
       setStreamingContent('');
       setToolCalls(new Map());
+      setLastUsage(null);
+    };
+
+    const onAiUsage = (data: TokenUsage) => {
+      setLastUsage(data);
     };
 
     const onAiChunk = (data: { content: string }) => {
@@ -129,6 +142,7 @@ export function useChat(socket: Socket | null) {
     socket.on('tool-result', onToolResult);
     socket.on('ai-error', onAiError);
     socket.on('ai-complete', onAiComplete);
+    socket.on('ai-usage', onAiUsage);
 
     return () => {
       socket.off('new-message', onMessage);
@@ -138,6 +152,7 @@ export function useChat(socket: Socket | null) {
       socket.off('tool-result', onToolResult);
       socket.off('ai-error', onAiError);
       socket.off('ai-complete', onAiComplete);
+      socket.off('ai-usage', onAiUsage);
     };
   }, [socket]);
 
@@ -149,7 +164,7 @@ export function useChat(socket: Socket | null) {
     if (socket) socket.emit('stop-generation');
   }, [socket]);
 
-  return { messages, setMessages, streaming, streamingContent, toolCalls, sendMessage, stopGeneration };
+  return { messages, setMessages, streaming, streamingContent, toolCalls, lastUsage, sendMessage, stopGeneration };
 }
 
 // ─── Presence Hook ──────────────────────────────────

@@ -106,7 +106,10 @@ function setupChatHandlers(io, socket) {
         }
       } catch (e) { /* ignore workspace scan errors */ }
 
-      // Always prepend GCP / tool environment context
+      // ── Platform Context ────────────────────────────────────
+      // Lean system prompt with behavioral rules + data context.
+      // The AI discovers its own capabilities via describe_workspace tool.
+
       const gcpProject = config.vertexai?.project || process.env.GCP_PROJECT || '';
       const gcpRegion  = process.env.GCP_LOCATION || 'us-central1';
       const bqProject  = dataSources?.bigquery?.project || gcpProject;
@@ -127,16 +130,47 @@ function setupChatHandlers(io, socket) {
         }
       }
 
-      const envCtx = `You are a helpful AI assistant with direct access to tools. Key environment facts:
-- GCP Project: ${gcpProject}
+      const envCtx = `You are the AI assistant for the "${config.workspaceName}" workspace on the Roundtable platform by Foxtrot Communications. This is a real-time multiplayer workspace — multiple users may be present simultaneously.
+
+--- SELF-DISCOVERY ---
+You have a describe_workspace tool. Call it when:
+- A user asks what you can do or what tools are available
+- You need to understand your deployment environment
+- You want to know which data warehouses or agents are connected
+Do NOT guess your capabilities. Call describe_workspace to get the live inventory.
+
+--- DATA ENVIRONMENT ---
+- GCP Project: ${gcpProject || '(not configured)'}
 - GCP Region: ${gcpRegion}
-- BigQuery billing project: ${bqProject} (use this as the default project when running queries)${bqDatasetCtx}
+- BigQuery billing project: ${bqProject || '(not configured)'}${bqProject ? ' (use this as the default project when running queries)' : ''}${bqDatasetCtx}
+
+--- BEHAVIORAL RULES ---
 - When presenting SQL/BigQuery query results: Format the data as a markdown table (| col | col |\\n|---|---|\\n| val | val |). IMPORTANT: Show at most 50 rows in your markdown table. If there are more, show the first 50 and note the total count. Never dump raw JSON arrays. If there are no rows, say "No results returned."
 - When writing SQL queries: ALWAYS include a LIMIT clause (default LIMIT 100) unless the user specifically asks for all rows or an aggregate (COUNT, SUM, etc.).
 - ALWAYS call tools directly when asked. Never ask the user for config values the environment already provides (project ID, region, etc.).
-- If a tool call fails with a transient error, try again with the same or corrected inputs. Do NOT tell the user you cannot do something without first attempting it with a tool.`;
+- If a tool call fails with a transient error, try again with the same or corrected inputs. Do NOT tell the user you cannot do something without first attempting it with a tool.
+- CRITICAL: If a BigQuery query fails with "Access Denied" or "Table not found", do NOT guess alternative table names. Instead, STOP and tell the user the exact error. You may ONLY use table names from the schema definitions provided below or that you have confirmed exist via a successful query.
+- If you fail a query 3 times, STOP retrying and summarize what you tried and what went wrong.`;
 
       systemPrompt = envCtx + (systemPrompt ? '\n\n' + systemPrompt : '');
+
+      // Auto-inject schema YAML files from workspace/uploads/ into the system prompt
+      try {
+        const uploadsDir = require('path').resolve(__dirname, '..', '..', 'workspace', 'uploads');
+        const fs = require('fs');
+        if (fs.existsSync(uploadsDir)) {
+          const schemaFiles = fs.readdirSync(uploadsDir)
+            .filter(f => f.endsWith('.yaml') || f.endsWith('.yml'));
+          if (schemaFiles.length > 0) {
+            let schemaCtx = '\n\n--- DATA SCHEMA DEFINITIONS ---\nThe following schemas define ALL available tables and columns. Use ONLY these table names in queries. Do NOT guess or invent table names.\n';
+            for (const sf of schemaFiles) {
+              const content = fs.readFileSync(require('path').join(uploadsDir, sf), 'utf8');
+              schemaCtx += `\n### ${sf}\n\`\`\`yaml\n${content}\n\`\`\`\n`;
+            }
+            systemPrompt += schemaCtx;
+          }
+        }
+      } catch (e) { /* ignore schema scan errors */ }
 
       if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
 
@@ -154,6 +188,10 @@ function setupChatHandlers(io, socket) {
       io.to(wsChannel).emit('ai-start', { userId: socket.userId, username: socket.username });
 
       let fullText = '';
+      let usageData = null;
+      let toolCallCount = 0;
+      const toolNamesUsed = [];
+
       try {
         for await (const event of streamCompletion(
           aiProvider, aiModel, messages, apiKey, toolsEnabled,
@@ -169,6 +207,8 @@ function setupChatHandlers(io, socket) {
             case 'tool-call':
               console.log(`[Tool] Calling: ${event.name}`, JSON.stringify(event.args));
               io.to(wsChannel).emit('tool-call', { name: event.name, args: event.args, callId: event.callId });
+              toolCallCount++;
+              if (!toolNamesUsed.includes(event.name)) toolNamesUsed.push(event.name);
               break;
             case 'tool-result':
               console.log(`[Tool] Result from ${event.name}:`, JSON.stringify(event.result).substring(0, 200));
@@ -178,6 +218,15 @@ function setupChatHandlers(io, socket) {
               if (['write_file', 'git_clone', 'git_commit', 'shell_exec'].includes(event.name)) {
                 io.to(wsChannel).emit('workspace-changed', { tool: event.name });
               }
+              break;
+            case 'usage':
+              usageData = event;
+              io.to(wsChannel).emit('ai-usage', {
+                promptTokens: event.promptTokens,
+                completionTokens: event.completionTokens,
+                totalTokens: event.totalTokens,
+                userId: socket.userId,
+              });
               break;
             case 'error':
               io.to(wsChannel).emit('ai-error', { error: event.error });
@@ -196,6 +245,24 @@ function setupChatHandlers(io, socket) {
         socket.isGenerating = false;
         socket.abortController = null;
         io.to(wsChannel).emit('ai-complete', { fullText, userId: socket.userId });
+
+        // Record usage to database (fire-and-forget)
+        try {
+          const { getAdapter } = require('../db/adapter');
+          await getAdapter().recordUsage(
+            config.workspaceId,
+            socket.userId,
+            aiProvider,
+            aiModel,
+            usageData?.promptTokens || 0,
+            usageData?.completionTokens || 0,
+            usageData?.totalTokens || 0,
+            toolCallCount,
+            toolNamesUsed,
+          );
+        } catch (usageErr) {
+          console.error('[Usage] Failed to record usage:', usageErr.message);
+        }
       }
     } catch (err) {
       console.error('[Chat] Error:', err);
