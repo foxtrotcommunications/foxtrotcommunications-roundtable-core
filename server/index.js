@@ -200,7 +200,21 @@ app.patch('/api/workspace/info', requireAuth, async (req, res) => {
   }
 });
 
-// Messages (workspace-scoped)
+// ─── Usage Tracking API ──────────────────────────────────
+
+// Usage summary for the workspace (default: last 30 days)
+app.get('/api/workspace/usage', requireAuth, async (req, res) => {
+  try {
+    const db = getAdapter();
+    const days = parseInt(req.query.days, 10) || 30;
+    const summary = await db.getUsageSummary(config.workspaceId, days);
+    const byUser = await db.getUsageByUser(config.workspaceId, days);
+    const byModel = await db.getUsageByModel(config.workspaceId, days);
+    res.json({ period: `${days} days`, summary, byUser, byModel });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 app.get('/api/messages', requireAuth, async (req, res) => {
   try {
     const db = getAdapter();
