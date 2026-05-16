@@ -128,7 +128,7 @@ module.exports = {
     return {
       platform: 'Roundtable',
       version: '1.0.0',
-      organization: 'Foxtrot Communications',
+      organization: config.platformOrg || undefined,
 
       workspace: {
         id: config.workspaceId,

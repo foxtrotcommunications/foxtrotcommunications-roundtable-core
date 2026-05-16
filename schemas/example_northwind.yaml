@@ -1,0 +1,113 @@
+# Example Schema — Northwind Traders
+# ===================================
+# Drop this file into workspace/uploads/ to make it available to the AI.
+# The AI will use these definitions to write correct SQL queries.
+#
+# This is a demonstration schema based on the classic Northwind database.
+# Replace it with your own dataset schemas for production use.
+
+metadata:
+  dataset: northwind
+  description: "Classic Northwind Traders sample dataset"
+  # project: your-gcp-project       # Uncomment for BigQuery
+  # database: your_database          # Uncomment for Snowflake/Databricks
+
+tables:
+  - name: customers
+    description: "Customer master data"
+    columns:
+      - name: customer_id
+        type: STRING
+        description: "Primary key"
+      - name: company_name
+        type: STRING
+      - name: contact_name
+        type: STRING
+      - name: contact_title
+        type: STRING
+      - name: city
+        type: STRING
+      - name: country
+        type: STRING
+
+  - name: orders
+    description: "Sales orders"
+    columns:
+      - name: order_id
+        type: INTEGER
+        description: "Primary key"
+      - name: customer_id
+        type: STRING
+        description: "FK → customers.customer_id"
+      - name: employee_id
+        type: INTEGER
+      - name: order_date
+        type: DATE
+      - name: ship_city
+        type: STRING
+      - name: ship_country
+        type: STRING
+      - name: freight
+        type: FLOAT
+
+  - name: order_details
+    description: "Line items for each order"
+    columns:
+      - name: order_id
+        type: INTEGER
+        description: "FK → orders.order_id"
+      - name: product_id
+        type: INTEGER
+        description: "FK → products.product_id"
+      - name: unit_price
+        type: FLOAT
+      - name: quantity
+        type: INTEGER
+      - name: discount
+        type: FLOAT
+
+  - name: products
+    description: "Product catalog"
+    columns:
+      - name: product_id
+        type: INTEGER
+        description: "Primary key"
+      - name: product_name
+        type: STRING
+      - name: category_id
+        type: INTEGER
+      - name: unit_price
+        type: FLOAT
+      - name: units_in_stock
+        type: INTEGER
+      - name: discontinued
+        type: BOOLEAN
+
+  - name: categories
+    description: "Product categories"
+    columns:
+      - name: category_id
+        type: INTEGER
+        description: "Primary key"
+      - name: category_name
+        type: STRING
+      - name: description
+        type: STRING
+
+# Example queries (shown to the AI as guidance):
+#
+#   -- Top 10 customers by order count
+#   SELECT c.company_name, COUNT(o.order_id) as order_count
+#   FROM customers c
+#   JOIN orders o ON c.customer_id = o.customer_id
+#   GROUP BY c.company_name
+#   ORDER BY order_count DESC
+#   LIMIT 10
+#
+#   -- Revenue by category
+#   SELECT cat.category_name, SUM(od.unit_price * od.quantity) as revenue
+#   FROM order_details od
+#   JOIN products p ON od.product_id = p.product_id
+#   JOIN categories cat ON p.category_id = cat.category_id
+#   GROUP BY cat.category_name
+#   ORDER BY revenue DESC

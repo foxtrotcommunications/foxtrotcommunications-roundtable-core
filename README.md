@@ -14,8 +14,8 @@ Roundtable is designed as a **platform for agent orchestration** — connect you
 **Zero config. No database. No `.env` file.**
 
 ```bash
-git clone https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable.git
-cd foxtrotcommunications-roundtable
+git clone https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable-core.git
+cd foxtrotcommunications-roundtable-core
 npm install
 npm run dev
 
@@ -63,7 +63,7 @@ Roundtable auto-detects the environment: if no `DATABASE_URL` is set, it uses SQ
 Pull a pre-built image — no source build required. Port 80, `http://<vm-ip>` just works.
 
 ```bash
-curl -O https://raw.githubusercontent.com/foxtrotcommunications/foxtrotcommunications-roundtable/main/docker-compose.quickstart.yml
+curl -O https://raw.githubusercontent.com/foxtrotcommunications/foxtrotcommunications-roundtable-core/main/docker-compose.quickstart.yml
 docker compose -f docker-compose.quickstart.yml up
 ```
 
