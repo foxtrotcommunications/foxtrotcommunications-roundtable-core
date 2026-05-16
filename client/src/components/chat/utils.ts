@@ -24,7 +24,7 @@ export function formatTime(timestamp: string): string {
   let ts = String(timestamp).replace(' ', 'T');
   if (!ts.endsWith('Z') && !ts.includes('+')) ts += 'Z';
   const d = new Date(ts);
-  return isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 export const TOOL_ICONS: Record<string, string> = {
