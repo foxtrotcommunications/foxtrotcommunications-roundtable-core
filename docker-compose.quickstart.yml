@@ -1,0 +1,42 @@
+# Roundtable Quickstart — no source code needed
+# Usage:
+#   curl -O https://raw.githubusercontent.com/foxtrotcommunications/foxtrotcommunications-roundtable/main/docker-compose.quickstart.yml
+#   docker compose -f docker-compose.quickstart.yml up -d
+#   open http://localhost:3000
+
+services:
+  roundtable:
+    image: ghcr.io/foxtrotcommunications/roundtable:latest
+    ports:
+      - "80:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=postgresql://roundtable:roundtable@postgres:5432/roundtable
+      - SESSION_SECRET=${SESSION_SECRET:-roundtable-quickstart-change-me}
+      - WORKSPACE_ID=${WORKSPACE_ID:-default}
+      - WORKSPACE_NAME=${WORKSPACE_NAME:-Roundtable}
+      - SECURE_COOKIES=false
+      # AI keys are optional here — add them in the Settings UI after startup
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: roundtable
+      POSTGRES_PASSWORD: roundtable
+      POSTGRES_DB: roundtable
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U roundtable"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:

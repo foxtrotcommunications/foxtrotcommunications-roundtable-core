@@ -3,12 +3,10 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const session = require('express-session');
-const pgSession = require('connect-pg-simple')(session);
-const { Pool } = require('pg');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const config = require('./config');
-const { initAdapter, getAdapter } = require('./db/adapter');
+const { initAdapter, getAdapter, isPostgres } = require('./db/adapter');
 const { setupSockets } = require('./sockets');
 
 const authRoutes = require('./routes/auth');
@@ -49,16 +47,25 @@ if (isProd && (!config.sessionSecret || config.sessionSecret === 'roundtable-dev
   process.exit(1);
 }
 
-// Postgres-backed sessions (survives container restarts)
-const sessionPool = new Pool({ connectionString: config.databaseUrl });
-const sessionMiddleware = session({
-  store: new pgSession({
+// Session store: PostgreSQL when DATABASE_URL is set, in-memory for local dev
+let sessionStore;
+if (isPostgres()) {
+  const pgSession = require('connect-pg-simple')(session);
+  const { Pool } = require('pg');
+  const sessionPool = new Pool({ connectionString: config.databaseUrl });
+  sessionStore = new pgSession({
     pool: sessionPool,
     tableName: 'user_sessions',
     createTableIfMissing: true,
     ttl: 7 * 24 * 60 * 60,       // 7 days in seconds
     pruneSessionInterval: 60 * 60, // prune expired rows every hour
-  }),
+  });
+} else {
+  console.log('[Session] Using in-memory session store (dev mode — sessions lost on restart)');
+}
+
+const sessionMiddleware = session({
+  store: sessionStore,              // undefined = express-session MemoryStore
   secret: config.sessionSecret,
   resave: false,
   saveUninitialized: false,
@@ -99,18 +106,34 @@ if (hasReactBuild) {
 
 // SPA routes MUST come before express.static to override public/index.html
 app.get('/', (req, res, next) => {
-  if (hasReactBuild) return res.sendFile(reactIndexPath);
+  if (hasReactBuild) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    return res.sendFile(reactIndexPath);
+  }
   next();
 });
 
 app.get('/app', (req, res) => {
-  if (hasReactBuild) return res.sendFile(reactIndexPath);
+  if (hasReactBuild) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    return res.sendFile(reactIndexPath);
+  }
   res.sendFile(path.join(__dirname, '..', 'public', 'app.html'));
 });
 
 // React client static assets (JS/CSS bundles)
 if (hasReactBuild) {
-  app.use(express.static(clientDistPath, { maxAge: '1h' }));
+  app.use(express.static(clientDistPath, {
+    maxAge: '7d', // Vite hashes filenames — safe to cache long-term
+    setHeaders(res, filePath) {
+      // HTML entry point must always be revalidated
+      if (filePath.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+      }
+    },
+  }));
 }
 
 // Versioned static assets — long cache (CSS/JS have ?vN busters)
@@ -177,7 +200,21 @@ app.patch('/api/workspace/info', requireAuth, async (req, res) => {
   }
 });
 
-// Messages (workspace-scoped)
+// ─── Usage Tracking API ──────────────────────────────────
+
+// Usage summary for the workspace (default: last 30 days)
+app.get('/api/workspace/usage', requireAuth, async (req, res) => {
+  try {
+    const db = getAdapter();
+    const days = parseInt(req.query.days, 10) || 30;
+    const summary = await db.getUsageSummary(config.workspaceId, days);
+    const byUser = await db.getUsageByUser(config.workspaceId, days);
+    const byModel = await db.getUsageByModel(config.workspaceId, days);
+    res.json({ period: `${days} days`, summary, byUser, byModel });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 app.get('/api/messages', requireAuth, async (req, res) => {
   try {
     const db = getAdapter();
@@ -250,7 +287,18 @@ app.delete('/api/keys/:id', requireAuth, async (req, res) => {
 let heartbeatInterval;
 
 async function start() {
-  await initAdapter();
+  // Retry DB init — Cloud SQL proxy sidecar may take 15-20s to be ready
+  const maxRetries = 10;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await initAdapter();
+      break;
+    } catch (err) {
+      if (attempt === maxRetries) throw err;
+      console.log(`[DB] Connection failed (attempt ${attempt}/${maxRetries}): ${err.code || err.message}. Retrying in 3s...`);
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
 
   // Register this workspace in the shared DB
   const db = getAdapter();
@@ -272,7 +320,7 @@ async function start() {
   ║                                                   ║
   ║   Local:  http://localhost:${config.port}                ║
   ║   Workspace: ${config.workspaceId.padEnd(36)}║
-  ║   DB:     PostgreSQL                              ║
+  ║   DB:     ${(isPostgres() ? 'PostgreSQL' : 'SQLite (dev)').padEnd(38)}║
   ║                                                   ║
   ╚═══════════════════════════════════════════════════╝
     `);

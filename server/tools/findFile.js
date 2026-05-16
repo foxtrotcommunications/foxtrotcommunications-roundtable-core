@@ -35,7 +35,7 @@ module.exports = {
         try { items = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
         for (const item of items) {
           if (matches.length >= maxResults) return;
-          if (item.name.startsWith('.') || item.name === 'node_modules' || item.name === '__pycache__') continue;
+          if (item.name.startsWith('.') || item.name === 'node_modules' || item.name === '__pycache__' || item.name === 'lost+found') continue;
 
           const rel = prefix ? `${prefix}/${item.name}` : item.name;
           if (item.isDirectory()) {

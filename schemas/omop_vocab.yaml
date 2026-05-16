@@ -1,0 +1,94 @@
+# OMOP Vocabulary Schema Map — BigQuery Deployment
+# Dataset: foxtrot-communications-public.omop_vocab
+# Source: OHDSI Athena vocabularies, loaded by avalon-public/omop-views/scripts/load_vocab.py
+# Purpose: Upload to Roundtable workspace so the AI can resolve concept IDs to human-readable names
+
+dataset:
+  project: foxtrot-communications-public
+  dataset: omop_vocab
+  source: "OHDSI Athena Standardized Vocabularies"
+  vocabularies_loaded: ["SNOMED", "LOINC", "RxNorm", "UCUM", "Gender", "Race", "Ethnicity"]
+  note: >
+    These tables enable resolving concept_id integers (e.g. condition_concept_id, drug_concept_id)
+    from the clinical OMOP tables in forge_synthetic_fhir to human-readable concept names.
+    The concept_map view is the easiest way to go from a source code to a standard concept_id.
+
+tables:
+
+  - name: concept
+    description: >
+      One row per clinical concept across all loaded vocabularies.
+      This is the master lookup table — join any *_concept_id column here to get the human name.
+    primary_key: concept_id
+    row_estimate: "~500K (filtered to loaded vocabularies)"
+    columns:
+      - { name: concept_id, type: INT64, description: "Unique OMOP integer concept identifier" }
+      - { name: concept_name, type: STRING, description: "Human-readable concept name (e.g., 'Myocardial infarction')" }
+      - { name: domain_id, type: STRING, description: "OMOP domain: Condition, Drug, Measurement, Observation, Procedure, etc." }
+      - { name: vocabulary_id, type: STRING, description: "Source vocabulary: SNOMED, LOINC, RxNorm, UCUM, Gender, Race, Ethnicity" }
+      - { name: concept_class_id, type: STRING, description: "Vocabulary-specific class (e.g., 'Clinical Finding', 'Lab Test')" }
+      - { name: standard_concept, type: STRING, description: "'S' = Standard, 'C' = Classification, NULL = Non-standard" }
+      - { name: concept_code, type: STRING, description: "Code as it appears in the source vocabulary (e.g., '22298006' for MI in SNOMED)" }
+      - { name: valid_start_date, type: DATE, description: "Date concept became valid" }
+      - { name: valid_end_date, type: DATE, description: "Date concept was retired (9999-12-31 if still valid)" }
+      - { name: invalid_reason, type: STRING, description: "NULL if valid; 'D' (deleted) or 'U' (updated) if retired" }
+
+  - name: concept_relationship
+    description: >
+      Relationships between concepts. The most important relationship is 'Maps to'
+      which maps non-standard source concepts to their standard OMOP equivalents.
+      Filtered to only 'Maps to' and 'Maps to value' relationships.
+    columns:
+      - { name: concept_id_1, type: INT64, description: "Source concept ID", fk: concept.concept_id }
+      - { name: concept_id_2, type: INT64, description: "Target concept ID", fk: concept.concept_id }
+      - { name: relationship_id, type: STRING, description: "Relationship type: 'Maps to' or 'Maps to value'" }
+      - { name: valid_start_date, type: DATE }
+      - { name: valid_end_date, type: DATE }
+      - { name: invalid_reason, type: STRING, description: "NULL if current; non-null if retired" }
+
+  - name: concept_map
+    description: >
+      Pre-joined convenience view: source_code + source_vocabulary → standard_concept_id.
+      This is the easiest lookup for resolving source codes (SNOMED, LOINC, RxNorm)
+      to standard OMOP concept IDs. All OMOP dbt models join against this view.
+    type: VIEW
+    columns:
+      - { name: source_code, type: STRING, description: "Code from the source vocabulary (e.g., SNOMED code string)" }
+      - { name: source_vocabulary, type: STRING, description: "Vocabulary the source code belongs to (SNOMED, LOINC, RxNorm)" }
+      - { name: source_concept_id, type: INT64, description: "OMOP concept_id for the non-standard source concept" }
+      - { name: standard_concept_id, type: INT64, description: "OMOP Standard concept_id to use in *_concept_id fields" }
+      - { name: standard_concept_name, type: STRING, description: "Human-readable name of the standard concept" }
+      - { name: domain_id, type: STRING, description: "OMOP domain of the standard concept" }
+      - { name: standard_vocabulary, type: STRING, description: "Vocabulary of the standard concept" }
+
+# ─── Query Patterns ────────────────────────────────────
+# Resolve a concept_id to a human name:
+#   SELECT concept_id, concept_name, vocabulary_id
+#   FROM `foxtrot-communications-public.omop_vocab.concept`
+#   WHERE concept_id = 312327   -- Myocardial infarction
+#
+# Find concept by name (text search):
+#   SELECT concept_id, concept_name, vocabulary_id, domain_id
+#   FROM `foxtrot-communications-public.omop_vocab.concept`
+#   WHERE LOWER(concept_name) LIKE '%myocardial infarction%'
+#     AND standard_concept = 'S'
+#
+# Join clinical data to get readable names:
+#   SELECT co.person_id, c.concept_name AS condition_name, co.condition_start_date
+#   FROM `foxtrot-communications-public.forge_synthetic_fhir.omop_condition_occurrence` co
+#   JOIN `foxtrot-communications-public.omop_vocab.concept` c
+#     ON co.condition_concept_id = c.concept_id
+#
+# Use concept_map for source code → standard concept resolution:
+#   SELECT source_code, standard_concept_id, standard_concept_name
+#   FROM `foxtrot-communications-public.omop_vocab.concept_map`
+#   WHERE source_code = '22298006' AND source_vocabulary = 'SNOMED'
+#
+# Top 10 conditions by patient count (clinical + vocab join):
+#   SELECT c.concept_name, COUNT(DISTINCT co.person_id) AS patient_count
+#   FROM `foxtrot-communications-public.forge_synthetic_fhir.omop_condition_occurrence` co
+#   JOIN `foxtrot-communications-public.omop_vocab.concept` c
+#     ON co.condition_concept_id = c.concept_id
+#   GROUP BY c.concept_name
+#   ORDER BY patient_count DESC
+#   LIMIT 10

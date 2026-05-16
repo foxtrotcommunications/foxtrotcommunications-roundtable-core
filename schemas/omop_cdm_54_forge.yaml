@@ -1,0 +1,322 @@
+# OMOP CDM 5.4 Schema Map — BigQuery Deployment
+# Dataset: foxtrot-communications-public.forge_synthetic_fhir
+# Source: avalon-public/omop-views (dbt models)
+# Purpose: Upload to Roundtable workspace so the AI can write accurate SQL
+
+dataset:
+  project: foxtrot-communications-public
+  dataset: forge_synthetic_fhir
+  cdm_version: "5.4"
+  source: "Synthea FHIR → Forge ETL → dbt OMOP views"
+  note: >
+    All IDs are deterministic via ABS(FARM_FINGERPRINT(...)).
+    Concept IDs use SNOMED (conditions/procedures), RxNorm (drugs), LOINC (measurements).
+    All table names use the omop_ prefix as deployed by dbt.
+  important: >
+    NEVER guess or hardcode concept_id values. Always look them up first from the
+    vocabulary dataset (foxtrot-communications-public.omop_vocab.concept):
+      SELECT concept_id, concept_name FROM `foxtrot-communications-public.omop_vocab.concept`
+      WHERE LOWER(concept_name) LIKE '%search term%' AND standard_concept = 'S'
+    Example: Myocardial infarction = concept_id 4329847 (SNOMED 22298006).
+
+tables:
+
+  # ─── Clinical Data ─────────────────────────────────────
+
+  - name: omop_person
+    description: "One row per patient"
+    primary_key: person_id
+    columns:
+      - { name: person_id, type: INT64, description: "ABS(FARM_FINGERPRINT(patient_id))" }
+      - { name: gender_concept_id, type: INT64, description: "8507=Male, 8532=Female" }
+      - { name: year_of_birth, type: INT64 }
+      - { name: month_of_birth, type: INT64 }
+      - { name: day_of_birth, type: INT64 }
+      - { name: birth_datetime, type: TIMESTAMP }
+      - { name: race_concept_id, type: INT64 }
+      - { name: ethnicity_concept_id, type: INT64 }
+      - { name: location_id, type: INT64, fk: omop_location.location_id }
+      - { name: provider_id, type: INT64, fk: omop_provider.provider_id }
+      - { name: care_site_id, type: INT64, fk: omop_care_site.care_site_id }
+      - { name: person_source_value, type: STRING, description: "Original FHIR Patient.id" }
+      - { name: gender_source_value, type: STRING }
+      - { name: race_source_value, type: STRING }
+      - { name: ethnicity_source_value, type: STRING }
+
+  - name: omop_observation_period
+    description: "One row per patient — min/max encounter dates"
+    primary_key: observation_period_id
+    columns:
+      - { name: observation_period_id, type: INT64 }
+      - { name: person_id, type: INT64, fk: omop_person.person_id }
+      - { name: observation_period_start_date, type: DATE }
+      - { name: observation_period_end_date, type: DATE }
+      - { name: period_type_concept_id, type: INT64 }
+
+  - name: omop_visit_occurrence
+    description: "One row per encounter (inpatient, outpatient, ER, etc.)"
+    primary_key: visit_occurrence_id
+    columns:
+      - { name: visit_occurrence_id, type: INT64 }
+      - { name: person_id, type: INT64, fk: omop_person.person_id }
+      - { name: visit_concept_id, type: INT64, description: "9201=IP, 9202=OP, 9203=ER, 581399=Ambulatory, 581476=Home" }
+      - { name: visit_start_date, type: DATE }
+      - { name: visit_start_datetime, type: TIMESTAMP }
+      - { name: visit_end_date, type: DATE }
+      - { name: visit_end_datetime, type: TIMESTAMP }
+      - { name: visit_type_concept_id, type: INT64 }
+      - { name: provider_id, type: INT64, fk: omop_provider.provider_id }
+      - { name: care_site_id, type: INT64, fk: omop_care_site.care_site_id }
+      - { name: visit_source_value, type: STRING, description: "FHIR Encounter.id" }
+      - { name: admitted_from_source_value, type: STRING }
+      - { name: discharged_to_source_value, type: STRING }
+
+  - name: omop_condition_occurrence
+    description: "One row per diagnosis/condition event"
+    primary_key: condition_occurrence_id
+    columns:
+      - { name: condition_occurrence_id, type: INT64 }
+      - { name: person_id, type: INT64, fk: omop_person.person_id }
+      - { name: condition_concept_id, type: INT64, description: "SNOMED standard concept" }
+      - { name: condition_start_date, type: DATE }
+      - { name: condition_start_datetime, type: TIMESTAMP }
+      - { name: condition_end_date, type: DATE }
+      - { name: condition_type_concept_id, type: INT64 }
+      - { name: stop_reason, type: STRING }
+      - { name: provider_id, type: INT64, fk: omop_provider.provider_id }
+      - { name: visit_occurrence_id, type: INT64, fk: omop_visit_occurrence.visit_occurrence_id }
+      - { name: condition_source_value, type: STRING, description: "SNOMED code from FHIR" }
+      - { name: condition_source_concept_id, type: INT64 }
+
+  - name: omop_procedure_occurrence
+    description: "One row per procedure event"
+    primary_key: procedure_occurrence_id
+    columns:
+      - { name: procedure_occurrence_id, type: INT64 }
+      - { name: person_id, type: INT64, fk: omop_person.person_id }
+      - { name: procedure_concept_id, type: INT64, description: "SNOMED standard concept" }
+      - { name: procedure_date, type: DATE }
+      - { name: procedure_datetime, type: TIMESTAMP }
+      - { name: procedure_type_concept_id, type: INT64 }
+      - { name: quantity, type: INT64 }
+      - { name: provider_id, type: INT64, fk: omop_provider.provider_id }
+      - { name: visit_occurrence_id, type: INT64, fk: omop_visit_occurrence.visit_occurrence_id }
+      - { name: procedure_source_value, type: STRING, description: "SNOMED code from FHIR" }
+      - { name: procedure_source_concept_id, type: INT64 }
+      - { name: modifier_source_value, type: STRING }
+
+  - name: omop_drug_exposure
+    description: "One row per medication event (prescriptions + immunizations)"
+    primary_key: drug_exposure_id
+    columns:
+      - { name: drug_exposure_id, type: INT64 }
+      - { name: person_id, type: INT64, fk: omop_person.person_id }
+      - { name: drug_concept_id, type: INT64, description: "RxNorm standard concept" }
+      - { name: drug_exposure_start_date, type: DATE }
+      - { name: drug_exposure_start_datetime, type: TIMESTAMP }
+      - { name: drug_exposure_end_date, type: DATE }
+      - { name: drug_type_concept_id, type: INT64 }
+      - { name: stop_reason, type: STRING }
+      - { name: refills, type: INT64 }
+      - { name: days_supply, type: INT64 }
+      - { name: sig, type: STRING, description: "Dosage instructions text" }
+      - { name: route_concept_id, type: INT64 }
+      - { name: lot_number, type: STRING }
+      - { name: provider_id, type: INT64, fk: omop_provider.provider_id }
+      - { name: visit_occurrence_id, type: INT64, fk: omop_visit_occurrence.visit_occurrence_id }
+      - { name: drug_source_value, type: STRING, description: "RxNorm/CVX code" }
+      - { name: drug_source_concept_id, type: INT64 }
+      - { name: route_source_value, type: STRING }
+      - { name: dose_unit_source_value, type: STRING }
+
+  - name: omop_measurement
+    description: "Numeric observations — labs, vitals"
+    primary_key: measurement_id
+    columns:
+      - { name: measurement_id, type: INT64 }
+      - { name: person_id, type: INT64, fk: omop_person.person_id }
+      - { name: measurement_concept_id, type: INT64, description: "LOINC standard concept" }
+      - { name: measurement_date, type: DATE }
+      - { name: measurement_datetime, type: TIMESTAMP }
+      - { name: measurement_type_concept_id, type: INT64 }
+      - { name: value_as_number, type: FLOAT64 }
+      - { name: value_as_concept_id, type: INT64 }
+      - { name: unit_concept_id, type: INT64 }
+      - { name: range_low, type: FLOAT64 }
+      - { name: range_high, type: FLOAT64 }
+      - { name: provider_id, type: INT64 }
+      - { name: visit_occurrence_id, type: INT64, fk: omop_visit_occurrence.visit_occurrence_id }
+      - { name: measurement_source_value, type: STRING, description: "LOINC code" }
+      - { name: unit_source_value, type: STRING }
+      - { name: value_source_value, type: STRING }
+
+  - name: omop_observation
+    description: "Non-numeric clinical findings (social history, surveys)"
+    primary_key: observation_id
+    columns:
+      - { name: observation_id, type: INT64 }
+      - { name: person_id, type: INT64, fk: omop_person.person_id }
+      - { name: observation_concept_id, type: INT64 }
+      - { name: observation_date, type: DATE }
+      - { name: observation_datetime, type: TIMESTAMP }
+      - { name: observation_type_concept_id, type: INT64 }
+      - { name: value_as_number, type: FLOAT64 }
+      - { name: value_as_string, type: STRING }
+      - { name: value_as_concept_id, type: INT64 }
+      - { name: provider_id, type: INT64 }
+      - { name: visit_occurrence_id, type: INT64, fk: omop_visit_occurrence.visit_occurrence_id }
+      - { name: observation_source_value, type: STRING }
+      - { name: unit_source_value, type: STRING }
+      - { name: value_source_value, type: STRING }
+
+  - name: omop_death
+    description: "One row per deceased patient"
+    primary_key: person_id
+    columns:
+      - { name: person_id, type: INT64, fk: omop_person.person_id }
+      - { name: death_date, type: DATE }
+      - { name: death_datetime, type: TIMESTAMP }
+      - { name: death_type_concept_id, type: INT64 }
+      - { name: cause_concept_id, type: INT64 }
+      - { name: cause_source_value, type: STRING }
+      - { name: cause_source_concept_id, type: INT64 }
+
+  # ─── Health Economics ──────────────────────────────────
+
+  - name: omop_cost
+    description: "Claim item-level costs from ExplanationOfBenefit"
+    primary_key: cost_id
+    columns:
+      - { name: cost_id, type: INT64 }
+      - { name: cost_event_id, type: INT64, description: "References visit_occurrence_id" }
+      - { name: cost_domain_id, type: STRING }
+      - { name: cost_type_concept_id, type: INT64 }
+      - { name: currency_concept_id, type: INT64 }
+      - { name: total_charge, type: FLOAT64 }
+      - { name: total_cost, type: FLOAT64 }
+      - { name: total_paid, type: FLOAT64 }
+      - { name: paid_by_payer, type: FLOAT64 }
+      - { name: paid_by_patient, type: FLOAT64 }
+      - { name: paid_patient_copay, type: FLOAT64 }
+      - { name: paid_patient_deductible, type: FLOAT64 }
+      - { name: paid_patient_coinsurance, type: FLOAT64 }
+      - { name: payer_plan_period_id, type: INT64 }
+      - { name: revenue_code_source_value, type: STRING }
+      - { name: drg_source_value, type: STRING }
+
+  - name: omop_payer_plan_period
+    description: "Insurance coverage periods per patient"
+    primary_key: payer_plan_period_id
+    columns:
+      - { name: payer_plan_period_id, type: INT64 }
+      - { name: person_id, type: INT64, fk: omop_person.person_id }
+      - { name: payer_plan_period_start_date, type: DATE }
+      - { name: payer_plan_period_end_date, type: DATE }
+      - { name: payer_concept_id, type: INT64 }
+      - { name: payer_source_value, type: STRING, description: "Insurer name" }
+      - { name: plan_concept_id, type: INT64 }
+      - { name: plan_source_value, type: STRING }
+      - { name: sponsor_concept_id, type: INT64 }
+      - { name: family_source_value, type: STRING }
+      - { name: stop_reason_concept_id, type: INT64 }
+      - { name: stop_reason_source_value, type: STRING }
+
+  # ─── Derived / Era Tables ──────────────────────────────
+
+  - name: omop_condition_era
+    description: "Condition eras — merged condition periods with 30-day persistence window"
+    primary_key: condition_era_id
+    columns:
+      - { name: condition_era_id, type: INT64 }
+      - { name: person_id, type: INT64, fk: omop_person.person_id }
+      - { name: condition_concept_id, type: INT64 }
+      - { name: condition_era_start_date, type: DATE }
+      - { name: condition_era_end_date, type: DATE }
+      - { name: condition_occurrence_count, type: INT64 }
+
+  - name: omop_drug_era
+    description: "Drug eras — merged drug exposure periods with 30-day persistence window"
+    primary_key: drug_era_id
+    columns:
+      - { name: drug_era_id, type: INT64 }
+      - { name: person_id, type: INT64, fk: omop_person.person_id }
+      - { name: drug_concept_id, type: INT64 }
+      - { name: drug_era_start_date, type: DATE }
+      - { name: drug_era_end_date, type: DATE }
+      - { name: drug_exposure_count, type: INT64 }
+
+  # ─── Reference / Admin ─────────────────────────────────
+
+  - name: omop_location
+    description: "Geographic locations — one row per unique city/state/zip"
+    primary_key: location_id
+    columns:
+      - { name: location_id, type: INT64 }
+      - { name: address_1, type: STRING }
+      - { name: address_2, type: STRING }
+      - { name: city, type: STRING }
+      - { name: state, type: STRING, description: "2-letter US state abbreviation" }
+      - { name: zip, type: STRING }
+      - { name: county, type: STRING }
+      - { name: country_concept_id, type: INT64 }
+      - { name: country_source_value, type: STRING }
+      - { name: latitude, type: FLOAT64 }
+      - { name: longitude, type: FLOAT64 }
+
+  - name: omop_provider
+    description: "Healthcare providers — from encounter participants and med request requesters"
+    primary_key: provider_id
+    columns:
+      - { name: provider_id, type: INT64 }
+      - { name: provider_name, type: STRING }
+      - { name: dea, type: INT64 }
+      - { name: specialty_concept_id, type: INT64 }
+      - { name: care_site_id, type: INT64 }
+      - { name: year_of_birth, type: INT64 }
+      - { name: gender_concept_id, type: INT64 }
+      - { name: provider_source_value, type: STRING, description: "FHIR Practitioner reference" }
+      - { name: specialty_source_value, type: STRING }
+      - { name: gender_source_value, type: STRING }
+
+  - name: omop_care_site
+    description: "Healthcare organizations — from encounter service providers"
+    primary_key: care_site_id
+    columns:
+      - { name: care_site_id, type: INT64 }
+      - { name: care_site_name, type: STRING }
+      - { name: place_of_service_concept_id, type: INT64 }
+      - { name: location_id, type: INT64 }
+      - { name: care_site_source_value, type: STRING }
+      - { name: place_of_service_source_value, type: STRING }
+
+  - name: omop_cdm_source
+    description: "CDM metadata — single row"
+    columns:
+      - { name: cdm_source_name, type: STRING }
+      - { name: cdm_source_abbreviation, type: STRING }
+      - { name: cdm_holder, type: STRING }
+      - { name: source_description, type: STRING }
+      - { name: cdm_etl_reference, type: STRING }
+      - { name: source_release_date, type: DATE }
+      - { name: cdm_release_date, type: DATE }
+      - { name: cdm_version, type: STRING }
+      - { name: vocabulary_version, type: STRING }
+
+# ─── Query Patterns ────────────────────────────────────
+# Common joins for the AI to use:
+#
+# Patient demographics + visits:
+#   SELECT p.*, v.*
+#   FROM `foxtrot-communications-public.forge_synthetic_fhir.omop_person` p
+#   JOIN `foxtrot-communications-public.forge_synthetic_fhir.omop_visit_occurrence` v
+#     ON p.person_id = v.person_id
+#
+# Conditions with concept names (requires vocabulary table or source_value):
+#   SELECT co.person_id, co.condition_source_value, co.condition_start_date
+#   FROM `foxtrot-communications-public.forge_synthetic_fhir.omop_condition_occurrence` co
+#
+# Cost analysis per visit:
+#   SELECT v.visit_concept_id, c.total_charge, c.paid_by_payer, c.paid_by_patient
+#   FROM `foxtrot-communications-public.forge_synthetic_fhir.omop_cost` c
+#   JOIN `foxtrot-communications-public.forge_synthetic_fhir.omop_visit_occurrence` v
+#     ON c.cost_event_id = v.visit_occurrence_id

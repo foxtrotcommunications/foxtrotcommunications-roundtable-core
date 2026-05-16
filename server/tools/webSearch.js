@@ -75,29 +75,28 @@ async function googleCustomSearch(query) {
  */
 async function vertexGroundingSearch(query) {
   try {
-    const { VertexAI } = require('@google-cloud/vertexai');
-    const vertex = new VertexAI({
+    const { GoogleGenAI } = require('@google/genai');
+    const ai = new GoogleGenAI({
+      vertexai: true,
       project: config.vertexai.project,
       location: config.vertexai.location,
     });
 
-    const model = vertex.getGenerativeModel({
+    const result = await ai.models.generateContent({
       model: 'gemini-2.0-flash',
-      tools: [{ googleSearch: {} }],
-    });
-
-    const result = await model.generateContent({
       contents: [{
         role: 'user',
         parts: [{ text: `Search the web for: ${query}\n\nReturn a concise list of the top 5 results with their title, URL, and a brief snippet. Format each result on its own line as: TITLE | URL | SNIPPET` }],
       }],
+      config: {
+        tools: [{ googleSearch: {} }],
+      },
     });
 
-    const response = result.response;
-    const text = response.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const text = result.text || '';
 
     // Also extract grounding metadata if available
-    const groundingMeta = response.candidates?.[0]?.groundingMetadata;
+    const groundingMeta = result.candidates?.[0]?.groundingMetadata;
     const searchResults = [];
 
     if (groundingMeta?.groundingChunks) {

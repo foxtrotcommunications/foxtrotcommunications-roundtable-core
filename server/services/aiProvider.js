@@ -1,6 +1,6 @@
 // server/services/aiProvider.js — Unified multi-provider AI interface with tool support
 const fetch = require('node-fetch');
-const { VertexAI } = require('@google-cloud/vertexai');
+const { GoogleGenAI } = require('@google/genai');
 const { executeTool, toOpenAITools, toAnthropicTools, toGoogleTools } = require('../tools');
 const config = require('../config');
 
@@ -10,6 +10,7 @@ const config = require('../config');
  *   { type: 'text-delta', content: '...' }
  *   { type: 'tool-call', name: '...', args: {...}, callId: '...' }
  *   { type: 'tool-result', name: '...', callId: '...', result: {...} }
+ *   { type: 'usage', promptTokens, completionTokens, totalTokens }
  *   { type: 'done', fullText: '...' }
  *   { type: 'error', error: '...' }
  *
@@ -64,6 +65,7 @@ async function* streamOpenAI(model, messages, apiKey, enableTools, maxRounds, si
       model,
       messages: currentMessages,
       stream: true,
+      stream_options: { include_usage: true },
     };
 
     if (enableTools && round < maxRounds - 1) {
@@ -87,8 +89,13 @@ async function* streamOpenAI(model, messages, apiKey, enableTools, maxRounds, si
       return;
     }
 
-    const { toolCalls, text } = yield* parseOpenAIStream(response, signal);
+    const { toolCalls, text, usage } = yield* parseOpenAIStream(response, signal);
     fullText += text;
+
+    // Emit usage if available
+    if (usage) {
+      yield { type: 'usage', promptTokens: usage.prompt_tokens, completionTokens: usage.completion_tokens, totalTokens: usage.total_tokens };
+    }
 
     if (toolCalls.length === 0) {
       yield { type: 'done', fullText };
@@ -127,6 +134,7 @@ async function* streamOpenAI(model, messages, apiKey, enableTools, maxRounds, si
 async function* parseOpenAIStream(response, signal) {
   const toolCalls = [];
   let text = '';
+  let usage = null;
 
   const body = response.body;
   let buffer = '';
@@ -165,13 +173,18 @@ async function* parseOpenAIStream(response, signal) {
             }
           }
         }
+
+        // Capture usage from final chunk (stream_options.include_usage)
+        if (parsed.usage) {
+          usage = parsed.usage;
+        }
       } catch (e) {
         // Skip malformed JSON
       }
     }
   }
 
-  return { toolCalls: toolCalls.filter(Boolean), text };
+  return { toolCalls: toolCalls.filter(Boolean), text, usage };
 }
 
 // ─── Anthropic ──────────────────────────────────────────
@@ -216,8 +229,13 @@ async function* streamAnthropic(model, messages, apiKey, enableTools, maxRounds,
       return;
     }
 
-    const { toolUses, text, stopReason } = yield* parseAnthropicStream(response, signal);
+    const { toolUses, text, stopReason, usage } = yield* parseAnthropicStream(response, signal);
     fullText += text;
+
+    // Emit usage if available
+    if (usage) {
+      yield { type: 'usage', promptTokens: usage.input_tokens, completionTokens: usage.output_tokens, totalTokens: (usage.input_tokens || 0) + (usage.output_tokens || 0) };
+    }
 
     if (toolUses.length === 0 || stopReason !== 'tool_use') {
       yield { type: 'done', fullText };
@@ -264,6 +282,7 @@ async function* parseAnthropicStream(response, signal) {
   let stopReason = '';
   let currentToolUse = null;
   let currentToolJson = '';
+  let usage = null;
 
   const body = response.body;
   let buffer = '';
@@ -315,13 +334,25 @@ async function* parseAnthropicStream(response, signal) {
         if (parsed.type === 'message_delta' && parsed.delta?.stop_reason) {
           stopReason = parsed.delta.stop_reason;
         }
+
+        // Capture usage from message_start and message_delta
+        if (parsed.type === 'message_start' && parsed.message?.usage) {
+          usage = { input_tokens: parsed.message.usage.input_tokens || 0, output_tokens: 0 };
+        }
+        if (parsed.type === 'message_delta' && parsed.usage) {
+          if (usage) {
+            usage.output_tokens = parsed.usage.output_tokens || 0;
+          } else {
+            usage = { input_tokens: 0, output_tokens: parsed.usage.output_tokens || 0 };
+          }
+        }
       } catch (e) {
         // Skip
       }
     }
   }
 
-  return { toolUses, text, stopReason };
+  return { toolUses, text, stopReason, usage };
 }
 
 // ─── Google / Gemini ────────────────────────────────────
@@ -361,8 +392,13 @@ async function* streamGoogle(model, messages, apiKey, enableTools, maxRounds, si
       return;
     }
 
-    const { functionCalls, text } = yield* parseGoogleStream(response, signal);
+    const { functionCalls, text, usage } = yield* parseGoogleStream(response, signal);
     fullText += text;
+
+    // Emit usage if available
+    if (usage) {
+      yield { type: 'usage', promptTokens: usage.promptTokenCount, completionTokens: usage.candidatesTokenCount, totalTokens: usage.totalTokenCount };
+    }
 
     if (functionCalls.length === 0) {
       yield { type: 'done', fullText };
@@ -400,6 +436,7 @@ async function* streamGoogle(model, messages, apiKey, enableTools, maxRounds, si
 async function* parseGoogleStream(response, signal) {
   const functionCalls = [];
   let text = '';
+  let usage = null;
 
   const body = response.body;
   let buffer = '';
@@ -431,13 +468,18 @@ async function* parseGoogleStream(response, signal) {
             });
           }
         }
+
+        // Capture usage metadata from Google response
+        if (parsed.usageMetadata) {
+          usage = parsed.usageMetadata;
+        }
       } catch (e) {
         // Skip
       }
     }
   }
 
-  return { functionCalls, text };
+  return { functionCalls, text, usage };
 }
 
 // ─── Helpers ────────────────────────────────────────────
@@ -467,75 +509,123 @@ function formatGoogleMessages(messages) {
     }));
 }
 
-// ─── Vertex AI (Google Cloud ADC) ───────────────────────
+// ─── Vertex AI (Google Cloud ADC) — @google/genai SDK ───
 
-let vertexClient = null;
+let genaiRegionalClient = null;
+let genaiGlobalClient = null;
 
-function getVertexClient() {
-  if (!vertexClient) {
-    const project = config.vertexai.project;
-    const location = config.vertexai.location;
-    if (!project) throw new Error('GCP_PROJECT not set. Required for Vertex AI.');
-    vertexClient = new VertexAI({ project, location });
+/**
+ * Preview models (e.g. gemini-3.1-pro-preview) are only available on the
+ * global Vertex AI endpoint. GA models use the regional endpoint.
+ */
+function getGenAIClient(model) {
+  const project = config.vertexai.project;
+  if (!project) throw new Error('GCP_PROJECT not set. Required for Vertex AI.');
+
+  const isPreview = model && model.includes('-preview');
+
+  if (isPreview) {
+    if (!genaiGlobalClient) {
+      genaiGlobalClient = new GoogleGenAI({
+        vertexai: true,
+        project,
+        location: 'global',
+      });
+    }
+    return genaiGlobalClient;
   }
-  return vertexClient;
+
+  if (!genaiRegionalClient) {
+    const location = config.vertexai.location;
+    genaiRegionalClient = new GoogleGenAI({
+      vertexai: true,
+      project,
+      location,
+    });
+  }
+  return genaiRegionalClient;
 }
 
 async function* streamVertexAI(model, messages, enableTools, maxRounds, signal, enabledToolNames, workspaceConfig = {}) {
-  const vertex = getVertexClient();
+  const ai = getGenAIClient(model);
   const systemInstruction = extractGoogleSystemInstruction(messages);
   const contents = formatGoogleMessages(messages);
   let fullText = '';
 
-  const modelConfig = {
-    model,
-  };
-  if (systemInstruction) {
-    modelConfig.systemInstruction = { parts: [{ text: systemInstruction }] };
-  }
-  if (enableTools) {
-    modelConfig.tools = toGoogleTools(enabledToolNames);
-  }
-
-  const generativeModel = vertex.getGenerativeModel(modelConfig);
-
   for (let round = 0; round < maxRounds; round++) {
     if (signal?.aborted) { yield { type: 'done', fullText }; return; }
 
-    const streamResult = await generativeModel.generateContentStream({ contents });
+    const requestConfig = {};
+    if (systemInstruction) {
+      requestConfig.systemInstruction = systemInstruction;
+    }
+    if (enableTools && round < maxRounds - 1) {
+      requestConfig.tools = toGoogleTools(enabledToolNames);
+    }
+
+    const stream = await ai.models.generateContentStream({
+      model,
+      contents,
+      config: requestConfig,
+    });
 
     let text = '';
     const functionCalls = [];
+    const rawModelParts = []; // Preserve original parts for thought_signature support
+    let usageMetadata = null;
 
-    for await (const chunk of streamResult.stream) {
+    for await (const chunk of stream) {
       if (signal?.aborted) break;
-      const parts = chunk.candidates?.[0]?.content?.parts || [];
-      for (const part of parts) {
-        if (part.text) {
-          text += part.text;
-          yield { type: 'text-delta', content: part.text };
-        }
-        if (part.functionCall) {
+
+      // New SDK exposes .text and .functionCalls directly on the chunk
+      if (chunk.text) {
+        text += chunk.text;
+        yield { type: 'text-delta', content: chunk.text };
+      }
+
+      if (chunk.functionCalls) {
+        for (const fc of chunk.functionCalls) {
           functionCalls.push({
-            name: part.functionCall.name,
-            args: part.functionCall.args || {},
+            name: fc.name,
+            args: fc.args || {},
           });
         }
+      }
+
+      // Preserve raw parts from each chunk (includes thought_signature for Gemini 3.1+)
+      const candidateParts = chunk.candidates?.[0]?.content?.parts;
+      if (candidateParts) {
+        rawModelParts.push(...candidateParts);
+      }
+
+      // Capture usage metadata (typically on the last chunk)
+      if (chunk.usageMetadata) {
+        usageMetadata = chunk.usageMetadata;
       }
     }
 
     if (signal?.aborted) { yield { type: 'done', fullText: fullText + text }; return; }
     fullText += text;
 
+    // Emit usage if available
+    if (usageMetadata) {
+      yield {
+        type: 'usage',
+        promptTokens: usageMetadata.promptTokenCount || 0,
+        completionTokens: usageMetadata.candidatesTokenCount || 0,
+        totalTokens: usageMetadata.totalTokenCount || 0,
+      };
+    }
+
     if (functionCalls.length === 0) {
       yield { type: 'done', fullText };
       return;
     }
 
-    // Add model response with function calls
+    // Add model response preserving original parts (includes thought_signature)
     contents.push({
       role: 'model',
-      parts: functionCalls.map((fc) => ({
+      parts: rawModelParts.length > 0 ? rawModelParts : functionCalls.map((fc) => ({
         functionCall: { name: fc.name, args: fc.args },
       })),
     });
