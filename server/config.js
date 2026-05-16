@@ -14,6 +14,9 @@ const config = {
   workspaceName: process.env.WORKSPACE_NAME || process.env.WORKSPACE_ID || 'Roundtable',
   workspaceUrl: process.env.WORKSPACE_URL || '',
 
+  // Platform branding (appears in system prompt and describe_workspace)
+  platformOrg: process.env.PLATFORM_ORG || '',
+
   embedMode: process.env.EMBED_MODE === 'true',
 
   // Server-level AI keys (fallback if user hasn't configured their own)

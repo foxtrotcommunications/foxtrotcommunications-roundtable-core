@@ -130,7 +130,8 @@ function setupChatHandlers(io, socket) {
         }
       }
 
-      const envCtx = `You are the AI assistant for the "${config.workspaceName}" workspace on the Roundtable platform by Foxtrot Communications. This is a real-time multiplayer workspace — multiple users may be present simultaneously.
+      const orgLabel = config.platformOrg ? ` by ${config.platformOrg}` : '';
+      const envCtx = `You are the AI assistant for the "${config.workspaceName}" workspace on the Roundtable platform${orgLabel}. This is a real-time multiplayer workspace — multiple users may be present simultaneously.
 
 --- SELF-DISCOVERY ---
 You have a describe_workspace tool. Call it when:

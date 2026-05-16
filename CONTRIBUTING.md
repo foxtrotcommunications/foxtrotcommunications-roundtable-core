@@ -5,8 +5,8 @@ Thank you for your interest in contributing! Here's how to get started.
 ## Development Setup
 
 ```bash
-git clone https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable.git
-cd foxtrotcommunications-roundtable
+git clone https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable-core.git
+cd foxtrotcommunications-roundtable-core
 cp .env.example .env
 # Edit .env with your DATABASE_URL and SESSION_SECRET
 npm install

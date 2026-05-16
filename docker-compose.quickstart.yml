@@ -1,12 +1,12 @@
 # Roundtable Quickstart — no source code needed
 # Usage:
-#   curl -O https://raw.githubusercontent.com/foxtrotcommunications/foxtrotcommunications-roundtable/main/docker-compose.quickstart.yml
+#   curl -O https://raw.githubusercontent.com/foxtrotcommunications/foxtrotcommunications-roundtable-core/main/docker-compose.quickstart.yml
 #   docker compose -f docker-compose.quickstart.yml up -d
 #   open http://localhost:3000
 
 services:
   roundtable:
-    image: ghcr.io/foxtrotcommunications/roundtable:latest
+    image: ghcr.io/foxtrotcommunications/foxtrotcommunications-roundtable-core:latest
     ports:
       - "80:3000"
     environment:
