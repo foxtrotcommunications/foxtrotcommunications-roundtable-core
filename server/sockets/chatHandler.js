@@ -106,10 +106,33 @@ function setupChatHandlers(io, socket) {
         }
       } catch (e) { /* ignore workspace scan errors */ }
 
-      // Always prepend GCP / tool environment context
+      // ── Platform Awareness ───────────────────────────────────
+      // Build a dynamic context block so the AI knows exactly what it can do.
+      // This ensures the AI never describes tools it can't use and accurately
+      // represents its capabilities when users ask "what can you do?"
+
       const gcpProject = config.vertexai?.project || process.env.GCP_PROJECT || '';
       const gcpRegion  = process.env.GCP_LOCATION || 'us-central1';
       const bqProject  = dataSources?.bigquery?.project || gcpProject;
+
+      // Detect deployment mode from environment signals
+      const isKubernetes = !!process.env.KUBERNETES_SERVICE_HOST;
+      const isCloudRun = !!process.env.K_SERVICE;
+      const isDocker = !!process.env.DOCKER_CONTAINER || require('fs').existsSync('/.dockerenv');
+      const isProduction = process.env.NODE_ENV === 'production';
+      let deploymentMode = 'local development';
+      if (isKubernetes) deploymentMode = 'GKE (Google Kubernetes Engine)';
+      else if (isCloudRun) deploymentMode = 'Cloud Run';
+      else if (isDocker) deploymentMode = 'Docker';
+
+      // Build the active tool inventory — ONLY list tools actually available
+      const { resolveTools } = require('../tools');
+      const activeTools = resolveTools(enabledToolNames);
+      const activeToolNames = Object.keys(activeTools);
+      const toolInventory = activeToolNames.map(name => {
+        const t = activeTools[name];
+        return `  - ${name}: ${t.description}`;
+      }).join('\n');
 
       // Build BigQuery dataset context dynamically from workspace data sources
       let bqDatasetCtx = '';
@@ -127,16 +150,40 @@ function setupChatHandlers(io, socket) {
         }
       }
 
-      const envCtx = `You are a helpful AI assistant with direct access to tools. Key environment facts:
-- GCP Project: ${gcpProject}
-- GCP Region: ${gcpRegion}
-- BigQuery billing project: ${bqProject} (use this as the default project when running queries)${bqDatasetCtx}
+      // Detect connected data warehouse adapters
+      const connectedWarehouses = [];
+      if (bqProject) connectedWarehouses.push('Google BigQuery');
+      if (config.snowflake?.account) connectedWarehouses.push('Snowflake');
+      if (config.databricks?.host) connectedWarehouses.push('Databricks');
+
+      const envCtx = `You are the AI assistant for the "${config.workspaceName}" workspace on the Roundtable platform by Foxtrot Communications.
+
+--- PLATFORM IDENTITY ---
+- Platform: Roundtable — a real-time multiplayer AI workspace platform
+- Workspace: "${config.workspaceName}" (ID: ${config.workspaceId})
+- Deployment: ${deploymentMode}${isProduction ? ' (production)' : ''}
+- AI Provider: ${aiProvider} / ${aiModel}
+- This is a collaborative environment — multiple users can be in this workspace simultaneously, each with their own independent AI conversation. You may see messages from different users.
+
+--- YOUR TOOL INVENTORY ---
+You have access to EXACTLY ${activeToolNames.length} tools. These are the ONLY capabilities you have. Do NOT describe or suggest tools not in this list.
+${toolInventory}
+${activeToolNames.includes('shell_exec') ? '' : '- NOTE: Shell execution is NOT available in this workspace. Do not suggest running shell commands.'}
+${activeToolNames.includes('git_clone') ? '' : '- NOTE: Git operations are NOT available in this workspace.'}
+
+--- DATA ENVIRONMENT ---
+- GCP Project: ${gcpProject || '(not configured)'}
+- GCP Region: ${gcpRegion}${connectedWarehouses.length > 0 ? '\n- Connected data warehouses: ' + connectedWarehouses.join(', ') : ''}
+- BigQuery billing project: ${bqProject || '(not configured)'}${bqProject ? ' (use this as the default project when running queries)' : ''}${bqDatasetCtx}
+
+--- BEHAVIORAL RULES ---
 - When presenting SQL/BigQuery query results: Format the data as a markdown table (| col | col |\\n|---|---|\\n| val | val |). IMPORTANT: Show at most 50 rows in your markdown table. If there are more, show the first 50 and note the total count. Never dump raw JSON arrays. If there are no rows, say "No results returned."
 - When writing SQL queries: ALWAYS include a LIMIT clause (default LIMIT 100) unless the user specifically asks for all rows or an aggregate (COUNT, SUM, etc.).
 - ALWAYS call tools directly when asked. Never ask the user for config values the environment already provides (project ID, region, etc.).
 - If a tool call fails with a transient error, try again with the same or corrected inputs. Do NOT tell the user you cannot do something without first attempting it with a tool.
 - CRITICAL: If a BigQuery query fails with "Access Denied" or "Table not found", do NOT guess alternative table names. Instead, STOP and tell the user the exact error. You may ONLY use table names from the schema definitions provided below or that you have confirmed exist via a successful query.
-- If you fail a query 3 times, STOP retrying and summarize what you tried and what went wrong.`;
+- If you fail a query 3 times, STOP retrying and summarize what you tried and what went wrong.
+- When asked about your capabilities, describe ONLY the tools listed above. Do not mention tools you do not have.`;
 
       systemPrompt = envCtx + (systemPrompt ? '\n\n' + systemPrompt : '');
 
