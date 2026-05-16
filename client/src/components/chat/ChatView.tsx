@@ -38,7 +38,7 @@ export default function ChatView({
     if (messagesRef.current) {
       messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
     }
-  }, [messages, streamingContent, toolCalls.size]);
+  }, [messages, streamingContent, toolCalls.size, lastUsage]);
 
   const handleSend = () => {
     const content = inputValue.trim();
