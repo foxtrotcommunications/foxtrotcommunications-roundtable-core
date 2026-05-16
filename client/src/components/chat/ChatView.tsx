@@ -4,12 +4,14 @@ import ToolCard from './ToolCard';
 import MessageContent from './MessageContent';
 import type { ChatMessage, ToolCall, ToolResult } from '../../types/message';
 import type { PresenceUser } from '../../types/workspace';
+import type { TokenUsage } from '../../hooks/useSocket';
 
 interface Props {
   messages: ChatMessage[];
   streaming: boolean;
   streamingContent: string;
   toolCalls: Map<string, { call: ToolCall; result?: ToolResult }>;
+  lastUsage: TokenUsage | null;
   onSendMessage: (content: string, activeRepo?: string) => void;
   onStopGeneration: () => void;
   onTyping: () => void;
@@ -17,8 +19,14 @@ interface Props {
   currentUsername?: string;
 }
 
+function formatTokenCount(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'k';
+  return n.toString();
+}
+
 export default function ChatView({
-  messages, streaming, streamingContent, toolCalls,
+  messages, streaming, streamingContent, toolCalls, lastUsage,
   onSendMessage, onStopGeneration, onTyping, typingUsers, currentUsername,
 }: Props) {
   const messagesRef = useRef<HTMLDivElement>(null);
@@ -125,6 +133,18 @@ export default function ChatView({
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Token usage indicator — shown after AI completes */}
+        {!streaming && lastUsage && lastUsage.totalTokens > 0 && (
+          <div className="token-usage-bar">
+            <span className="token-usage-icon">⚡</span>
+            <span className="token-usage-detail">{formatTokenCount(lastUsage.promptTokens)} in</span>
+            <span className="token-usage-sep">·</span>
+            <span className="token-usage-detail">{formatTokenCount(lastUsage.completionTokens)} out</span>
+            <span className="token-usage-sep">·</span>
+            <span className="token-usage-total">{formatTokenCount(lastUsage.totalTokens)} tokens</span>
           </div>
         )}
       </div>
