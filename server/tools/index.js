@@ -18,10 +18,12 @@ const queryDatabricks = require('./queryDatabricks');
 
 // Meta-tools — always available regardless of workspace config
 const describeWorkspace = require('./describeWorkspace');
+const verifyWorkspace = require('./verifyWorkspace');
 
 const tools = {
   // Meta-tools — always available, cannot be disabled
   describe_workspace: describeWorkspace,
+  verify_workspace: verifyWorkspace,
 
   // Standard tools — can be enabled/disabled per workspace
   web_search: webSearch,
