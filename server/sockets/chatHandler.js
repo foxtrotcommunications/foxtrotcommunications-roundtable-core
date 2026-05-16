@@ -106,33 +106,13 @@ function setupChatHandlers(io, socket) {
         }
       } catch (e) { /* ignore workspace scan errors */ }
 
-      // ── Platform Awareness ───────────────────────────────────
-      // Build a dynamic context block so the AI knows exactly what it can do.
-      // This ensures the AI never describes tools it can't use and accurately
-      // represents its capabilities when users ask "what can you do?"
+      // ── Platform Context ────────────────────────────────────
+      // Lean system prompt with behavioral rules + data context.
+      // The AI discovers its own capabilities via describe_workspace tool.
 
       const gcpProject = config.vertexai?.project || process.env.GCP_PROJECT || '';
       const gcpRegion  = process.env.GCP_LOCATION || 'us-central1';
       const bqProject  = dataSources?.bigquery?.project || gcpProject;
-
-      // Detect deployment mode from environment signals
-      const isKubernetes = !!process.env.KUBERNETES_SERVICE_HOST;
-      const isCloudRun = !!process.env.K_SERVICE;
-      const isDocker = !!process.env.DOCKER_CONTAINER || require('fs').existsSync('/.dockerenv');
-      const isProduction = process.env.NODE_ENV === 'production';
-      let deploymentMode = 'local development';
-      if (isKubernetes) deploymentMode = 'GKE (Google Kubernetes Engine)';
-      else if (isCloudRun) deploymentMode = 'Cloud Run';
-      else if (isDocker) deploymentMode = 'Docker';
-
-      // Build the active tool inventory — ONLY list tools actually available
-      const { resolveTools } = require('../tools');
-      const activeTools = resolveTools(enabledToolNames);
-      const activeToolNames = Object.keys(activeTools);
-      const toolInventory = activeToolNames.map(name => {
-        const t = activeTools[name];
-        return `  - ${name}: ${t.description}`;
-      }).join('\n');
 
       // Build BigQuery dataset context dynamically from workspace data sources
       let bqDatasetCtx = '';
@@ -150,30 +130,18 @@ function setupChatHandlers(io, socket) {
         }
       }
 
-      // Detect connected data warehouse adapters
-      const connectedWarehouses = [];
-      if (bqProject) connectedWarehouses.push('Google BigQuery');
-      if (config.snowflake?.account) connectedWarehouses.push('Snowflake');
-      if (config.databricks?.host) connectedWarehouses.push('Databricks');
+      const envCtx = `You are the AI assistant for the "${config.workspaceName}" workspace on the Roundtable platform by Foxtrot Communications. This is a real-time multiplayer workspace — multiple users may be present simultaneously.
 
-      const envCtx = `You are the AI assistant for the "${config.workspaceName}" workspace on the Roundtable platform by Foxtrot Communications.
-
---- PLATFORM IDENTITY ---
-- Platform: Roundtable — a real-time multiplayer AI workspace platform
-- Workspace: "${config.workspaceName}" (ID: ${config.workspaceId})
-- Deployment: ${deploymentMode}${isProduction ? ' (production)' : ''}
-- AI Provider: ${aiProvider} / ${aiModel}
-- This is a collaborative environment — multiple users can be in this workspace simultaneously, each with their own independent AI conversation. You may see messages from different users.
-
---- YOUR TOOL INVENTORY ---
-You have access to EXACTLY ${activeToolNames.length} tools. These are the ONLY capabilities you have. Do NOT describe or suggest tools not in this list.
-${toolInventory}
-${activeToolNames.includes('shell_exec') ? '' : '- NOTE: Shell execution is NOT available in this workspace. Do not suggest running shell commands.'}
-${activeToolNames.includes('git_clone') ? '' : '- NOTE: Git operations are NOT available in this workspace.'}
+--- SELF-DISCOVERY ---
+You have a describe_workspace tool. Call it when:
+- A user asks what you can do or what tools are available
+- You need to understand your deployment environment
+- You want to know which data warehouses or agents are connected
+Do NOT guess your capabilities. Call describe_workspace to get the live inventory.
 
 --- DATA ENVIRONMENT ---
 - GCP Project: ${gcpProject || '(not configured)'}
-- GCP Region: ${gcpRegion}${connectedWarehouses.length > 0 ? '\n- Connected data warehouses: ' + connectedWarehouses.join(', ') : ''}
+- GCP Region: ${gcpRegion}
 - BigQuery billing project: ${bqProject || '(not configured)'}${bqProject ? ' (use this as the default project when running queries)' : ''}${bqDatasetCtx}
 
 --- BEHAVIORAL RULES ---
@@ -182,8 +150,7 @@ ${activeToolNames.includes('git_clone') ? '' : '- NOTE: Git operations are NOT a
 - ALWAYS call tools directly when asked. Never ask the user for config values the environment already provides (project ID, region, etc.).
 - If a tool call fails with a transient error, try again with the same or corrected inputs. Do NOT tell the user you cannot do something without first attempting it with a tool.
 - CRITICAL: If a BigQuery query fails with "Access Denied" or "Table not found", do NOT guess alternative table names. Instead, STOP and tell the user the exact error. You may ONLY use table names from the schema definitions provided below or that you have confirmed exist via a successful query.
-- If you fail a query 3 times, STOP retrying and summarize what you tried and what went wrong.
-- When asked about your capabilities, describe ONLY the tools listed above. Do not mention tools you do not have.`;
+- If you fail a query 3 times, STOP retrying and summarize what you tried and what went wrong.`;
 
       systemPrompt = envCtx + (systemPrompt ? '\n\n' + systemPrompt : '');
 

@@ -16,7 +16,14 @@ const queryBigQuery = require('./queryBigQuery');
 const querySnowflake = require('./querySnowflake');
 const queryDatabricks = require('./queryDatabricks');
 
+// Meta-tools — always available regardless of workspace config
+const describeWorkspace = require('./describeWorkspace');
+
 const tools = {
+  // Meta-tools — always available, cannot be disabled
+  describe_workspace: describeWorkspace,
+
+  // Standard tools — can be enabled/disabled per workspace
   web_search: webSearch,
   read_url: urlReader,
   calculator: calculator,
@@ -43,6 +50,13 @@ function resolveTools(enabledNames) {
     return tools;
   }
   const filtered = {};
+
+  // Always include meta-tools (alwaysEnabled flag)
+  for (const [name, tool] of Object.entries(tools)) {
+    if (tool.alwaysEnabled) filtered[name] = tool;
+  }
+
+  // Include workspace-enabled tools
   for (const name of enabledNames) {
     if (tools[name]) filtered[name] = tools[name];
   }
