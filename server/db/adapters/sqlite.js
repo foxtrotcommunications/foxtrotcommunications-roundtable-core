@@ -97,6 +97,22 @@ class SQLiteAdapter {
 
       CREATE INDEX IF NOT EXISTS idx_messages_workspace ON messages(workspace_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_workspaces_status ON workspaces(status);
+
+      CREATE TABLE IF NOT EXISTS workspace_usage (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        user_id INTEGER REFERENCES users(id),
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        prompt_tokens INTEGER DEFAULT 0,
+        completion_tokens INTEGER DEFAULT 0,
+        total_tokens INTEGER DEFAULT 0,
+        tool_calls INTEGER DEFAULT 0,
+        tool_names TEXT DEFAULT '[]',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_usage_workspace ON workspace_usage(workspace_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_usage_workspace_user ON workspace_usage(workspace_id, user_id);
     `);
     console.log('[DB] Migrations complete');
   }
@@ -233,6 +249,59 @@ class SQLiteAdapter {
 
   async deleteApiKey(id, userId) {
     this._run('DELETE FROM user_api_keys WHERE id = ? AND user_id = ?', [id, userId]);
+  }
+
+  // ─── Usage Tracking ─────────────────────────────
+  async recordUsage(workspaceId, userId, provider, model, promptTokens, completionTokens, totalTokens, toolCalls, toolNames) {
+    this._run(
+      `INSERT INTO workspace_usage (workspace_id, user_id, provider, model, prompt_tokens, completion_tokens, total_tokens, tool_calls, tool_names)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [workspaceId, userId, provider, model, promptTokens || 0, completionTokens || 0, totalTokens || 0, toolCalls || 0, JSON.stringify(toolNames || [])]
+    );
+  }
+
+  async getUsageSummary(workspaceId, periodDays = 30) {
+    return this._queryOne(`
+      SELECT
+        COUNT(*) as total_requests,
+        COALESCE(SUM(prompt_tokens), 0) as total_prompt_tokens,
+        COALESCE(SUM(completion_tokens), 0) as total_completion_tokens,
+        COALESCE(SUM(total_tokens), 0) as total_tokens,
+        COALESCE(SUM(tool_calls), 0) as total_tool_calls
+      FROM workspace_usage
+      WHERE workspace_id = ?
+        AND created_at >= datetime('now', '-' || ? || ' days')
+    `, [workspaceId, periodDays]);
+  }
+
+  async getUsageByUser(workspaceId, periodDays = 30) {
+    return this._queryAll(`
+      SELECT
+        u.username, u.display_name,
+        COUNT(*) as requests,
+        COALESCE(SUM(wu.total_tokens), 0) as total_tokens,
+        COALESCE(SUM(wu.tool_calls), 0) as tool_calls
+      FROM workspace_usage wu
+      LEFT JOIN users u ON u.id = wu.user_id
+      WHERE wu.workspace_id = ?
+        AND wu.created_at >= datetime('now', '-' || ? || ' days')
+      GROUP BY u.id, u.username, u.display_name
+      ORDER BY total_tokens DESC
+    `, [workspaceId, periodDays]);
+  }
+
+  async getUsageByModel(workspaceId, periodDays = 30) {
+    return this._queryAll(`
+      SELECT
+        provider, model,
+        COUNT(*) as requests,
+        COALESCE(SUM(total_tokens), 0) as total_tokens
+      FROM workspace_usage
+      WHERE workspace_id = ?
+        AND created_at >= datetime('now', '-' || ? || ' days')
+      GROUP BY provider, model
+      ORDER BY total_tokens DESC
+    `, [workspaceId, periodDays]);
   }
 }
 

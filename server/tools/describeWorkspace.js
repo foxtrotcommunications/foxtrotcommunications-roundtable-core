@@ -118,6 +118,13 @@ module.exports = {
     // bridge targets will be reported here.
     const bridges = [];
 
+    // ── Usage Stats (current period) ─────────────────────────
+    let usage = null;
+    try {
+      const db = getAdapter();
+      usage = await db.getUsageSummary(config.workspaceId, 30);
+    } catch (_) {}
+
     return {
       platform: 'Roundtable',
       version: '1.0.0',
@@ -138,6 +145,16 @@ module.exports = {
       dataWarehouses,
       schemaFiles,
 
+      // Usage stats for the last 30 days
+      usage: usage ? {
+        periodDays: 30,
+        totalRequests: parseInt(usage.total_requests) || 0,
+        totalPromptTokens: parseInt(usage.total_prompt_tokens) || 0,
+        totalCompletionTokens: parseInt(usage.total_completion_tokens) || 0,
+        totalTokens: parseInt(usage.total_tokens) || 0,
+        totalToolCalls: parseInt(usage.total_tool_calls) || 0,
+      } : null,
+
       // Future capabilities — empty arrays until implemented
       agents,
       mcpServers,
@@ -147,6 +164,7 @@ module.exports = {
         multiplayer: true,
         streaming: true,
         toolCalling: true,
+        usageTracking: true,
         fileSystem: tools.some(t => t.name === 'write_file'),
         shellExecution: tools.some(t => t.name === 'shell_exec'),
         gitOperations: tools.some(t => t.name === 'git_clone'),

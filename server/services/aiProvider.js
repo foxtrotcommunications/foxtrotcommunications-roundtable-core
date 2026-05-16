@@ -10,6 +10,7 @@ const config = require('../config');
  *   { type: 'text-delta', content: '...' }
  *   { type: 'tool-call', name: '...', args: {...}, callId: '...' }
  *   { type: 'tool-result', name: '...', callId: '...', result: {...} }
+ *   { type: 'usage', promptTokens, completionTokens, totalTokens }
  *   { type: 'done', fullText: '...' }
  *   { type: 'error', error: '...' }
  *
@@ -64,6 +65,7 @@ async function* streamOpenAI(model, messages, apiKey, enableTools, maxRounds, si
       model,
       messages: currentMessages,
       stream: true,
+      stream_options: { include_usage: true },
     };
 
     if (enableTools && round < maxRounds - 1) {
@@ -87,8 +89,13 @@ async function* streamOpenAI(model, messages, apiKey, enableTools, maxRounds, si
       return;
     }
 
-    const { toolCalls, text } = yield* parseOpenAIStream(response, signal);
+    const { toolCalls, text, usage } = yield* parseOpenAIStream(response, signal);
     fullText += text;
+
+    // Emit usage if available
+    if (usage) {
+      yield { type: 'usage', promptTokens: usage.prompt_tokens, completionTokens: usage.completion_tokens, totalTokens: usage.total_tokens };
+    }
 
     if (toolCalls.length === 0) {
       yield { type: 'done', fullText };
@@ -127,6 +134,7 @@ async function* streamOpenAI(model, messages, apiKey, enableTools, maxRounds, si
 async function* parseOpenAIStream(response, signal) {
   const toolCalls = [];
   let text = '';
+  let usage = null;
 
   const body = response.body;
   let buffer = '';
@@ -165,13 +173,18 @@ async function* parseOpenAIStream(response, signal) {
             }
           }
         }
+
+        // Capture usage from final chunk (stream_options.include_usage)
+        if (parsed.usage) {
+          usage = parsed.usage;
+        }
       } catch (e) {
         // Skip malformed JSON
       }
     }
   }
 
-  return { toolCalls: toolCalls.filter(Boolean), text };
+  return { toolCalls: toolCalls.filter(Boolean), text, usage };
 }
 
 // ─── Anthropic ──────────────────────────────────────────
@@ -216,8 +229,13 @@ async function* streamAnthropic(model, messages, apiKey, enableTools, maxRounds,
       return;
     }
 
-    const { toolUses, text, stopReason } = yield* parseAnthropicStream(response, signal);
+    const { toolUses, text, stopReason, usage } = yield* parseAnthropicStream(response, signal);
     fullText += text;
+
+    // Emit usage if available
+    if (usage) {
+      yield { type: 'usage', promptTokens: usage.input_tokens, completionTokens: usage.output_tokens, totalTokens: (usage.input_tokens || 0) + (usage.output_tokens || 0) };
+    }
 
     if (toolUses.length === 0 || stopReason !== 'tool_use') {
       yield { type: 'done', fullText };
@@ -264,6 +282,7 @@ async function* parseAnthropicStream(response, signal) {
   let stopReason = '';
   let currentToolUse = null;
   let currentToolJson = '';
+  let usage = null;
 
   const body = response.body;
   let buffer = '';
@@ -315,13 +334,25 @@ async function* parseAnthropicStream(response, signal) {
         if (parsed.type === 'message_delta' && parsed.delta?.stop_reason) {
           stopReason = parsed.delta.stop_reason;
         }
+
+        // Capture usage from message_start and message_delta
+        if (parsed.type === 'message_start' && parsed.message?.usage) {
+          usage = { input_tokens: parsed.message.usage.input_tokens || 0, output_tokens: 0 };
+        }
+        if (parsed.type === 'message_delta' && parsed.usage) {
+          if (usage) {
+            usage.output_tokens = parsed.usage.output_tokens || 0;
+          } else {
+            usage = { input_tokens: 0, output_tokens: parsed.usage.output_tokens || 0 };
+          }
+        }
       } catch (e) {
         // Skip
       }
     }
   }
 
-  return { toolUses, text, stopReason };
+  return { toolUses, text, stopReason, usage };
 }
 
 // ─── Google / Gemini ────────────────────────────────────
@@ -361,8 +392,13 @@ async function* streamGoogle(model, messages, apiKey, enableTools, maxRounds, si
       return;
     }
 
-    const { functionCalls, text } = yield* parseGoogleStream(response, signal);
+    const { functionCalls, text, usage } = yield* parseGoogleStream(response, signal);
     fullText += text;
+
+    // Emit usage if available
+    if (usage) {
+      yield { type: 'usage', promptTokens: usage.promptTokenCount, completionTokens: usage.candidatesTokenCount, totalTokens: usage.totalTokenCount };
+    }
 
     if (functionCalls.length === 0) {
       yield { type: 'done', fullText };
@@ -400,6 +436,7 @@ async function* streamGoogle(model, messages, apiKey, enableTools, maxRounds, si
 async function* parseGoogleStream(response, signal) {
   const functionCalls = [];
   let text = '';
+  let usage = null;
 
   const body = response.body;
   let buffer = '';
@@ -431,13 +468,18 @@ async function* parseGoogleStream(response, signal) {
             });
           }
         }
+
+        // Capture usage metadata from Google response
+        if (parsed.usageMetadata) {
+          usage = parsed.usageMetadata;
+        }
       } catch (e) {
         // Skip
       }
     }
   }
 
-  return { functionCalls, text };
+  return { functionCalls, text, usage };
 }
 
 // ─── Helpers ────────────────────────────────────────────
@@ -530,6 +572,7 @@ async function* streamVertexAI(model, messages, enableTools, maxRounds, signal, 
     let text = '';
     const functionCalls = [];
     const rawModelParts = []; // Preserve original parts for thought_signature support
+    let usageMetadata = null;
 
     for await (const chunk of stream) {
       if (signal?.aborted) break;
@@ -554,10 +597,25 @@ async function* streamVertexAI(model, messages, enableTools, maxRounds, signal, 
       if (candidateParts) {
         rawModelParts.push(...candidateParts);
       }
+
+      // Capture usage metadata (typically on the last chunk)
+      if (chunk.usageMetadata) {
+        usageMetadata = chunk.usageMetadata;
+      }
     }
 
     if (signal?.aborted) { yield { type: 'done', fullText: fullText + text }; return; }
     fullText += text;
+
+    // Emit usage if available
+    if (usageMetadata) {
+      yield {
+        type: 'usage',
+        promptTokens: usageMetadata.promptTokenCount || 0,
+        completionTokens: usageMetadata.candidatesTokenCount || 0,
+        totalTokens: usageMetadata.totalTokenCount || 0,
+      };
+    }
 
     if (functionCalls.length === 0) {
       yield { type: 'done', fullText };

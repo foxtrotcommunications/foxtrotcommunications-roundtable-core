@@ -188,6 +188,10 @@ Do NOT guess your capabilities. Call describe_workspace to get the live inventor
       io.to(wsChannel).emit('ai-start', { userId: socket.userId, username: socket.username });
 
       let fullText = '';
+      let usageData = null;
+      let toolCallCount = 0;
+      const toolNamesUsed = [];
+
       try {
         for await (const event of streamCompletion(
           aiProvider, aiModel, messages, apiKey, toolsEnabled,
@@ -203,6 +207,8 @@ Do NOT guess your capabilities. Call describe_workspace to get the live inventor
             case 'tool-call':
               console.log(`[Tool] Calling: ${event.name}`, JSON.stringify(event.args));
               io.to(wsChannel).emit('tool-call', { name: event.name, args: event.args, callId: event.callId });
+              toolCallCount++;
+              if (!toolNamesUsed.includes(event.name)) toolNamesUsed.push(event.name);
               break;
             case 'tool-result':
               console.log(`[Tool] Result from ${event.name}:`, JSON.stringify(event.result).substring(0, 200));
@@ -212,6 +218,15 @@ Do NOT guess your capabilities. Call describe_workspace to get the live inventor
               if (['write_file', 'git_clone', 'git_commit', 'shell_exec'].includes(event.name)) {
                 io.to(wsChannel).emit('workspace-changed', { tool: event.name });
               }
+              break;
+            case 'usage':
+              usageData = event;
+              io.to(wsChannel).emit('ai-usage', {
+                promptTokens: event.promptTokens,
+                completionTokens: event.completionTokens,
+                totalTokens: event.totalTokens,
+                userId: socket.userId,
+              });
               break;
             case 'error':
               io.to(wsChannel).emit('ai-error', { error: event.error });
@@ -230,6 +245,24 @@ Do NOT guess your capabilities. Call describe_workspace to get the live inventor
         socket.isGenerating = false;
         socket.abortController = null;
         io.to(wsChannel).emit('ai-complete', { fullText, userId: socket.userId });
+
+        // Record usage to database (fire-and-forget)
+        try {
+          const { getAdapter } = require('../db/adapter');
+          await getAdapter().recordUsage(
+            config.workspaceId,
+            socket.userId,
+            aiProvider,
+            aiModel,
+            usageData?.promptTokens || 0,
+            usageData?.completionTokens || 0,
+            usageData?.totalTokens || 0,
+            toolCallCount,
+            toolNamesUsed,
+          );
+        } catch (usageErr) {
+          console.error('[Usage] Failed to record usage:', usageErr.message);
+        }
       }
     } catch (err) {
       console.error('[Chat] Error:', err);
