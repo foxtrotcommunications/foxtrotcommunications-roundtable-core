@@ -130,7 +130,8 @@ function setupChatHandlers(io, socket) {
         }
       }
 
-      const envCtx = `You are the AI assistant for the "${config.workspaceName}" workspace on the Roundtable platform by Foxtrot Communications. This is a real-time multiplayer workspace — multiple users may be present simultaneously.
+      const orgLabel = config.platformOrg ? ` by ${config.platformOrg}` : '';
+      const envCtx = `You are the AI assistant for the "${config.workspaceName}" workspace on the Roundtable platform${orgLabel}. This is a real-time multiplayer workspace — multiple users may be present simultaneously.
 
 --- SELF-DISCOVERY ---
 You have a describe_workspace tool. Call it when:
@@ -221,6 +222,7 @@ Do NOT guess your capabilities. Call describe_workspace to get the live inventor
               break;
             case 'usage':
               usageData = event;
+              console.log(`[Usage] tokens: ${event.promptTokens}/${event.completionTokens}/${event.totalTokens}`);
               io.to(wsChannel).emit('ai-usage', {
                 promptTokens: event.promptTokens,
                 completionTokens: event.completionTokens,

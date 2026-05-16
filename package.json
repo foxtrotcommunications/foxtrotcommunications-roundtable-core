@@ -24,7 +24,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable.git"
+    "url": "git+https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable-core.git"
   },
   "engines": {
     "node": ">=18.0.0"
