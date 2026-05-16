@@ -143,6 +143,7 @@ async function executeTool(name, args, workspaceConfig = {}) {
 
 module.exports = {
   tools,
+  resolveTools,
   getAvailableTools,
   toOpenAITools,
   toAnthropicTools,
