@@ -222,6 +222,7 @@ Do NOT guess your capabilities. Call describe_workspace to get the live inventor
               break;
             case 'usage':
               usageData = event;
+              console.log(`[Usage] tokens: ${event.promptTokens}/${event.completionTokens}/${event.totalTokens}`);
               io.to(wsChannel).emit('ai-usage', {
                 promptTokens: event.promptTokens,
                 completionTokens: event.completionTokens,
