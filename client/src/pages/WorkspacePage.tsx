@@ -108,6 +108,7 @@ export default function WorkspacePage({ user, onLogout }: Props) {
             streaming={chat.streaming}
             streamingContent={chat.streamingContent}
             toolCalls={chat.toolCalls}
+            lastUsage={chat.lastUsage}
             onSendMessage={handleSendMessage}
             onStopGeneration={chat.stopGeneration}
             onTyping={presence.sendTypingStart}

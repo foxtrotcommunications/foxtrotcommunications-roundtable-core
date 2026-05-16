@@ -289,6 +289,15 @@ html, body { height: 100%; font-family: 'Inter', system-ui, sans-serif; backgrou
 .streaming-label { font-size: 12px; color: var(--text-muted); margin-left: 4px; font-style: italic; }
 @keyframes pulse { 0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); } 40% { opacity: 1; transform: scale(1); } }
 
+/* ─── Token Usage Bar ─── */
+.token-usage-bar { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 16px; margin: 4px 0 8px; font-size: 11px; color: var(--text-muted); opacity: 0.6; animation: fadeInUsage 0.4s ease; }
+.token-usage-bar:hover { opacity: 1; }
+.token-usage-icon { font-size: 12px; }
+.token-usage-detail { font-variant-numeric: tabular-nums; }
+.token-usage-sep { opacity: 0.4; }
+.token-usage-total { font-weight: 500; color: var(--text-secondary); }
+@keyframes fadeInUsage { from { opacity: 0; transform: translateY(-4px); } to { opacity: 0.6; transform: translateY(0); } }
+
 /* ─── Chat Input ─── */
 .typing-bar { height: 20px; padding: 0 24px; font-size: 12px; color: var(--text-muted); display: flex; align-items: center; flex-shrink: 0; overflow: hidden; }
 .typing-bar:empty { visibility: hidden; }
