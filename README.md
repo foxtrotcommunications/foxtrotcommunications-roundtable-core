@@ -47,7 +47,7 @@ Roundtable auto-detects the environment: if no `DATABASE_URL` is set, it uses SQ
 - **Configurable Agent** — Set the AI provider, model, and system prompt per workspace — no redeploy needed
 - **Data Warehouse Queries** — AI can query BigQuery, Snowflake, and Databricks in real-time
 - **Workspace-per-Container** — Each workspace is an isolated container with its own identity
-- **Workspace Bridges** — Open cross-workspace channels for AI-mediated collaboration between teams ([use case →](docs/use-cases/cross-workspace-compliance.md))
+- **Workspace Bridges** — Open cross-workspace channels for AI-mediated collaboration between teams
 - **A2A Agent Protocol** — Plug in external agents built in any language via the A2A standard
 - **Multi-Cloud** — Deploy on Cloud Run, GKE, EKS, AKS, or any Kubernetes cluster
 - **BYOK** — Bring Your Own Key; users configure their own API keys, or use server-level defaults
@@ -243,13 +243,6 @@ Deployment model (workspace-per-container):
 - **Frontend**: React + TypeScript (Vite, `client/dist/`)
 - **Real-time**: Socket.IO for WebSocket communication
 - **Container**: Alpine-based Docker image (~60MB)
-
-## Use Cases
-
-See the [`docs/use-cases/`](docs/use-cases/) directory for detailed deployment scenarios:
-
-- **[Cross-Workspace Compliance Investigation](docs/use-cases/cross-workspace-compliance.md)** — How a hedge fund compliance team can bridge workspaces to investigate securities transactions across desks, with full audit trails and AI-mediated cross-team collaboration.
-- **[Hedge Fund TCO Analysis](docs/use-cases/hedge-fund-tco.md)** — Total cost of ownership comparison: replacing $1.3M/yr in disconnected AI tools with a single Roundtable deployment at ~$30K/yr infrastructure cost.
 
 ## Testing
 
