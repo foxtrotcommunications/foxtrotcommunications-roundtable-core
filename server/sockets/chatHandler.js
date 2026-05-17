@@ -54,13 +54,16 @@ function setupChatHandlers(io, socket) {
         } catch (_) {}
       }
 
-      // Vertex AI uses ADC — no API key needed, just GCP_PROJECT
+      // Vertex AI uses ADC, Ollama uses no auth — skip API key for both
       let apiKey = '';
       if (aiProvider === 'vertexai') {
         if (!config.vertexai.project) {
           io.to(wsChannel).emit('ai-error', { error: 'GCP_PROJECT not set. Required for Vertex AI.' });
           return;
         }
+      } else if (aiProvider === 'ollama') {
+        // No API key needed — pass per-workspace host into workspaceConfig
+        workspaceConfig.ollamaHost = workspace?.ollama_host || config.ollama?.host || 'http://localhost:11434';
       } else {
         const userKey = await workspaceService.getUserApiKey(socket.userId, aiProvider);
         const serverKey = config.ai[aiProvider] || '';

@@ -37,6 +37,13 @@ const MODEL_OPTIONS: Record<string, { value: string; label: string }[]> = {
     { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
     { value: 'gemini-2.0-flash-001', label: 'Gemini 2.0 Flash' },
   ],
+  ollama: [
+    { value: 'llama3.1:8b', label: 'Llama 3.1 8B' },
+    { value: 'llama3.1:70b', label: 'Llama 3.1 70B' },
+    { value: 'qwen2:7b', label: 'Qwen 2 7B' },
+    { value: 'mistral:7b', label: 'Mistral 7B' },
+    { value: 'codellama:13b', label: 'Code Llama 13B' },
+  ],
 };
 
 interface Props {
@@ -51,6 +58,8 @@ export default function SettingsModal({ onClose, onSaved, addToast }: Props) {
   const [provider, setProvider] = useState('vertexai');
   const [model, setModel] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
+  const [ollamaHost, setOllamaHost] = useState('');
+  const [ollamaModels, setOllamaModels] = useState<{ value: string; label: string }[]>([]);
 
   // Tools state
   const allTools = TOOL_CATALOG.flatMap(g => g.tools);
@@ -69,6 +78,7 @@ export default function SettingsModal({ onClose, onSaved, addToast }: Props) {
       setProvider(workspace.ai_provider || 'vertexai');
       setModel(workspace.ai_model || '');
       setSystemPrompt(workspace.system_prompt || '');
+      setOllamaHost(workspace.ollama_host || '');
 
       // Parse enabled tools
       if (workspace.enabled_tools) {
@@ -91,7 +101,12 @@ export default function SettingsModal({ onClose, onSaved, addToast }: Props) {
 
   const saveAgent = async () => {
     try {
-      await api.updateWorkspaceInfo({ aiProvider: provider, aiModel: model, systemPrompt });
+      await api.updateWorkspaceInfo({
+        aiProvider: provider,
+        aiModel: model,
+        systemPrompt,
+        ollamaHost: provider === 'ollama' ? (ollamaHost || null) : null,
+      });
       onSaved();
     } catch (err: unknown) { addToast(err instanceof Error ? err.message : 'Failed to save', 'error'); }
   };
@@ -174,13 +189,41 @@ export default function SettingsModal({ onClose, onSaved, addToast }: Props) {
                 <option value="google">Google AI Studio</option>
                 <option value="openai">OpenAI</option>
                 <option value="anthropic">Anthropic</option>
+                <option value="ollama">Ollama (OpenAI-compatible)</option>
               </select>
             </div>
+            {provider === 'ollama' && (
+              <div className="form-group">
+                <label>Ollama Host URL</label>
+                <input
+                  value={ollamaHost}
+                  onChange={e => {
+                    setOllamaHost(e.target.value);
+                    // Fetch models from the new host
+                    const host = e.target.value.replace(/\/+$/, '') || 'http://localhost:11434';
+                    fetch(`${host}/api/tags`)
+                      .then(r => r.json())
+                      .then(data => {
+                        if (data.models && Array.isArray(data.models)) {
+                          setOllamaModels(data.models.map((m: { name: string }) => ({ value: m.name, label: m.name })));
+                        }
+                      })
+                      .catch(() => setOllamaModels([]));
+                  }}
+                  placeholder="http://localhost:11434"
+                />
+                <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
+                  URL of your Ollama instance. Leave blank to use server default.
+                </span>
+              </div>
+            )}
             <div className="form-group">
               <label>Model</label>
               {(() => {
-                const options = MODEL_OPTIONS[provider] || [];
-                const isKnownModel = options.some(o => o.value === model);
+                const baseOptions = provider === 'ollama' && ollamaModels.length > 0
+                  ? ollamaModels
+                  : (MODEL_OPTIONS[provider] || []);
+                const isKnownModel = baseOptions.some(o => o.value === model);
                 return (
                   <>
                     <select
@@ -193,8 +236,8 @@ export default function SettingsModal({ onClose, onSaved, addToast }: Props) {
                         }
                       }}
                     >
-                      {options.map(o => (
-                        <option key={o.value} value={o.value}>{o.label} ({o.value})</option>
+                      {baseOptions.map(o => (
+                        <option key={o.value} value={o.value}>{o.label}{provider !== 'ollama' ? ` (${o.value})` : ''}</option>
                       ))}
                       <option value="__custom__">Custom model…</option>
                     </select>
