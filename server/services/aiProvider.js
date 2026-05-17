@@ -40,6 +40,9 @@ async function* streamCompletion(provider, model, messages, apiKey, enableTools 
       case 'vertexai':
         yield* streamVertexAI(model, messages, enableTools, maxToolRounds, signal, enabledToolNames, workspaceConfig);
         break;
+      case 'ollama':
+        yield* streamOllama(model, messages, enableTools, maxToolRounds, signal, enabledToolNames, workspaceConfig);
+        break;
       default:
         yield { type: 'error', error: `Unknown provider: ${provider}` };
     }
@@ -480,6 +483,92 @@ async function* parseGoogleStream(response, signal) {
   }
 
   return { functionCalls, text, usage };
+}
+
+// ─── Ollama / OpenAI-compatible ─────────────────────────
+
+async function* streamOllama(model, messages, enableTools, maxRounds, signal, enabledToolNames, workspaceConfig = {}) {
+  const host = (workspaceConfig.ollamaHost || config.ollama.host || 'http://localhost:11434').replace(/\/+$/, '');
+  let currentMessages = [...messages];
+  let fullText = '';
+
+  for (let round = 0; round < maxRounds; round++) {
+    if (signal?.aborted) { yield { type: 'done', fullText }; return; }
+
+    const body = {
+      model,
+      messages: currentMessages,
+      stream: true,
+    };
+
+    if (enableTools && round < maxRounds - 1) {
+      const tools = toOpenAITools(enabledToolNames);
+      if (tools && tools.length > 0) {
+        body.tools = tools;
+        body.tool_choice = 'auto';
+      }
+    }
+
+    let response;
+    try {
+      response = await fetch(`${host}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal,
+      });
+    } catch (err) {
+      if (err.name === 'AbortError') { yield { type: 'done', fullText }; return; }
+      yield { type: 'error', error: `Cannot reach Ollama at ${host}: ${err.message}` };
+      return;
+    }
+
+    if (!response.ok) {
+      const errText = await response.text();
+      yield { type: 'error', error: `Ollama error (${response.status}): ${errText}` };
+      return;
+    }
+
+    const { toolCalls, text, usage } = yield* parseOpenAIStream(response, signal);
+    fullText += text;
+
+    // Emit usage if available
+    if (usage) {
+      yield { type: 'usage', promptTokens: usage.prompt_tokens || 0, completionTokens: usage.completion_tokens || 0, totalTokens: usage.total_tokens || 0 };
+    }
+
+    if (toolCalls.length === 0) {
+      yield { type: 'done', fullText };
+      return;
+    }
+
+    // Add assistant message with tool calls
+    currentMessages.push({
+      role: 'assistant',
+      content: text || null,
+      tool_calls: toolCalls.map((tc) => ({
+        id: tc.id,
+        type: 'function',
+        function: { name: tc.name, arguments: tc.arguments },
+      })),
+    });
+
+    // Execute tools and add results
+    for (const tc of toolCalls) {
+      yield { type: 'tool-call', name: tc.name, args: JSON.parse(tc.arguments), callId: tc.id };
+
+      const result = await executeTool(tc.name, JSON.parse(tc.arguments), workspaceConfig);
+      yield { type: 'tool-result', name: tc.name, callId: tc.id, result };
+
+      currentMessages.push({
+        role: 'tool',
+        tool_call_id: tc.id,
+        content: JSON.stringify(result),
+      });
+    }
+  }
+
+  yield { type: 'done', fullText };
 }
 
 // ─── Helpers ────────────────────────────────────────────
