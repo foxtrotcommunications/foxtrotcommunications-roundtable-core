@@ -19,10 +19,10 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - roundtable.foxtrotcommunications.net
+        - roundtable.your-domain.example.com  # Replace with your domain
       secretName: roundtable-tls
   rules:
-    - host: roundtable.foxtrotcommunications.net
+    - host: roundtable.your-domain.example.com  # Replace with your domain
       http:
         paths:
           - path: /
