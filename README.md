@@ -41,7 +41,7 @@ Roundtable auto-detects the environment: if no `DATABASE_URL` is set, it uses SQ
 
 - **Multiplayer AI Chat** — Multiple users in the same AI conversation, streaming in real-time
 - **Concurrent Generation** — Each user has an independent AI generation lifecycle; multiple people can prompt AI simultaneously without blocking each other
-- **Multi-Provider AI** — OpenAI, Anthropic (Claude), and Google Gemini (via Vertex AI or direct API key)
+- **Multi-Provider AI** — OpenAI, Anthropic (Claude), Google Gemini (via Vertex AI or API key), and Ollama (local models, OpenAI-compatible)
 - **14 Built-in Tools** — Web search, data warehouse queries, file management, shell execution, and more
 - **Configurable Tool Set** — Enable or disable individual tools per workspace via the Settings panel
 - **Configurable Agent** — Set the AI provider, model, and system prompt per workspace — no redeploy needed
@@ -81,6 +81,22 @@ docker compose up
 ```
 
 Starts Roundtable + PostgreSQL. Edit `docker-compose.yml` to configure AI keys and workspace settings.
+
+### Local Models (Ollama)
+
+Run AI models locally with [Ollama](https://ollama.com) — no API keys, no cost, fully offline.
+
+```bash
+# Start Roundtable + Ollama with GPU support
+docker compose -f docker-compose.yml -f docker-compose.ollama.yml up
+
+# Pull a model
+docker compose exec ollama ollama pull llama3.1:8b
+```
+
+Then set the provider to **Ollama** in Settings. Works with any OpenAI-compatible endpoint (vLLM, LM Studio, Groq, Together AI, etc.) — just enter the host URL.
+
+Each workspace can point at a different Ollama instance, enabling per-team model and GPU isolation.
 
 ### GKE (Google Kubernetes Engine)
 
@@ -131,6 +147,7 @@ See [`k8s/overlays/tls/`](k8s/overlays/tls/) for HTTPS setup with cert-manager +
 | `GOOGLE_AI_API_KEY` | Server-level Google AI key |
 | `GCP_PROJECT` | GCP project for Vertex AI (uses ADC, no key needed) |
 | `GCP_LOCATION` | Vertex AI region (default: `us-central1`) |
+| `OLLAMA_HOST` | Default Ollama host URL (default: `http://localhost:11434`, overridable per-workspace) |
 
 ### Data Warehouses
 

@@ -104,6 +104,9 @@ class PostgreSQLAdapter {
     await this.pool.query(`
       ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS data_sources JSONB DEFAULT NULL;
     `);
+    await this.pool.query(`
+      ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS ollama_host TEXT DEFAULT NULL;
+    `);
 
     // Usage tracking table
     await this.pool.query(`
@@ -194,6 +197,10 @@ class PostgreSQLAdapter {
     if (fields.dataSources !== undefined) {
       updates.push(`data_sources = $${idx++}`);
       values.push(fields.dataSources === null ? null : JSON.stringify(fields.dataSources));
+    }
+    if (fields.ollamaHost !== undefined) {
+      updates.push(`ollama_host = $${idx++}`);
+      values.push(fields.ollamaHost || null);
     }
     if (updates.length === 0) return this.getWorkspace(id);
     values.push(id);
