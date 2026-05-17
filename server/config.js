@@ -32,6 +32,11 @@ const config = {
     location: process.env.GCP_LOCATION || 'us-central1',
   },
 
+  // Ollama / OpenAI-compatible endpoint (default, overridable per-workspace)
+  ollama: {
+    host: process.env.OLLAMA_HOST || 'http://localhost:11434',
+  },
+
   // Google Custom Search (for web_search tool)
   googleSearch: {
     apiKey: process.env.GOOGLE_SEARCH_API_KEY || '',

@@ -1,0 +1,44 @@
+# Ollama GPU overlay for Roundtable
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.ollama.yml up
+#
+# Pull a model after Ollama starts:
+#   docker compose exec ollama ollama pull llama3.1:8b
+#
+# Then in Roundtable Settings, set provider to "Ollama" and
+# host URL to "http://ollama:11434" (or leave blank — it's the default).
+#
+# GPU support requires the NVIDIA Container Toolkit:
+#   https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+#
+# For CPU-only (slower but works):
+#   Remove the deploy.resources section below.
+
+services:
+  roundtable:
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  ollama_data:

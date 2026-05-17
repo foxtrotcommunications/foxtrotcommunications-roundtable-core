@@ -67,6 +67,7 @@ class SQLiteAdapter {
         tools_enabled INTEGER DEFAULT 1,
         enabled_tools TEXT DEFAULT NULL,
         data_sources TEXT DEFAULT NULL,
+        ollama_host TEXT DEFAULT NULL,
         repos TEXT DEFAULT '[]',
         status TEXT DEFAULT 'active',
         created_by INTEGER REFERENCES users(id),
@@ -186,6 +187,10 @@ class SQLiteAdapter {
     if (fields.dataSources !== undefined) {
       updates.push('data_sources = ?');
       values.push(fields.dataSources === null ? null : JSON.stringify(fields.dataSources));
+    }
+    if (fields.ollamaHost !== undefined) {
+      updates.push('ollama_host = ?');
+      values.push(fields.ollamaHost || null);
     }
     if (updates.length === 0) return this.getWorkspace(id);
     values.push(id);
