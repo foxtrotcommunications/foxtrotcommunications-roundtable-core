@@ -83,7 +83,7 @@ async function vertexGroundingSearch(query) {
     });
 
     const result = await ai.models.generateContent({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-2.5-flash',
       contents: [{
         role: 'user',
         parts: [{ text: `Search the web for: ${query}\n\nReturn a concise list of the top 5 results with their title, URL, and a brief snippet. Format each result on its own line as: TITLE | URL | SNIPPET` }],
