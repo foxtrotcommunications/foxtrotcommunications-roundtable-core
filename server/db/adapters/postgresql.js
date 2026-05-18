@@ -128,9 +128,18 @@ class PostgreSQLAdapter {
     `);
 
     console.log('[DB] Migrations complete');
+
+    // SSO columns — idempotent additions for existing deployments
+    await this.pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT DEFAULT NULL;`);
+    await this.pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS sso_id TEXT DEFAULT NULL;`);
+    await this.pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_sso_id ON users(sso_id) WHERE sso_id IS NOT NULL;`);
+    await this.pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email IS NOT NULL;`);
+
+    console.log('[DB] Migrations complete');
   }
 
   // ─── Users ──────────────────────────────────────
+
   async createUser(username, displayName, passwordHash) {
     const id = await this._execute(
       'INSERT INTO users (username, display_name, password_hash) VALUES ($1, $2, $3)',
@@ -145,6 +154,48 @@ class PostgreSQLAdapter {
 
   async getUserByUsername(username) {
     return this._queryOne('SELECT * FROM users WHERE username = $1', [username]);
+  }
+
+  async getUserByEmail(email) {
+    return this._queryOne('SELECT * FROM users WHERE email = $1', [email]);
+  }
+
+  /**
+   * Upsert a user from an SSO token. Creates the user if they don't exist,
+   * or updates display_name/email if they do. Returns the user row.
+   */
+  async upsertUserBySsoId(ssoId, email, displayName) {
+    // Try to find by sso_id first (most stable)
+    let user = await this._queryOne('SELECT * FROM users WHERE sso_id = $1', [ssoId]);
+    if (user) {
+      // Update display name and email in case they changed
+      await this._exec(
+        'UPDATE users SET display_name = $1, email = $2 WHERE sso_id = $3',
+        [displayName, email, ssoId]
+      );
+      return this._queryOne('SELECT id, username, display_name, email, sso_id FROM users WHERE sso_id = $1', [ssoId]);
+    }
+    // Try by email (covers re-connections before sso_id was stored)
+    user = await this._queryOne('SELECT * FROM users WHERE email = $1', [email]);
+    if (user) {
+      await this._exec(
+        'UPDATE users SET sso_id = $1, display_name = $2 WHERE email = $3',
+        [ssoId, displayName, email]
+      );
+      return this._queryOne('SELECT id, username, display_name, email, sso_id FROM users WHERE email = $1', [email]);
+    }
+    // New SSO user — generate a unique username from email prefix
+    const base = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20) || 'user';
+    let username = base;
+    let attempt = 0;
+    while (await this._queryOne('SELECT id FROM users WHERE username = $1', [username])) {
+      username = `${base}${++attempt}`;
+    }
+    const id = await this._execute(
+      'INSERT INTO users (username, display_name, password_hash, email, sso_id) VALUES ($1, $2, $3, $4, $5)',
+      [username, displayName, '', email, ssoId]
+    );
+    return this._queryOne('SELECT id, username, display_name, email, sso_id FROM users WHERE id = $1', [id]);
   }
 
   // ─── Workspaces ─────────────────────────────────

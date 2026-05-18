@@ -1,8 +1,10 @@
 // server/routes/auth.js — Authentication routes
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const { getAdapter } = require('../db/adapter');
 const { requireAuth } = require('../middleware/auth');
+
 
 const router = express.Router();
 
@@ -64,4 +66,67 @@ router.get('/me', requireAuth, async (req, res) => {
   res.json({ id: user.id, username: user.username, displayName: user.display_name });
 });
 
+/**
+ * GET /api/auth/sso?token=<jwt>
+ *
+ * Single sign-on endpoint. Validates a short-lived JWT issued by the
+ * Roundtable control plane, upserts the user locally, sets a session,
+ * and redirects to the workspace root.
+ *
+ * JWT payload: { sub, email, name, workspace_id, workspace_role, org_id, exp }
+ * Signature: HMAC-SHA256 using SESSION_SECRET
+ */
+router.get('/sso', async (req, res) => {
+  try {
+    const { token, redirect = '/' } = req.query;
+    if (!token) return res.status(400).json({ error: 'Missing token' });
+
+    const secret = process.env.SESSION_SECRET;
+    if (!secret) return res.status(500).json({ error: 'SSO not configured' });
+
+    // Decode the JWT (header.payload.signature — all base64url)
+    const parts = token.split('.');
+    if (parts.length !== 3) return res.status(400).json({ error: 'Invalid token format' });
+
+    const [headerB64, payloadB64, sigB64] = parts;
+
+    // Verify signature: HMAC-SHA256(header.payload, secret)
+    const expectedSig = crypto
+      .createHmac('sha256', secret)
+      .update(`${headerB64}.${payloadB64}`)
+      .digest('base64url');
+
+    if (!crypto.timingSafeEqual(Buffer.from(sigB64), Buffer.from(expectedSig))) {
+      return res.status(401).json({ error: 'Invalid token signature' });
+    }
+
+    // Decode payload
+    const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
+
+    // Check expiry
+    if (payload.exp && Date.now() / 1000 > payload.exp) {
+      return res.status(401).json({ error: 'Token expired' });
+    }
+
+    const { sub: ssoId, email, name: displayName } = payload;
+    if (!ssoId || !email) return res.status(400).json({ error: 'Invalid token payload' });
+
+    // Upsert user and set session
+    const db = getAdapter();
+    const user = await db.upsertUserBySsoId(ssoId, email, displayName || email.split('@')[0]);
+
+    req.session.userId = user.id;
+    req.session.username = user.username;
+    req.session.ssoRole = payload.workspace_role || 'viewer';
+
+    // Redirect to workspace
+    const dest = redirect.startsWith('/') ? redirect : '/';
+    res.redirect(dest);
+  } catch (err) {
+    console.error('[Auth] SSO error:', err);
+    res.status(500).json({ error: 'SSO authentication failed' });
+  }
+});
+
 module.exports = router;
+
