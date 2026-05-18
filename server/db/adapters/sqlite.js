@@ -308,6 +308,15 @@ class SQLiteAdapter {
       ORDER BY total_tokens DESC
     `, [workspaceId, periodDays]);
   }
+
+  async getDailyTokens(workspaceId) {
+    const row = await this._queryOne(
+      `SELECT COALESCE(SUM(total_tokens), 0) AS tokens FROM workspace_usage
+       WHERE workspace_id = ? AND created_at >= date('now')`,
+      [workspaceId]
+    );
+    return parseInt(row?.tokens || '0', 10);
+  }
 }
 
 module.exports = SQLiteAdapter;

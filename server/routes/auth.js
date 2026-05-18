@@ -9,7 +9,12 @@ const { requireAuth } = require('../middleware/auth');
 const router = express.Router();
 
 router.post('/register', async (req, res) => {
+  // Registration is disabled by default — set ALLOW_REGISTRATION=true to enable
+  if (process.env.ALLOW_REGISTRATION !== 'true') {
+    return res.status(403).json({ error: 'Registration is currently closed. Use the demo account to try Roundtable.' });
+  }
   try {
+
     const { username, password, displayName } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'Username and password are required' });
     if (username.length < 3 || username.length > 30) return res.status(400).json({ error: 'Username must be 3-30 characters' });

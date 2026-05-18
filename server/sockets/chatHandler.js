@@ -27,6 +27,27 @@ function setupChatHandlers(io, socket) {
         return;
       }
 
+      // ── Hard daily token cap ──────────────────────────────────────────────
+      // Default: 1,000,000 tokens/day (~$1.50 for Gemini 2.5 Flash).
+      // Override with DAILY_TOKEN_LIMIT env var.
+      const DAILY_TOKEN_LIMIT = parseInt(process.env.DAILY_TOKEN_LIMIT || '1000000', 10);
+      if (DAILY_TOKEN_LIMIT > 0) {
+        try {
+          const { getAdapter } = require('../db/adapter');
+          const todayTokens = await getAdapter().getDailyTokens(config.workspaceId);
+          if (todayTokens >= DAILY_TOKEN_LIMIT) {
+            const pct = Math.round((todayTokens / DAILY_TOKEN_LIMIT) * 100);
+            socket.emit('error-message', {
+              error: `Daily AI limit reached (${todayTokens.toLocaleString()} / ${DAILY_TOKEN_LIMIT.toLocaleString()} tokens used today — ${pct}%). Resets at midnight UTC.`,
+            });
+            return;
+          }
+        } catch (capErr) {
+          console.warn('[DailyCap] Could not check usage — allowing request:', capErr.message);
+        }
+      }
+
+
       const workspace = await workspaceService.getWorkspace();
 
       // AI provider config from workspace or defaults
