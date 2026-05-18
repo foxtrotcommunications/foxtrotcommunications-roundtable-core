@@ -36,6 +36,7 @@ export const updateWorkspaceInfo = (fields: {
   systemPrompt?: string;
   enabledTools?: string[] | null;
   dataSources?: DataSources;
+  ollamaHost?: string | null;
 }) => request<Workspace>('PATCH', '/workspace/info', fields);
 
 // Messages
