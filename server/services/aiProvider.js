@@ -120,7 +120,7 @@ async function* streamOpenAI(model, messages, apiKey, enableTools, maxRounds, si
     for (const tc of toolCalls) {
       yield { type: 'tool-call', name: tc.name, args: JSON.parse(tc.arguments), callId: tc.id };
 
-      const result = await executeTool(tc.name, JSON.parse(tc.arguments), workspaceConfig);
+      const result = await executeTool(tc.name, JSON.parse(tc.arguments), { ...workspaceConfig, model });
       yield { type: 'tool-result', name: tc.name, callId: tc.id, result };
 
       currentMessages.push({
@@ -263,7 +263,7 @@ async function* streamAnthropic(model, messages, apiKey, enableTools, maxRounds,
     for (const tu of toolUses) {
       yield { type: 'tool-call', name: tu.name, args: tu.input, callId: tu.id };
 
-      const result = await executeTool(tu.name, tu.input, workspaceConfig);
+      const result = await executeTool(tu.name, tu.input, { ...workspaceConfig, model });
       yield { type: 'tool-result', name: tu.name, callId: tu.id, result };
 
       toolResults.push({
@@ -422,7 +422,7 @@ async function* streamGoogle(model, messages, apiKey, enableTools, maxRounds, si
       const callId = `call_${Date.now()}_${fc.name}`;
       yield { type: 'tool-call', name: fc.name, args: fc.args, callId };
 
-      const result = await executeTool(fc.name, fc.args, workspaceConfig);
+      const result = await executeTool(fc.name, fc.args, { ...workspaceConfig, model });
       yield { type: 'tool-result', name: fc.name, callId, result };
 
       functionResponses.push({
@@ -557,7 +557,7 @@ async function* streamOllama(model, messages, enableTools, maxRounds, signal, en
     for (const tc of toolCalls) {
       yield { type: 'tool-call', name: tc.name, args: JSON.parse(tc.arguments), callId: tc.id };
 
-      const result = await executeTool(tc.name, JSON.parse(tc.arguments), workspaceConfig);
+      const result = await executeTool(tc.name, JSON.parse(tc.arguments), { ...workspaceConfig, model });
       yield { type: 'tool-result', name: tc.name, callId: tc.id, result };
 
       currentMessages.push({
@@ -725,7 +725,7 @@ async function* streamVertexAI(model, messages, enableTools, maxRounds, signal, 
       const callId = `call_${Date.now()}_${fc.name}`;
       yield { type: 'tool-call', name: fc.name, args: fc.args, callId };
 
-      const result = await executeTool(fc.name, fc.args, workspaceConfig);
+      const result = await executeTool(fc.name, fc.args, { ...workspaceConfig, model });
       yield { type: 'tool-result', name: fc.name, callId, result };
 
       functionResponses.push({
