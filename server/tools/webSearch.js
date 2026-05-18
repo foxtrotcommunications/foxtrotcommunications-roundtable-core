@@ -78,10 +78,12 @@ async function googleCustomSearch(query) {
 async function vertexGroundingSearch(query, model = 'gemini-2.5-flash') {
   try {
     const { GoogleGenAI } = require('@google/genai');
+    // Preview models need the global endpoint; GA models use regional
+    const isPreview = model && model.includes('-preview');
     const ai = new GoogleGenAI({
       vertexai: true,
       project: config.vertexai.project,
-      location: config.vertexai.location,
+      location: isPreview ? 'global' : config.vertexai.location,
     });
 
     const result = await ai.models.generateContent({
