@@ -16,7 +16,9 @@ module.exports = {
     },
     required: ['query'],
   },
-  async execute({ query }) {
+  async execute({ query }, workspaceConfig = {}) {
+    const model = workspaceConfig.model || 'gemini-2.5-flash';
+
     // Try Google Custom Search first (if configured and working)
     if (config.googleSearch.apiKey && config.googleSearch.engineId) {
       const result = await googleCustomSearch(query);
@@ -26,7 +28,7 @@ module.exports = {
 
     // Fallback: Vertex AI grounding via Gemini
     if (config.vertexai.project) {
-      return vertexGroundingSearch(query);
+      return vertexGroundingSearch(query, model);
     }
 
     // Last resort: DuckDuckGo Instant Answer API
@@ -73,7 +75,7 @@ async function googleCustomSearch(query) {
  * Vertex AI Grounding — uses Gemini + Google Search grounding to get search results.
  * This leverages existing ADC credentials, no extra API key needed.
  */
-async function vertexGroundingSearch(query) {
+async function vertexGroundingSearch(query, model = 'gemini-2.5-flash') {
   try {
     const { GoogleGenAI } = require('@google/genai');
     const ai = new GoogleGenAI({
@@ -83,7 +85,7 @@ async function vertexGroundingSearch(query) {
     });
 
     const result = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model,
       contents: [{
         role: 'user',
         parts: [{ text: `Search the web for: ${query}\n\nReturn a concise list of the top 5 results with their title, URL, and a brief snippet. Format each result on its own line as: TITLE | URL | SNIPPET` }],
