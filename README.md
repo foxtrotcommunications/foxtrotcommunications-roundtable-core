@@ -42,7 +42,7 @@ Roundtable auto-detects the environment: if no `DATABASE_URL` is set, it uses SQ
 - **Multiplayer AI Chat** — Multiple users in the same AI conversation, streaming in real-time
 - **Concurrent Generation** — Each user has an independent AI generation lifecycle; multiple people can prompt AI simultaneously without blocking each other
 - **Multi-Provider AI** — OpenAI, Anthropic (Claude), Google Gemini (via Vertex AI or API key), and Ollama (local models, OpenAI-compatible)
-- **14 Built-in Tools** — Web search, data warehouse queries, file management, shell execution, and more
+- **15 Built-in Tools** — Web search, data warehouse queries, file management, shell execution, and more
 - **Configurable Tool Set** — Enable or disable individual tools per workspace via the Settings panel
 - **Configurable Agent** — Set the AI provider, model, and system prompt per workspace — no redeploy needed
 - **Data Warehouse Queries** — AI can query BigQuery, Snowflake, and Databricks in real-time
@@ -175,8 +175,8 @@ Each workspace can be configured at runtime via the **⚙️ Settings panel** (n
 
 | Setting | Description |
 |---------|-------------|
-| **Provider** | `vertexai` \| `openai` \| `anthropic` \| `google` |
-| **Model** | Any model supported by the selected provider (e.g. `gemini-2.0-flash-001`, `gpt-4o`, `claude-opus-4-5`) |
+| **Provider** | `vertexai` \| `openai` \| `anthropic` \| `google` \| `ollama` |
+| **Model** | Any model supported by the selected provider (e.g. `gemini-2.5-flash`, `gpt-4o`, `claude-opus-4-5`) |
 | **System Prompt** | Custom instructions prepended to every AI conversation in this workspace |
 
 ### Tools tab
@@ -197,7 +197,7 @@ Users can configure personal API keys (OpenAI, Anthropic, Google AI) that overri
 
 ## Built-in Tools
 
-All 14 tools are enabled by default. Individual tools can be toggled per workspace via the Settings panel.
+All 15 tools are enabled by default. Individual tools can be toggled per workspace via the Settings panel.
 
 | Tool | Description |
 |------|-------------|
@@ -215,6 +215,7 @@ All 14 tools are enabled by default. Individual tools can be toggled per workspa
 | **find_file** | Search for files by name |
 | **git_clone** | Clone a git repository into the workspace |
 | **git_commit** | Stage and commit changes |
+| **verify_workspace** | Run health checks on tools and data sources |
 
 Data warehouse tools enforce **read-only access** — INSERT, UPDATE, DELETE, DROP, and other write operations are blocked at the tool level.
 
@@ -304,6 +305,10 @@ k8s/
 4. Commit your changes (`git commit -m 'Add my feature'`)
 5. Push to the branch (`git push origin feature/my-feature`)
 6. Open a Pull Request
+
+## Related
+
+- **[Roundtable Dashboard](https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable)** — Multi-tenant SaaS management console (workspace lifecycle, members, usage, billing)
 
 ## License
 
