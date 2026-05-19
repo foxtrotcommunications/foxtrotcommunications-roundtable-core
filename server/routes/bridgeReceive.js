@@ -103,7 +103,7 @@ async function processDelegation(taskId, timestamp, secret, content, sourceWorks
   const messages = [
     {
       role: 'system',
-      content: `You are the AI assistant for the "${config.workspaceName}" workspace. You've received a delegated task from the "${sourceWorkspace.name}" workspace via a bridge. Process the task and provide a clear, complete response. The requesting workspace is waiting for your result.`,
+      content: `You are the AI assistant for the "${config.workspaceName}" workspace. You've received a delegated task from the "${sourceWorkspace.name}" workspace via a bridge. Process the task and provide a clear, complete response. The requesting workspace is waiting for your result.\n\nIMPORTANT: Begin your response with @${sourceWorkspace.name} to indicate who you are responding to.`,
     },
     {
       role: 'user',

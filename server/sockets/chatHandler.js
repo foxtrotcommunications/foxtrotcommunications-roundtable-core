@@ -49,10 +49,25 @@ function setupChatHandlers(io, socket) {
         );
 
         if (!bridge) {
-          const available = bridges.map((b) => `@ai-${b.targetName.toLowerCase()}`).join(', ');
-          socket.emit('error-message', {
-            error: `No bridge to "${targetName}". Available: ${available || 'none'}`,
-          });
+          // Fuzzy match — suggest close names
+          const suggestions = bridges
+            .filter((b) => {
+              const t = b.targetName.toLowerCase();
+              const q = targetName.toLowerCase();
+              return t.startsWith(q) || q.startsWith(t) || t.includes(q) || q.includes(t);
+            })
+            .map((b) => `@ai-${b.targetName.toLowerCase()}`);
+
+          if (suggestions.length > 0) {
+            socket.emit('error-message', {
+              error: `No bridge to "${targetName}". Did you mean ${suggestions.join(' or ')}?`,
+            });
+          } else {
+            const available = bridges.map((b) => `@ai-${b.targetName.toLowerCase()}`).join(', ');
+            socket.emit('error-message', {
+              error: `No bridge to "${targetName}". Available: ${available || 'none'}`,
+            });
+          }
           return;
         }
 
@@ -255,7 +270,12 @@ Do NOT guess your capabilities. Call describe_workspace to get the live inventor
 - ALWAYS call tools directly when asked. Never ask the user for config values the environment already provides (project ID, region, etc.).
 - If a tool call fails with a transient error, try again with the same or corrected inputs. Do NOT tell the user you cannot do something without first attempting it with a tool.
 - CRITICAL: If a BigQuery query fails with "Access Denied" or "Table not found", do NOT guess alternative table names. Instead, STOP and tell the user the exact error. You may ONLY use table names from the schema definitions provided below or that you have confirmed exist via a successful query.
-- If you fail a query 3 times, STOP retrying and summarize what you tried and what went wrong.`;
+- If you fail a query 3 times, STOP retrying and summarize what you tried and what went wrong.
+
+--- RESPONSE ATTRIBUTION ---
+- ALWAYS begin your response by @-mentioning the person or workspace you are replying to. For example: "@Brady Bastian, here's what I found..." or "@Analytics, the query returned 42 rows."
+- In a multiplayer workspace, this makes it clear who each response is directed at.
+- If the message is from a bridge (starts with "[Bridge from X]"), @-mention the source workspace name.`;
 
       systemPrompt = envCtx + (systemPrompt ? '\n\n' + systemPrompt : '');
 
