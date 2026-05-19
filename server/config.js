@@ -9,9 +9,9 @@ const config = {
   // Database (PostgreSQL required)
   databaseUrl: process.env.DATABASE_URL || '',
 
-  // Workspace identity
-  workspaceId: process.env.WORKSPACE_ID || 'default',
-  workspaceName: process.env.WORKSPACE_NAME || process.env.WORKSPACE_ID || 'Roundtable',
+  // Workspace identity (provisioner injects WS_ID; WORKSPACE_ID is legacy)
+  workspaceId: process.env.WS_ID || process.env.WORKSPACE_ID || 'default',
+  workspaceName: process.env.WS_NAME || process.env.WORKSPACE_NAME || process.env.WS_ID || process.env.WORKSPACE_ID || 'Roundtable',
   workspaceUrl: process.env.WORKSPACE_URL || '',
 
   // Platform branding (appears in system prompt and describe_workspace)
