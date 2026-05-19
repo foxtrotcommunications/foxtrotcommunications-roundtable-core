@@ -269,6 +269,10 @@ html, body { height: 100%; font-family: 'Inter', system-ui, sans-serif; backgrou
 .mention-ai { background: rgba(16,185,129,0.15); color: #10b981; }
 /* @mention highlight on the message row */
 .message.message-mentioned { background: rgba(99,102,241,0.06); border-left: 3px solid var(--accent-secondary); padding-left: 9px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+/* Bridge message styling */
+.message.message-bridged { background: rgba(139, 92, 246, 0.04); border-left: 3px solid #8b5cf6; padding-left: 9px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.message-avatar.bridged { background: linear-gradient(135deg, #7c3aed, #a78bfa); font-size: 16px; }
+.bridge-source-tag { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #a78bfa; background: rgba(139, 92, 246, 0.12); padding: 1px 6px; border-radius: 4px; }
 
 /* ─── Tool Call Cards ─── */
 .tool-card { background: var(--bg-tertiary); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); margin: 8px 0; overflow: hidden; animation: fadeIn 0.3s ease; }
