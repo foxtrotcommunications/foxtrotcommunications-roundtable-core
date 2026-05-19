@@ -4,7 +4,8 @@ import * as api from '../api';
 import ChatView from '../components/chat/ChatView';
 import CodePanel from '../components/code-panel/CodePanel';
 import PresenceBar from '../components/presence/PresenceBar';
-import BridgeIndicator from '../components/presence/BridgeIndicator';
+import BridgeButton from '../components/presence/BridgeIndicator';
+import BridgePanel from '../components/presence/BridgePanel';
 import SettingsModal from '../components/settings/SettingsModal';
 import Toast, { useToast } from '../components/common/Toast';
 import type { User, Workspace } from '../types/workspace';
@@ -20,12 +21,15 @@ export default function WorkspacePage({ user, onLogout }: Props) {
   const [codePanelOpen, setCodePanelOpen] = useState(
     () => localStorage.getItem('code-panel-open') === 'true'
   );
+  const [bridgePanelOpen, setBridgePanelOpen] = useState(false);
+  const [hasBridges, setHasBridges] = useState(false);
   const [activeRepo, setActiveRepo] = useState<string | null>(null);
   const { toasts, addToast, removeToast } = useToast();
 
   useEffect(() => {
     api.getWorkspaceInfo().then(setWorkspace).catch(() => {});
     api.getMessages().then(chat.setMessages).catch(() => {});
+    api.getBridges().then(b => setHasBridges(b.length > 0)).catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Forward workspace-changed socket events to the CodePanel via a custom window event
@@ -92,9 +96,13 @@ export default function WorkspacePage({ user, onLogout }: Props) {
               <p>{workspace?.ai_provider || 'vertexai'} · {workspace?.ai_model || 'gemini-2.5-flash'}</p>
             </div>
             <div className="chat-header-actions">
-              <BridgeIndicator />
               <PresenceBar users={presence.users} />
               <button className="btn btn-ghost btn-sm" onClick={() => setSettingsOpen(true)} title="Settings">⚙️</button>
+              <BridgeButton
+                hasBridges={hasBridges}
+                isOpen={bridgePanelOpen}
+                onClick={() => setBridgePanelOpen(!bridgePanelOpen)}
+              />
               <button
                 className={`btn btn-ghost btn-sm${codePanelOpen ? ' active' : ''}`}
                 onClick={toggleCodePanel}
@@ -118,6 +126,11 @@ export default function WorkspacePage({ user, onLogout }: Props) {
             currentUsername={user.username}
           />
         </div>
+
+        <BridgePanel
+          isOpen={bridgePanelOpen}
+          onClose={() => setBridgePanelOpen(false)}
+        />
 
         <CodePanel
           isOpen={codePanelOpen}
