@@ -191,6 +191,28 @@ html, body { height: 100%; font-family: 'Inter', system-ui, sans-serif; backgrou
 .presence-user-status { font-size: 11px; color: var(--success); }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
 
+/* ─── Bridge Indicator ─── */
+.bridge-indicator { position: relative; display: flex; align-items: center; }
+.bridge-toggle { display: flex; align-items: center; gap: 6px; background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.25); border-radius: 20px; padding: 5px 12px 5px 8px; cursor: pointer; color: var(--accent-secondary); font-size: 12px; font-weight: 500; transition: all 0.2s ease; font-family: inherit; position: relative; }
+.bridge-toggle:hover { background: rgba(99,102,241,0.18); border-color: rgba(99,102,241,0.4); box-shadow: 0 0 12px rgba(99,102,241,0.15); }
+.bridge-icon { font-size: 14px; }
+.bridge-count { font-variant-numeric: tabular-nums; }
+.bridge-pulse { position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; background: #4ade80; border-radius: 50%; animation: bridgePulse 2s infinite; }
+@keyframes bridgePulse { 0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(74,222,128,0.4); } 50% { opacity: 0.8; box-shadow: 0 0 0 4px rgba(74,222,128,0); } }
+.bridge-dropdown { position: absolute; top: calc(100% + 8px); right: 0; background: var(--bg-secondary); border: 1px solid rgba(99,102,241,0.2); border-radius: 12px; min-width: 260px; box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 20px rgba(99,102,241,0.08); z-index: 100; animation: fadeIn 0.15s ease; overflow: hidden; }
+.bridge-dropdown-header { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent-secondary); padding: 10px 14px 8px; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; gap: 6px; }
+.bridge-dropdown-header::before { content: '🔗'; font-size: 12px; }
+.bridge-row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; transition: background 0.15s; }
+.bridge-row:hover { background: var(--surface-hover); }
+.bridge-row-icon { font-size: 16px; color: var(--accent-secondary); font-weight: 700; flex-shrink: 0; width: 24px; text-align: center; }
+.bridge-row-info { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.bridge-row-name { font-size: 13px; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bridge-row-perms { font-size: 11px; color: var(--text-muted); }
+.bridge-row-status { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #4ade80; font-weight: 500; flex-shrink: 0; }
+.bridge-status-dot { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 6px rgba(74,222,128,0.4); }
+.bridge-dropdown-footer { padding: 8px 14px; border-top: 1px solid var(--border-subtle); font-size: 11px; color: var(--text-muted); background: rgba(0,0,0,0.15); }
+.bridge-dropdown-footer code { background: rgba(99,102,241,0.15); color: var(--accent-secondary); padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+
 .chat-messages { flex: 1; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 4px; }
 
 /* ─── Messages ─── */

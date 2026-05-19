@@ -4,6 +4,7 @@ import * as api from '../api';
 import ChatView from '../components/chat/ChatView';
 import CodePanel from '../components/code-panel/CodePanel';
 import PresenceBar from '../components/presence/PresenceBar';
+import BridgeIndicator from '../components/presence/BridgeIndicator';
 import SettingsModal from '../components/settings/SettingsModal';
 import Toast, { useToast } from '../components/common/Toast';
 import type { User, Workspace } from '../types/workspace';
@@ -91,6 +92,7 @@ export default function WorkspacePage({ user, onLogout }: Props) {
               <p>{workspace?.ai_provider || 'vertexai'} · {workspace?.ai_model || 'gemini-2.5-flash'}</p>
             </div>
             <div className="chat-header-actions">
+              <BridgeIndicator />
               <PresenceBar users={presence.users} />
               <button className="btn btn-ghost btn-sm" onClick={() => setSettingsOpen(true)} title="Settings">⚙️</button>
               <button
