@@ -19,6 +19,7 @@ const queryDatabricks = require('./queryDatabricks');
 // Meta-tools — always available regardless of workspace config
 const describeWorkspace = require('./describeWorkspace');
 const verifyWorkspace = require('./verifyWorkspace');
+const bridgeWorkspace = require('./bridgeWorkspace');
 
 const tools = {
   // Meta-tools — always available, cannot be disabled
@@ -41,6 +42,8 @@ const tools = {
   query_bigquery: queryBigQuery,
   query_snowflake: querySnowflake,
   query_databricks: queryDatabricks,
+  // Workspace bridge tool — communicate with other workspaces
+  bridge_workspace: bridgeWorkspace,
 };
 
 /**

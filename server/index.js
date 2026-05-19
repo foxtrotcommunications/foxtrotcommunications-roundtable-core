@@ -11,6 +11,7 @@ const { setupSockets } = require('./sockets');
 
 const authRoutes = require('./routes/auth');
 const fileRoutes = require('./routes/fileRoutes');
+const bridgeReceive = require('./routes/bridgeReceive');
 const { requireAuth } = require('./middleware/auth');
 
 const app = express();
@@ -176,6 +177,7 @@ app.use('/api/auth/register', registerLimiter);
 app.use('/api', apiLimiter);
 
 app.use('/api/auth', authRoutes);
+app.use('/api/bridge', bridgeReceive);  // HMAC-authed, no user session needed
 app.use('/api', requireAuth, fileRoutes);
 
 // Workspace info
