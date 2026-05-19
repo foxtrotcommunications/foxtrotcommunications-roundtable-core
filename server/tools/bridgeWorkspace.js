@@ -2,8 +2,11 @@
 //
 // Enables the AI to send messages or delegate tasks to other workspaces
 // via the control plane relay. Async — returns a task ID for polling.
+//
+// Auth: HMAC signature using SESSION_SECRET (same key as the control plane).
 
 const config = require('../config');
+const crypto = require('crypto');
 
 const bridgeWorkspace = {
   name: 'bridge_workspace',
@@ -79,23 +82,31 @@ const bridgeWorkspace = {
       };
     }
 
-    // Relay via control plane
+    // Relay via control plane with HMAC auth
     const controlPlaneUrl = process.env.CONTROL_PLANE_URL || 'https://roundtable.foxtrotcommunications.net';
     const wsId = config.workspaceId;
+    const orgSlug = process.env.ORG_SLUG || '';
+    const secret = config.sessionSecret || '';
+
+    // HMAC signature: HMAC-SHA256(SESSION_SECRET, wsId:timestamp)
+    const timestamp = Date.now().toString();
+    const signature = crypto.createHmac('sha256', secret).update(`${wsId}:${timestamp}`).digest('hex');
 
     try {
       const response = await fetch(`${controlPlaneUrl}/api/bridges/relay`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          // Use the workspace's API key or session for auth
-          Authorization: `Bearer ${process.env.RT_BRIDGE_TOKEN || ''}`,
+          'X-Bridge-Signature': signature,
+          'X-Bridge-Timestamp': timestamp,
+          'X-Bridge-WsId': wsId,
         },
         body: JSON.stringify({
           bridgeId: bridge.bridgeId,
           action,
           content,
           sourceWsId: wsId,
+          orgId: bridge.orgId || '',
         }),
         signal: AbortSignal.timeout(30000),
       });
@@ -116,8 +127,6 @@ const bridgeWorkspace = {
       }
 
       if (action === 'delegate') {
-        // For delegation, we could poll for the result
-        // For now, return the task ID — the result will arrive via bridge receive
         return {
           success: true,
           message: `Task delegated to ${bridge.targetName}. Task ID: ${result.taskId}. The target workspace's AI is processing your request.`,

@@ -18,8 +18,88 @@ function setupChatHandlers(io, socket) {
       io.to(wsChannel).emit('new-message', userMessage);
 
       // Only invoke AI when the message contains @ai (case-insensitive)
+      // Also detect @ai-{workspace} for bridge delegation
       const mentionsAI = /@ai\b/i.test(content);
-      if (!mentionsAI) return;
+      const bridgeMention = content.match(/@ai-(\S+)/i);
+      if (!mentionsAI && !bridgeMention) return;
+
+      // ── Bridge delegation via @ai-{workspace} ─────────────────
+      if (bridgeMention) {
+        const targetName = bridgeMention[1];
+        // Strip the @ai-workspace from the content to get the actual message
+        const bridgeContent = content.replace(/@ai-\S+\s*/i, '').trim();
+
+        if (!bridgeContent) {
+          socket.emit('error-message', { error: `What would you like to ask ${targetName}? e.g. @ai-${targetName} review this query` });
+          return;
+        }
+
+        // Check if a bridge exists for this workspace
+        const manifest = process.env.RT_BRIDGES;
+        if (!manifest) {
+          socket.emit('error-message', { error: `No bridges configured. Cannot reach "${targetName}".` });
+          return;
+        }
+
+        let bridges;
+        try { bridges = JSON.parse(manifest); } catch { bridges = []; }
+
+        const bridge = bridges.find(
+          (b) => b.targetName.toLowerCase() === targetName.toLowerCase()
+        );
+
+        if (!bridge) {
+          const available = bridges.map((b) => `@ai-${b.targetName.toLowerCase()}`).join(', ');
+          socket.emit('error-message', {
+            error: `No bridge to "${targetName}". Available: ${available || 'none'}`,
+          });
+          return;
+        }
+
+        // Guard against double-submission
+        if (socket.isGenerating) {
+          socket.emit('error-message', { error: 'A request is still processing.' });
+          return;
+        }
+
+        socket.isGenerating = true;
+        io.to(wsChannel).emit('ai-start', { userId: socket.userId, username: socket.username });
+        io.to(wsChannel).emit('tool-call', {
+          name: 'bridge_workspace',
+          args: { target: bridge.targetName, action: 'delegate', content: bridgeContent },
+          callId: `bridge-${Date.now()}`,
+        });
+
+        try {
+          const bridgeTool = require('../tools/bridgeWorkspace');
+          const result = await bridgeTool.execute({
+            target: bridge.targetName,
+            action: 'delegate',
+            content: bridgeContent,
+          });
+
+          const callId = `bridge-${Date.now()}`;
+          io.to(wsChannel).emit('tool-result', {
+            name: 'bridge_workspace',
+            callId,
+            result,
+          });
+
+          const responseText = result.error
+            ? `❌ Bridge to ${bridge.targetName} failed: ${result.error}`
+            : `🔗 Task delegated to **${bridge.targetName}**. Task ID: \`${result.taskId}\`\n\nThe ${bridge.targetName} workspace's AI is processing your request. Results will appear here when complete.`;
+
+          await workspaceService.saveMessage(null, 'assistant', responseText);
+          io.to(wsChannel).emit('ai-chunk', { content: responseText, userId: socket.userId });
+          io.to(wsChannel).emit('ai-complete', { fullText: responseText, userId: socket.userId });
+        } catch (err) {
+          io.to(wsChannel).emit('ai-error', { error: `Bridge delegation failed: ${err.message}` });
+        } finally {
+          socket.isGenerating = false;
+          socket.abortController = null;
+        }
+        return;
+      }
 
       // Per-socket guard — only one active generation per user
       if (socket.isGenerating) {
