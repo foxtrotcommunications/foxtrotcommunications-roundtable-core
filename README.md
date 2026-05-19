@@ -43,6 +43,7 @@ Roundtable auto-detects the environment: if no `DATABASE_URL` is set, it uses SQ
 - **Concurrent Generation** — Each user has an independent AI generation lifecycle; multiple people can prompt AI simultaneously without blocking each other
 - **Multi-Provider AI** — OpenAI, Anthropic (Claude), Google Gemini (via Vertex AI or API key), and Ollama (local models, OpenAI-compatible)
 - **15 Built-in Tools** — Web search, data warehouse queries, file management, shell execution, and more
+- **Model-Aware Tooling** — Tools like web search automatically use the workspace's configured model and endpoint
 - **Configurable Tool Set** — Enable or disable individual tools per workspace via the Settings panel
 - **Configurable Agent** — Set the AI provider, model, and system prompt per workspace — no redeploy needed
 - **Data Warehouse Queries** — AI can query BigQuery, Snowflake, and Databricks in real-time
@@ -201,7 +202,7 @@ All 15 tools are enabled by default. Individual tools can be toggled per workspa
 
 | Tool | Description |
 |------|-------------|
-| **web_search** | Search the web via Google Custom Search or Vertex AI grounding |
+| **web_search** | Search the web via Google Custom Search or Vertex AI grounding (model-aware, supports preview and GA models) |
 | **read_url** | Fetch and extract text from web pages |
 | **calculator** | Evaluate math expressions (powered by mathjs) |
 | **run_code** | Execute JavaScript in a sandboxed environment |
@@ -305,6 +306,24 @@ k8s/
 4. Commit your changes (`git commit -m 'Add my feature'`)
 5. Push to the branch (`git push origin feature/my-feature`)
 6. Open a Pull Request
+
+## Security
+
+Security policies and compliance documentation are maintained in [`docs/security/`](docs/security/):
+
+- [**Incident Response Plan**](docs/security/incident-response-plan.md) — Detection, triage, containment, and post-mortem procedures
+- [**Data Classification Policy**](docs/security/data-classification-policy.md) — Four-level classification (Restricted → Public) for all platform data
+- [**Acceptable Use Policy**](docs/security/acceptable-use-policy.md) — Permitted and prohibited platform usage
+- [**Shared Responsibility Model**](docs/security/shared-responsibility-model.md) — GCP control ownership mapping for SOC 2 auditors
+
+Infrastructure security controls include:
+
+- **Workspace Isolation** — Each workspace runs as its own K8s pod with a dedicated database
+- **Workload Identity** — No static service account keys; pods authenticate via GKE Workload Identity
+- **Encryption** — TLS in transit (Let's Encrypt), AES-256 at rest (Cloud SQL, Firestore)
+- **Audit Logging** — Cloud Audit Logs exported to immutable storage (`gs://roundtable-audit-logs`)
+- **Container Scanning** — Artifact Registry vulnerability scanning enabled on all images
+- **Branch Protection** — PRs require at least one approving review before merge
 
 ## Related
 
