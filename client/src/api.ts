@@ -48,3 +48,7 @@ export const getKeys = () => request<ApiKeyInfo[]>('GET', '/keys');
 export const saveKey = (provider: string, apiKey: string) =>
   request<void>('POST', '/keys', { provider, apiKey });
 export const deleteKey = (id: number) => request<void>('DELETE', `/keys/${id}`);
+
+// Bridges
+export const getBridges = () =>
+  request<{ bridgeId: string; targetWsId: string; targetName: string; permissions: string[] }[]>('GET', '/workspace/bridges');

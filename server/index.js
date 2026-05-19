@@ -191,6 +191,18 @@ app.get('/api/workspace/info', requireAuth, async (req, res) => {
   }
 });
 
+// Bridge connections for this workspace (read from RT_BRIDGES env var)
+app.get('/api/workspace/bridges', requireAuth, (req, res) => {
+  try {
+    const manifest = process.env.RT_BRIDGES;
+    if (!manifest) return res.json([]);
+    const bridges = JSON.parse(manifest);
+    res.json(bridges);
+  } catch {
+    res.json([]);
+  }
+});
+
 // Update workspace settings
 app.patch('/api/workspace/info', requireAuth, async (req, res) => {
   try {
