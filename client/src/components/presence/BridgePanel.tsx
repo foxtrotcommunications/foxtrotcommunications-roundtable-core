@@ -104,17 +104,18 @@ export default function BridgePanel({ isOpen, onClose }: Props) {
                 </div>
 
                 <div className="bridge-card-hint">
-                  <code>@ai ask {b.targetName} to…</code>
+                  <code>@ai-{b.targetName.toLowerCase()} review this query</code>
                 </div>
               </div>
             ))}
 
             <div className="bridge-panel-footer">
               <div className="bridge-panel-footer-title">How to use bridges</div>
-              <p>Mention <code>@ai</code> and reference the bridged workspace by name to delegate tasks:</p>
+              <p>Use <code>@ai-{'{name}'}</code> to talk directly to a bridged workspace's AI:</p>
               <div className="bridge-panel-example">
-                <code>@ai ask Engineering to review this query</code>
+                <code>@ai-engineering review this query</code>
               </div>
+              <p>You can also use <code>@ai</code> and ask it to delegate — it knows about your bridges.</p>
               <p>Messages and results are replicated to both workspaces.</p>
             </div>
           </>
