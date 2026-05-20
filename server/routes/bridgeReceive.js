@@ -134,14 +134,13 @@ async function processDelegation(taskId, timestamp, secret, content, sourceWorks
   }
 
   // Save AI response to local DB
-  await workspaceService.saveMessage(null, 'assistant', fullText, null, null, sourceWorkspace.id);
+  const savedResponse = await workspaceService.saveMessage(null, 'assistant', fullText, null, null, sourceWorkspace.id);
 
   // Broadcast result to local clients
   if (global._io) {
     const wsChannel = `ws:${config.workspaceId}`;
     global._io.to(wsChannel).emit('new-message', {
-      role: 'assistant',
-      content: fullText,
+      ...savedResponse,
       bridged: true,
       sourceWorkspace: sourceWorkspace.name,
       delegationResult: true,
