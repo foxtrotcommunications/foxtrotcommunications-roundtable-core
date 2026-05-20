@@ -104,6 +104,20 @@ async function processDelegation(taskId, timestamp, secret, content, sourceWorks
   const workspace = await workspaceService.getWorkspace();
   const aiProvider = workspace?.ai_provider || 'vertexai';
   const aiModel = workspace?.ai_model || 'gemini-2.5-flash';
+  const toolsEnabled = workspace ? (workspace.tools_enabled ?? true) : true;
+
+  // Parse enabled tool names if configured
+  let enabledToolNames = null;
+  if (workspace && workspace.enabled_tools) {
+    try {
+      const parsed = JSON.parse(workspace.enabled_tools);
+      if (Array.isArray(parsed) && parsed.length > 0) enabledToolNames = parsed;
+    } catch (_) {}
+  }
+
+  // Build workspace config for tools
+  const workspaceConfig = {};
+  if (config.vertexai?.project) workspaceConfig.vertexProject = config.vertexai.project;
 
   // Notify clients that bridge processing has started
   const wsChannel = `ws:${config.workspaceId}`;
@@ -119,7 +133,7 @@ async function processDelegation(taskId, timestamp, secret, content, sourceWorks
   const messages = [
     {
       role: 'system',
-      content: `You are the AI assistant for the "${config.workspaceName}" workspace. You've received a delegated task from the "${sourceWorkspace.name}" workspace via a bridge. Process the task and provide a clear, complete response. The requesting workspace is waiting for your result.\n\nIMPORTANT: Begin your response with @${sourceWorkspace.name} to indicate who you are responding to.`,
+      content: `You are the AI assistant for the "${config.workspaceName}" workspace. You've received a delegated task from the "${sourceWorkspace.name}" workspace via a bridge. Process the task and provide a clear, complete response. The requesting workspace is waiting for your result.\n\nIMPORTANT: Begin your response with @${sourceWorkspace.name} to indicate who you are responding to.\nYou have tools available including web search. Use them when needed to provide accurate, up-to-date information.`,
     },
     {
       role: 'user',
@@ -130,27 +144,46 @@ async function processDelegation(taskId, timestamp, secret, content, sourceWorks
   let fullText = '';
   const abortController = new AbortController();
 
-  // 60 second timeout
-  const timeout = setTimeout(() => abortController.abort(), 60000);
+  // 120 second timeout (longer for tool-heavy tasks)
+  const timeout = setTimeout(() => abortController.abort(), 120000);
 
   try {
     for await (const event of streamCompletion(
-      aiProvider, aiModel, messages, '', true,
-      abortController.signal, null, {}
+      aiProvider, aiModel, messages, '', toolsEnabled,
+      abortController.signal, enabledToolNames, workspaceConfig
     )) {
-      if (event.type === 'text-delta') {
-        fullText += event.content;
-        // Stream chunks to clients
-        if (global._io) {
-          global._io.to(wsChannel).emit('bridge-ai-chunk', {
-            taskId,
-            sourceWorkspace: sourceWorkspace.name,
-            content: fullText,
-          });
-        }
-      }
-      if (event.type === 'done' && event.fullText) {
-        fullText = event.fullText;
+      if (abortController.signal.aborted) break;
+
+      switch (event.type) {
+        case 'text-delta':
+          fullText += event.content;
+          if (global._io) {
+            global._io.to(wsChannel).emit('bridge-ai-chunk', {
+              taskId,
+              sourceWorkspace: sourceWorkspace.name,
+              content: fullText,
+            });
+          }
+          break;
+        case 'tool-call':
+          console.log(`[Bridge] Tool call: ${event.name}`, JSON.stringify(event.args).slice(0, 200));
+          if (global._io) {
+            global._io.to(wsChannel).emit('tool-call', { name: event.name, args: event.args, callId: event.callId });
+          }
+          break;
+        case 'tool-result':
+          console.log(`[Bridge] Tool result: ${event.name}`, JSON.stringify(event.result).slice(0, 200));
+          await workspaceService.saveMessage(null, 'tool', JSON.stringify(event.result), event.name, event.callId);
+          if (global._io) {
+            global._io.to(wsChannel).emit('tool-result', { name: event.name, callId: event.callId, result: event.result });
+          }
+          break;
+        case 'error':
+          console.error(`[Bridge] AI error during delegation:`, event.error);
+          break;
+        case 'done':
+          if (event.fullText) fullText = event.fullText;
+          break;
       }
     }
   } finally {
