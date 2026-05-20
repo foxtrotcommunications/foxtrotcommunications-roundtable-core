@@ -4,9 +4,14 @@ const { setupWorkspaceHandlers } = require('./workspaceHandler');
 const { setupChatHandlers } = require('./chatHandler');
 
 function setupSockets(httpServer, sessionMiddleware) {
+  // Derive allowed origins from workspace URL (set by kubernetes provisioning)
+  const wsUrl = process.env.WORKSPACE_URL || '';
+  const dashboardUrl = process.env.RT_DASHBOARD_URL || '';
+  const allowedOrigins = [wsUrl, dashboardUrl].filter(Boolean);
+
   const io = new Server(httpServer, {
     cors: {
-      origin: '*',
+      origin: allowedOrigins.length > 0 ? allowedOrigins : false,
       credentials: true,
     },
   });

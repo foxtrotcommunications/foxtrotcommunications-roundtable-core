@@ -251,23 +251,38 @@ app.get('/api/workspaces', requireAuth, async (req, res) => {
 });
 
 // Cross-workspace: read another workspace's messages
-app.get('/api/workspaces/:id/messages', requireAuth, async (req, res) => {
-  try {
-    const db = getAdapter();
-    const options = { limit: parseInt(req.query.limit, 10) || 50 };
-    res.json(await db.getMessages(req.params.id, options));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// DISABLED — no authorization check exists to verify the requesting user
+// has access to the target workspace. Re-enable once workspace membership
+// verification is implemented.
+// app.get('/api/workspaces/:id/messages', requireAuth, async (req, res) => { ... });
 
 // Cross-workspace: receive a message from another workspace (webhook)
+// Requires HMAC signature verification (same pattern as bridge receive)
 app.post('/api/webhook/message', express.json(), async (req, res) => {
   try {
-    const { sourceWorkspaceId, userId, content, username } = req.body;
+    const { sourceWorkspaceId, content, timestamp, signature } = req.body;
     if (!sourceWorkspaceId || !content) return res.status(400).json({ error: 'sourceWorkspaceId and content required' });
+
+    // Verify HMAC signature
+    const secret = config.sessionSecret;
+    if (!signature || !timestamp) {
+      return res.status(401).json({ error: 'Missing webhook signature' });
+    }
+    const crypto = require('crypto');
+    const expectedSig = crypto
+      .createHmac('sha256', secret)
+      .update(`${sourceWorkspaceId}:${timestamp}`)
+      .digest('hex');
+    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
+      return res.status(401).json({ error: 'Invalid webhook signature' });
+    }
+    // Check timestamp freshness (5 min window)
+    if (Math.abs(Date.now() - parseInt(timestamp)) > 5 * 60 * 1000) {
+      return res.status(401).json({ error: 'Webhook timestamp expired' });
+    }
+
     const db = getAdapter();
-    const msg = await db.saveMessage(config.workspaceId, userId || null, 'user', content, null, null, sourceWorkspaceId);
+    const msg = await db.saveMessage(config.workspaceId, null, 'user', content, null, null, sourceWorkspaceId);
     // Broadcast to connected users via Socket.IO
     if (global._io) {
       global._io.to(`ws:${config.workspaceId}`).emit('new-message', { ...msg, crossWorkspace: true, sourceWorkspace: sourceWorkspaceId });
@@ -342,6 +357,25 @@ async function start() {
 }
 
 start().catch((err) => { console.error('Failed to start:', err); process.exit(1); });
+
+// ─── Global Error Handling ────────────────────────────────
+
+// Express error-handling middleware (must be after all routes)
+app.use((err, req, res, _next) => {
+  console.error('[Express] Unhandled error:', err.stack || err);
+  res.status(err.status || 500).json({ error: 'Internal server error' });
+});
+
+// Catch unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Process] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// Catch uncaught exceptions — log and exit cleanly
+process.on('uncaughtException', (err) => {
+  console.error('[Process] Uncaught Exception:', err);
+  shutdown('uncaughtException').catch(() => process.exit(1));
+});
 
 // Graceful shutdown
 async function shutdown(signal) {
