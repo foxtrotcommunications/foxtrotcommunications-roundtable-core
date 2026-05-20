@@ -46,6 +46,9 @@ export interface ChatState {
   streamingContent: string;
   toolCalls: Map<string, { call: ToolCall; result?: ToolResult }>;
   lastUsage: TokenUsage | null;
+  bridgeProcessing: boolean;
+  bridgeStreamingContent: string;
+  bridgeSourceName: string;
 }
 
 export interface TokenUsage {
@@ -61,6 +64,10 @@ export function useChat(socket: Socket | null) {
   const [streamingContent, setStreamingContent] = useState('');
   const [toolCalls, setToolCalls] = useState<Map<string, { call: ToolCall; result?: ToolResult }>>(new Map());
   const [lastUsage, setLastUsage] = useState<TokenUsage | null>(null);
+  const [bridgeProcessing, setBridgeProcessing] = useState(false);
+  const bridgeStreamingRef = useRef('');
+  const [bridgeStreamingContent, setBridgeStreamingContent] = useState('');
+  const [bridgeSourceName, setBridgeSourceName] = useState('');
 
   useEffect(() => {
     if (!socket) return;
@@ -144,6 +151,28 @@ export function useChat(socket: Socket | null) {
     socket.on('ai-complete', onAiComplete);
     socket.on('ai-usage', onAiUsage);
 
+    // Bridge processing events
+    const onBridgeStart = (data: { sourceWorkspace: string }) => {
+      setBridgeProcessing(true);
+      bridgeStreamingRef.current = '';
+      setBridgeStreamingContent('');
+      setBridgeSourceName(data.sourceWorkspace);
+    };
+    const onBridgeChunk = (data: { content: string }) => {
+      bridgeStreamingRef.current = data.content;
+      setBridgeStreamingContent(data.content);
+    };
+    const onBridgeComplete = () => {
+      setBridgeProcessing(false);
+      bridgeStreamingRef.current = '';
+      setBridgeStreamingContent('');
+      setBridgeSourceName('');
+    };
+
+    socket.on('bridge-processing-start', onBridgeStart);
+    socket.on('bridge-ai-chunk', onBridgeChunk);
+    socket.on('bridge-processing-complete', onBridgeComplete);
+
     return () => {
       socket.off('new-message', onMessage);
       socket.off('ai-start', onAiStart);
@@ -153,6 +182,9 @@ export function useChat(socket: Socket | null) {
       socket.off('ai-error', onAiError);
       socket.off('ai-complete', onAiComplete);
       socket.off('ai-usage', onAiUsage);
+      socket.off('bridge-processing-start', onBridgeStart);
+      socket.off('bridge-ai-chunk', onBridgeChunk);
+      socket.off('bridge-processing-complete', onBridgeComplete);
     };
   }, [socket]);
 
@@ -164,7 +196,7 @@ export function useChat(socket: Socket | null) {
     if (socket) socket.emit('stop-generation');
   }, [socket]);
 
-  return { messages, setMessages, streaming, streamingContent, toolCalls, lastUsage, sendMessage, stopGeneration };
+  return { messages, setMessages, streaming, streamingContent, toolCalls, lastUsage, sendMessage, stopGeneration, bridgeProcessing, bridgeStreamingContent, bridgeSourceName };
 }
 
 // ─── Presence Hook ──────────────────────────────────

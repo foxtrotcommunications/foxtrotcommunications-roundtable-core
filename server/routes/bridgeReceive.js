@@ -105,6 +105,16 @@ async function processDelegation(taskId, timestamp, secret, content, sourceWorks
   const aiProvider = workspace?.ai_provider || 'vertexai';
   const aiModel = workspace?.ai_model || 'gemini-2.5-flash';
 
+  // Notify clients that bridge processing has started
+  const wsChannel = `ws:${config.workspaceId}`;
+  if (global._io) {
+    global._io.to(wsChannel).emit('bridge-processing-start', {
+      taskId,
+      sourceWorkspace: sourceWorkspace.name,
+      content,
+    });
+  }
+
   // Build minimal context for delegation
   const messages = [
     {
@@ -130,6 +140,14 @@ async function processDelegation(taskId, timestamp, secret, content, sourceWorks
     )) {
       if (event.type === 'text-delta') {
         fullText += event.content;
+        // Stream chunks to clients
+        if (global._io) {
+          global._io.to(wsChannel).emit('bridge-ai-chunk', {
+            taskId,
+            sourceWorkspace: sourceWorkspace.name,
+            content: fullText,
+          });
+        }
       }
       if (event.type === 'done' && event.fullText) {
         fullText = event.fullText;
@@ -144,13 +162,14 @@ async function processDelegation(taskId, timestamp, secret, content, sourceWorks
 
   // Broadcast result to local clients
   if (global._io) {
-    const wsChannel = `ws:${config.workspaceId}`;
     global._io.to(wsChannel).emit('new-message', {
       ...savedResponse,
       bridged: true,
       sourceWorkspace: sourceWorkspace.name,
       delegationResult: true,
     });
+    // Signal processing complete
+    global._io.to(wsChannel).emit('bridge-processing-complete', { taskId });
   }
 
   // Report completion to control plane
