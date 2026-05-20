@@ -59,6 +59,12 @@ router.post('/receive', async (req, res) => {
       });
     }
 
+    if (action === 'result') {
+      // Result delivery from a completed delegation — just save and broadcast, do NOT report back
+      // (reporting back would create an infinite loop)
+      return res.json({ success: true, action: 'result_delivered' });
+    }
+
     if (action === 'message') {
       // Simple message relay — already saved and broadcast, done
       // Report completion to the control plane
