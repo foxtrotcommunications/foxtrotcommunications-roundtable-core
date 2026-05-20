@@ -17,6 +17,9 @@ interface Props {
   onTyping: () => void;
   typingUsers: PresenceUser[];
   currentUsername?: string;
+  bridgeProcessing?: boolean;
+  bridgeStreamingContent?: string;
+  bridgeSourceName?: string;
 }
 
 function formatTokenCount(n: number): string {
@@ -28,6 +31,7 @@ function formatTokenCount(n: number): string {
 export default function ChatView({
   messages, streaming, streamingContent, toolCalls, lastUsage,
   onSendMessage, onStopGeneration, onTyping, typingUsers, currentUsername,
+  bridgeProcessing, bridgeStreamingContent, bridgeSourceName,
 }: Props) {
   const messagesRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -129,6 +133,33 @@ export default function ChatView({
                     {toolCalls.size > 0
                       ? `Working — ${Array.from(toolCalls.values()).filter(t => !t.result).length > 0 ? 'running tools…' : 'thinking…'}`
                       : streamingContent ? 'generating…' : ''}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Bridge delegation processing indicator */}
+        {bridgeProcessing && (
+          <div className="message message-bridged">
+            <div className="message-avatar bridge">🔗</div>
+            <div className="message-body">
+              <div className="message-header">
+                <span className="message-sender">AI Assistant</span>
+                <span className="bridge-source-tag">processing request from {bridgeSourceName}</span>
+                <span className="message-time">now</span>
+              </div>
+              <div className="message-content">
+                {bridgeStreamingContent && (
+                  <MessageContent content={bridgeStreamingContent} />
+                )}
+                <div className="streaming-indicator">
+                  <span className="streaming-dot" />
+                  <span className="streaming-dot" />
+                  <span className="streaming-dot" />
+                  <span className="streaming-label">
+                    {bridgeStreamingContent ? 'responding to bridge request…' : 'processing bridge request…'}
                   </span>
                 </div>
               </div>
