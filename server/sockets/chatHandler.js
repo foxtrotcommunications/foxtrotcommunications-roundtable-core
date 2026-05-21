@@ -122,23 +122,30 @@ function setupChatHandlers(io, socket) {
         return;
       }
 
-      // ── Hard daily token cap ──────────────────────────────────────────────
-      // Default: 1,000,000 tokens/day (~$1.50 for Gemini 2.5 Flash).
-      // Override with DAILY_TOKEN_LIMIT env var.
-      const DAILY_TOKEN_LIMIT = parseInt(process.env.DAILY_TOKEN_LIMIT || '1000000', 10);
-      if (DAILY_TOKEN_LIMIT > 0) {
+      // ── Monthly token credit pool ──────────────────────────────────────
+      // Each workspace gets a monthly token credit (500K for Team, 1M for Business).
+      // After credits are exhausted, usage continues but is flagged as overage
+      // and auto-charged via Stripe metered billing.
+      const MONTHLY_TOKEN_CREDIT = parseInt(process.env.MONTHLY_TOKEN_CREDIT || '1000000', 10);
+      let isOverage = false;
+      if (MONTHLY_TOKEN_CREDIT > 0) {
         try {
           const { getAdapter } = require('../db/adapter');
-          const todayTokens = await getAdapter().getDailyTokens(config.workspaceId);
-          if (todayTokens >= DAILY_TOKEN_LIMIT) {
-            const pct = Math.round((todayTokens / DAILY_TOKEN_LIMIT) * 100);
-            socket.emit('error-message', {
-              error: `Daily AI limit reached (${todayTokens.toLocaleString()} / ${DAILY_TOKEN_LIMIT.toLocaleString()} tokens used today — ${pct}%). Resets at midnight UTC.`,
+          const monthlyTokens = await getAdapter().getMonthlyTokens(config.workspaceId);
+          if (monthlyTokens >= MONTHLY_TOKEN_CREDIT) {
+            isOverage = true;
+            const pct = Math.round((monthlyTokens / MONTHLY_TOKEN_CREDIT) * 100);
+            console.log(`[Credits] Workspace ${config.workspaceId} is over monthly credit: ${monthlyTokens.toLocaleString()} / ${MONTHLY_TOKEN_CREDIT.toLocaleString()} (${pct}%)`);
+            // Notify the user but DON'T block — overages are auto-charged
+            socket.emit('credit-warning', {
+              message: `Monthly AI credit pool used (${monthlyTokens.toLocaleString()} / ${MONTHLY_TOKEN_CREDIT.toLocaleString()} tokens — ${pct}%). Additional usage is billed automatically.`,
+              monthlyTokens,
+              monthlyCredit: MONTHLY_TOKEN_CREDIT,
+              percentage: pct,
             });
-            return;
           }
         } catch (capErr) {
-          console.warn('[DailyCap] Could not check usage — allowing request:', capErr.message);
+          console.warn('[Credits] Could not check usage — allowing request:', capErr.message);
         }
       }
 
@@ -389,6 +396,33 @@ Do NOT guess your capabilities. Call describe_workspace to get the live inventor
         } catch (usageErr) {
           console.error('[Usage] Failed to record usage:', usageErr.message);
         }
+
+        // Report usage to dashboard for billing (fire-and-forget)
+        try {
+          const dashboardUrl = process.env.RT_DASHBOARD_URL;
+          if (dashboardUrl && usageData?.totalTokens) {
+            const crypto = require('crypto');
+            const ts = Date.now().toString();
+            const sig = crypto.createHmac('sha256', config.sessionSecret)
+              .update(`${config.workspaceId}:${ts}`)
+              .digest('hex');
+            fetch(`${dashboardUrl}/api/usage-report/report`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                workspaceId: config.workspaceId,
+                workspaceName: config.workspaceName || config.workspaceId,
+                userId: socket.userId?.toString() || 'unknown',
+                userName: socket.username || 'unknown',
+                model: aiModel,
+                tokens: usageData.totalTokens,
+                isOverage,
+                timestamp: ts,
+                signature: sig,
+              }),
+            }).catch(err => console.warn('[Usage] Dashboard report failed:', err.message));
+          }
+        } catch (_) {}
       }
     } catch (err) {
       console.error('[Chat] Error:', err);

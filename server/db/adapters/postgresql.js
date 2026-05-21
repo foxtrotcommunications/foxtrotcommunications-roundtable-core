@@ -379,6 +379,17 @@ class PostgreSQLAdapter {
     `, [workspaceId]);
     return parseInt(row?.tokens || '0', 10);
   }
+
+  /** Returns total tokens used by this workspace since the start of the current UTC month. */
+  async getMonthlyTokens(workspaceId) {
+    const row = await this._queryOne(`
+      SELECT COALESCE(SUM(total_tokens), 0)::bigint AS tokens
+      FROM workspace_usage
+      WHERE workspace_id = $1
+        AND created_at >= DATE_TRUNC('month', NOW() AT TIME ZONE 'UTC')
+    `, [workspaceId]);
+    return parseInt(row?.tokens || '0', 10);
+  }
 }
 
 module.exports = PostgreSQLAdapter;
