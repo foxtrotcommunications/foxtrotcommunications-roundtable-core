@@ -1,5 +1,39 @@
 // server/db/adapters/postgresql.js — PostgreSQL adapter (workspace-based, no rooms)
 const { Pool } = require('pg');
+const crypto = require('crypto');
+
+// ── API Key Encryption (AES-256-GCM) ──
+// Set API_KEY_ENCRYPTION_KEY env var (32-byte hex string) to enable.
+// If not set, keys are stored in plaintext (backward compatible).
+const ENCRYPTION_KEY = process.env.API_KEY_ENCRYPTION_KEY
+  ? Buffer.from(process.env.API_KEY_ENCRYPTION_KEY, 'hex')
+  : null;
+
+function encryptApiKey(plaintext) {
+  if (!ENCRYPTION_KEY) return plaintext;
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
+  let encrypted = cipher.update(plaintext, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const tag = cipher.getAuthTag().toString('hex');
+  return `enc:${iv.toString('hex')}:${tag}:${encrypted}`;
+}
+
+function decryptApiKey(stored) {
+  if (!stored || !stored.startsWith('enc:')) return stored; // plaintext or null
+  if (!ENCRYPTION_KEY) {
+    console.warn('[DB] Encrypted API key found but API_KEY_ENCRYPTION_KEY not set');
+    return null;
+  }
+  const parts = stored.split(':');
+  if (parts.length !== 4) return null;
+  const [, ivHex, tagHex, ciphertext] = parts;
+  const decipher = crypto.createDecipheriv('aes-256-gcm', ENCRYPTION_KEY, Buffer.from(ivHex, 'hex'));
+  decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+  let decrypted = decipher.update(ciphertext, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+}
 
 class PostgreSQLAdapter {
   constructor(connectionString) {
@@ -295,20 +329,30 @@ class PostgreSQLAdapter {
 
   // ─── API Keys ───────────────────────────────────
   async saveApiKey(userId, provider, apiKey) {
+    const encrypted = encryptApiKey(apiKey);
     await this._exec('DELETE FROM user_api_keys WHERE user_id = $1 AND provider = $2', [userId, provider]);
-    await this._exec('INSERT INTO user_api_keys (user_id, provider, api_key) VALUES ($1,$2,$3)', [userId, provider, apiKey]);
+    await this._exec('INSERT INTO user_api_keys (user_id, provider, api_key) VALUES ($1,$2,$3)', [userId, provider, encrypted]);
   }
 
   async getApiKey(userId, provider) {
     const row = await this._queryOne('SELECT api_key FROM user_api_keys WHERE user_id = $1 AND provider = $2', [userId, provider]);
-    return row ? row.api_key : null;
+    return row ? decryptApiKey(row.api_key) : null;
   }
 
   async getApiKeys(userId) {
-    return this._queryAll(
-      "SELECT id, provider, LEFT(api_key, 8) || '...' as key_preview, created_at FROM user_api_keys WHERE user_id = $1",
+    const rows = await this._queryAll(
+      'SELECT id, provider, api_key, created_at FROM user_api_keys WHERE user_id = $1',
       [userId]
     );
+    return rows.map(row => ({
+      id: row.id,
+      provider: row.provider,
+      key_preview: (() => {
+        const key = decryptApiKey(row.api_key);
+        return key ? key.substring(0, 8) + '...' : '(encrypted)';
+      })(),
+      created_at: row.created_at,
+    }));
   }
 
   async deleteApiKey(id, userId) {
