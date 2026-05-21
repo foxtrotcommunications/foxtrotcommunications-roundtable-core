@@ -7,7 +7,10 @@
     "start": "node server/index.js",
     "dev": "nodemon server/index.js",
     "test": "node -e \"const v=parseInt(process.version.slice(1)); const args = v>=25 ? ['--localstorage-file=/tmp/roundtable-test-ls'] : []; const cp = require('child_process').spawnSync('node', [...args, './node_modules/.bin/jest', '--verbose'], {stdio:'inherit'}); process.exit(cp.status)\"",
-    "test:watch": "node -e \"const v=parseInt(process.version.slice(1)); const args = v>=25 ? ['--localstorage-file=/tmp/roundtable-test-ls'] : []; const cp = require('child_process').spawnSync('node', [...args, './node_modules/.bin/jest', '--watch'], {stdio:'inherit'}); process.exit(cp.status)\""
+    "test:watch": "node -e \"const v=parseInt(process.version.slice(1)); const args = v>=25 ? ['--localstorage-file=/tmp/roundtable-test-ls'] : []; const cp = require('child_process').spawnSync('node', [...args, './node_modules/.bin/jest', '--watch'], {stdio:'inherit'}); process.exit(cp.status)\"",
+    "migrate": "node-pg-migrate --database-url-var DATABASE_URL --migrations-dir migrations",
+    "migrate:up": "npm run migrate -- up",
+    "migrate:down": "npm run migrate -- down"
   },
   "keywords": [
     "ai",
@@ -33,6 +36,7 @@
     "@databricks/sql": "^1.14.0",
     "@google-cloud/bigquery": "^8.3.1",
     "@google/genai": "^2.2.0",
+    "@socket.io/redis-adapter": "^8.3.0",
     "bcryptjs": "^2.4.3",
     "connect-pg-simple": "^10.0.0",
     "dotenv": "^16.4.7",
@@ -40,9 +44,11 @@
     "express-rate-limit": "^8.5.1",
     "express-session": "^1.18.1",
     "helmet": "^8.1.0",
+    "ioredis": "^5.10.1",
     "mathjs": "^15.2.0",
     "multer": "^2.1.1",
     "node-fetch": "^2.7.0",
+    "node-pg-migrate": "^8.0.4",
     "pg": "^8.20.0",
     "snowflake-sdk": "^2.4.1",
     "socket.io": "^4.8.1"

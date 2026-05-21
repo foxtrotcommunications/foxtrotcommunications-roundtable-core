@@ -82,6 +82,9 @@ class PostgreSQLAdapter {
   }
 
   async _runMigrations() {
+    // NOTE: Schema is now managed by node-pg-migrate (see /migrations/).
+    // These CREATE TABLE IF NOT EXISTS statements are kept for backward
+    // compatibility and will run safely even after migrations.
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
