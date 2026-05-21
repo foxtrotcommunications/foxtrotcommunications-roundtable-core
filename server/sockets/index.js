@@ -16,6 +16,22 @@ function setupSockets(httpServer, sessionMiddleware) {
     },
   });
 
+  // ── Redis adapter for horizontal scaling ──
+  // Set REDIS_URL env var to enable (e.g. redis://10.x.x.x:6379)
+  // Without Redis, Socket.IO works in-memory (single replica only)
+  if (process.env.REDIS_URL) {
+    try {
+      const { createAdapter } = require('@socket.io/redis-adapter');
+      const { Redis } = require('ioredis');
+      const pubClient = new Redis(process.env.REDIS_URL);
+      const subClient = pubClient.duplicate();
+      io.adapter(createAdapter(pubClient, subClient));
+      console.log(`[Socket] Redis adapter connected (${process.env.REDIS_URL})`);
+    } catch (err) {
+      console.warn('[Socket] Redis adapter failed, falling back to in-memory:', err.message);
+    }
+  }
+
   // Share Express session with Socket.IO
   io.engine.use(sessionMiddleware);
 
