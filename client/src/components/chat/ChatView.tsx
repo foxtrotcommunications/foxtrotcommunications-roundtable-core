@@ -78,10 +78,67 @@ export default function ChatView({
     <>
       <div className="chat-messages" ref={messagesRef}>
         {messages.length === 0 && !streaming && (
-          <div className="empty-state">
-            <div className="empty-state-icon">💬</div>
-            <h3>Welcome to Roundtable</h3>
-            <p>Send a message to start. Use <span className="mention mention-ai">@ai</span> to invoke the AI assistant.</p>
+          <div className="welcome-state">
+            <div className="welcome-header">
+              <div className="welcome-logo">⚡</div>
+              <h2>Welcome to Roundtable</h2>
+              <p className="welcome-subtitle">
+                Your AI workspace is ready. Use <span className="mention mention-ai">@ai</span> to start a conversation with your AI assistant.
+              </p>
+            </div>
+
+            <div className="welcome-capabilities">
+              <div className="capability-card">
+                <span className="capability-icon">🌐</span>
+                <span className="capability-label">Web Search</span>
+              </div>
+              <div className="capability-card">
+                <span className="capability-icon">💻</span>
+                <span className="capability-label">Run Code</span>
+              </div>
+              <div className="capability-card">
+                <span className="capability-icon">📁</span>
+                <span className="capability-label">Read & Write Files</span>
+              </div>
+              <div className="capability-card">
+                <span className="capability-icon">🔍</span>
+                <span className="capability-label">Query Data</span>
+              </div>
+              <div className="capability-card">
+                <span className="capability-icon">🔗</span>
+                <span className="capability-label">Git Operations</span>
+              </div>
+              <div className="capability-card">
+                <span className="capability-icon">🧮</span>
+                <span className="capability-label">Calculator</span>
+              </div>
+            </div>
+
+            <div className="welcome-prompts">
+              <p className="prompts-label">Try a starter prompt</p>
+              <div className="prompt-grid">
+                <button className="prompt-card" onClick={() => { setInputValue('@ai What tools do you have available? Give me a quick overview of what you can help me with.'); inputRef.current?.focus(); }}>
+                  <span className="prompt-icon">🛠️</span>
+                  <span className="prompt-text">What can you do?</span>
+                  <span className="prompt-hint">Discover available tools and capabilities</span>
+                </button>
+                <button className="prompt-card" onClick={() => { setInputValue('@ai Search the web for the latest news about AI agents and give me a summary of the top 3 developments.'); inputRef.current?.focus(); }}>
+                  <span className="prompt-icon">🌐</span>
+                  <span className="prompt-text">Search the web</span>
+                  <span className="prompt-hint">Find and summarize current information</span>
+                </button>
+                <button className="prompt-card" onClick={() => { setInputValue('@ai Write a Python script that generates a fibonacci sequence up to n=20, then run it and show me the output.'); inputRef.current?.focus(); }}>
+                  <span className="prompt-icon">🐍</span>
+                  <span className="prompt-text">Write & run code</span>
+                  <span className="prompt-hint">Generate and execute code in your workspace</span>
+                </button>
+                <button className="prompt-card" onClick={() => { setInputValue('@ai Analyze the files in this workspace. List what\'s here and suggest what we could work on together.'); inputRef.current?.focus(); }}>
+                  <span className="prompt-icon">📊</span>
+                  <span className="prompt-text">Analyze my workspace</span>
+                  <span className="prompt-hint">Explore files and suggest next steps</span>
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
