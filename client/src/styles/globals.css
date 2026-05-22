@@ -372,7 +372,34 @@ html, body { height: 100%; font-family: 'Inter', system-ui, sans-serif; backgrou
 .chat-send-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 .chat-send-btn svg { width: 18px; height: 18px; }
 
-/* ─── Empty State ─── */
+/* ─── Welcome State ─── */
+.welcome-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px 24px; gap: 32px; animation: fadeIn 0.5s ease; max-width: 640px; margin: 0 auto; }
+.welcome-header { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.welcome-logo { font-size: 48px; width: 80px; height: 80px; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, rgba(124, 58, 237, 0.15), rgba(59, 130, 246, 0.15)); border-radius: 20px; border: 1px solid rgba(124, 58, 237, 0.2); }
+.welcome-header h2 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; background: linear-gradient(135deg, #a78bfa, #60a5fa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+.welcome-subtitle { color: var(--text-secondary); font-size: 14px; max-width: 400px; line-height: 1.5; }
+
+.welcome-capabilities { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.capability-card { display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: var(--radius-full, 999px); font-size: 12px; color: var(--text-secondary); transition: var(--transition-fast); }
+.capability-card:hover { border-color: var(--accent-primary); color: var(--text-primary); }
+.capability-icon { font-size: 14px; }
+.capability-label { font-weight: 500; }
+
+.welcome-prompts { width: 100%; }
+.prompts-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-tertiary); margin-bottom: 12px; }
+.prompt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.prompt-card { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 14px 16px; background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); cursor: pointer; text-align: left; transition: all 0.2s ease; }
+.prompt-card:hover { border-color: var(--accent-primary); background: linear-gradient(135deg, rgba(124, 58, 237, 0.06), rgba(59, 130, 246, 0.06)); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
+.prompt-icon { font-size: 18px; }
+.prompt-text { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.prompt-hint { font-size: 11px; color: var(--text-tertiary); line-height: 1.4; }
+
+@media (max-width: 480px) {
+  .prompt-grid { grid-template-columns: 1fr; }
+  .welcome-state { padding: 24px 16px; gap: 24px; }
+}
+
+/* Legacy empty state fallback */
 .empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px; }
 .empty-state-icon { font-size: 48px; margin-bottom: 16px; opacity: 0.5; }
 .empty-state h3 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
