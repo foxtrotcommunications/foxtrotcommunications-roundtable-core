@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import MessageContent from './MessageContent';
 import { getUserColor, formatTime } from './utils';
 import PinButton from '../insights/PinButton';
@@ -15,7 +16,7 @@ function parseBridgeSource(content: string): { source: string; cleanContent: str
   return { source: match[1], cleanContent: content.slice(match[0].length) };
 }
 
-export default function Message({ message, highlighted }: Props) {
+function Message({ message, highlighted }: Props) {
   const isAssistant = message.role === 'assistant';
   const bridgeInfo = !isAssistant ? parseBridgeSource(message.content) : null;
   const isBridged = !!bridgeInfo;
@@ -53,3 +54,5 @@ export default function Message({ message, highlighted }: Props) {
     </div>
   );
 }
+
+export default memo(Message);
