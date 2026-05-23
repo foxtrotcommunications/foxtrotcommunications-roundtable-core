@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import * as api from '../../api';
 import type { DataSources, ApiKeyInfo } from '../../types/workspace';
+import ThemeToggle from '../common/ThemeToggle';
 
 const TOOL_CATALOG = [
   { group: '🌐 Web', tools: ['web_search', 'read_url'] },
@@ -53,7 +54,7 @@ interface Props {
 }
 
 export default function SettingsModal({ onClose, onSaved, addToast }: Props) {
-  const [tab, setTab] = useState('agent');
+  const [tab, setTab] = useState('appearance');
   // Agent state
   const [provider, setProvider] = useState('vertexai');
   const [model, setModel] = useState('');
@@ -158,6 +159,7 @@ export default function SettingsModal({ onClose, onSaved, addToast }: Props) {
   };
 
   const tabs = [
+    { id: 'appearance', label: 'Appearance' },
     { id: 'agent', label: 'AI Agent' },
     { id: 'tools', label: 'Tools' },
     { id: 'data', label: 'Data Sources' },
@@ -177,6 +179,17 @@ export default function SettingsModal({ onClose, onSaved, addToast }: Props) {
             <button key={t.id} className={`settings-tab${tab === t.id ? ' active' : ''}`} onClick={() => setTab(t.id)}>{t.label}</button>
           ))}
         </div>
+
+        {/* Appearance Tab */}
+        {tab === 'appearance' && (
+          <div className="settings-tab-panel active">
+            <p className="settings-desc">Customize the look and feel of your workspace.</p>
+            <div className="form-group">
+              <label>Color Scheme</label>
+              <ThemeToggle />
+            </div>
+          </div>
+        )}
 
         {/* Agent Tab */}
         {tab === 'agent' && (
