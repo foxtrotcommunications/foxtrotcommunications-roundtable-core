@@ -5,7 +5,8 @@ import './styles/globals.css';
 
 // Sentry client-side error tracking — set VITE_SENTRY_DSN to enable
 if (import.meta.env.VITE_SENTRY_DSN) {
-  import('@sentry/react').then(Sentry => {
+  // @ts-ignore — @sentry/react is an optional dependency
+  import('@sentry/react').then((Sentry: any) => {
     Sentry.init({
       dsn: import.meta.env.VITE_SENTRY_DSN,
       environment: import.meta.env.MODE,
