@@ -17,7 +17,7 @@ RUN apk add --no-cache git
 
 # Copy package files and install production deps (skip optional: better-sqlite3 needs native build tools)
 COPY package*.json ./
-RUN npm ci --omit=dev --omit=optional
+RUN npm ci --omit=dev --omit=optional && npm install tsx
 
 # Copy source
 COPY server/ ./server/
@@ -44,4 +44,4 @@ USER roundtable
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- http://localhost:3000/api/health || exit 1
 
-CMD ["node", "server/index.js"]
+CMD ["node_modules/.bin/tsx", "server/index.js"]
