@@ -2,6 +2,8 @@ import { useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import CodeBlock from './CodeBlock';
+import ChartRenderer from './ChartRenderer';
+import type { ChartResult } from '../../types/message';
 
 interface Props { content: string; }
 
@@ -22,30 +24,41 @@ function extractText(node: unknown): string {
 }
 
 export default function MessageContent({ content }: Props) {
-  // Highlight @mentions in the raw text before markdown parsing
   const processed = useMemo(() => content, [content]);
 
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
-        // Custom code block renderer with copy button
         code({ className, children, ...props }) {
           const match = /language-(\w+)/.exec(className || '');
+          const lang = match?.[1];
           const isBlock = !!(props as Record<string, unknown>).node &&
             ((props as Record<string, unknown>).node as { position?: { start: { line: number }; end: { line: number } } })?.position?.start.line !==
             ((props as Record<string, unknown>).node as { position?: { start: { line: number }; end: { line: number } } })?.position?.end.line;
 
+          // Chart block: ```chart { ...json config... } ```
+          if (lang === 'chart') {
+            try {
+              const raw = extractText(children).trim();
+              const config = JSON.parse(raw) as ChartResult;
+              if (config.chartType && config.labels && config.datasets) {
+                return <ChartRenderer config={config} />;
+              }
+            } catch {
+              // Fall through to code block if JSON is invalid
+            }
+          }
+
           if (match || isBlock) {
             return (
-              <CodeBlock language={match?.[1] || 'plaintext'}>
+              <CodeBlock language={lang || 'plaintext'}>
                 {extractText(children)}
               </CodeBlock>
             );
           }
           return <code className={className} {...props}>{children}</code>;
         },
-        // Render pre as-is (CodeBlock handles the wrapper)
         pre({ children }) {
           return <>{children}</>;
         },

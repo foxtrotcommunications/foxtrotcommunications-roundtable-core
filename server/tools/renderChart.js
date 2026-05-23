@@ -1,7 +1,7 @@
-// server/tools/renderChart.js — Chart visualization tool (client-rendered)
+// server/tools/renderChart.js — Chart visualization tool (inline in message)
 module.exports = {
   name: 'render_chart',
-  description: 'Render a chart visualization. Use after running a data query to create bar, line, pie, scatter, doughnut, or area charts. Pass the query results as labels and datasets.',
+  description: 'Render a chart visualization inline in your response. After calling this tool, you MUST include the returned chart block in your response text exactly as provided — it will render as an interactive chart for the user.',
   parameters: {
     type: 'object',
     properties: {
@@ -64,8 +64,8 @@ module.exports = {
       }
     }
 
-    // Pass-through — client renders the chart from this spec
-    return {
+    // Build the chart config
+    const chartConfig = {
       chartType: type,
       title,
       labels,
@@ -73,6 +73,15 @@ module.exports = {
       xAxisLabel: args.xAxisLabel || null,
       yAxisLabel: args.yAxisLabel || null,
       stacked: args.stacked || false,
+    };
+
+    // Return the chart block — the AI MUST include this in its response
+    const chartBlock = '```chart\n' + JSON.stringify(chartConfig) + '\n```';
+
+    return {
+      success: true,
+      message: `Chart rendered successfully. IMPORTANT: Include the following chart block in your response to display it to the user:\n\n${chartBlock}`,
+      chartBlock,
     };
   },
 };
