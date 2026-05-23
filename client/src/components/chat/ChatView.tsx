@@ -37,12 +37,15 @@ export default function ChatView({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [inputValue, setInputValue] = useState('');
 
-  // Auto-scroll to bottom on new messages / streaming
+  // Auto-scroll to bottom on new messages / streaming — only if user is near bottom
   useEffect(() => {
-    if (messagesRef.current) {
-      messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
+    const el = messagesRef.current;
+    if (!el) return;
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+    if (isNearBottom) {
+      el.scrollTop = el.scrollHeight;
     }
-  }, [messages, streamingContent, toolCalls.size, streaming, lastUsage]);
+  }, [messages, streamingContent, streaming]);
 
   const handleSend = () => {
     const content = inputValue.trim();
