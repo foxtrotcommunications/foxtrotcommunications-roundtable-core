@@ -62,7 +62,20 @@ export function useChat(socket: Socket | null) {
   const [streaming, setStreaming] = useState(false);
   const streamingContentRef = useRef('');
   const [streamingContent, setStreamingContent] = useState('');
-  const [toolCalls, setToolCalls] = useState<Map<string, { call: ToolCall; result?: ToolResult }>>(new Map());
+  const [toolCalls, setToolCallsState] = useState<Map<string, { call: ToolCall; result?: ToolResult }>>(new Map());
+  const toolCallsRef = useRef<Map<string, { call: ToolCall; result?: ToolResult }>>(new Map());
+  const setToolCalls = (val: Map<string, { call: ToolCall; result?: ToolResult }> | ((prev: Map<string, { call: ToolCall; result?: ToolResult }>) => Map<string, { call: ToolCall; result?: ToolResult }>)) => {
+    if (typeof val === 'function') {
+      setToolCallsState(prev => {
+        const next = val(prev);
+        toolCallsRef.current = next;
+        return next;
+      });
+    } else {
+      toolCallsRef.current = val;
+      setToolCallsState(val);
+    }
+  };
   const [lastUsage, setLastUsage] = useState<TokenUsage | null>(null);
   const [bridgeProcessing, setBridgeProcessing] = useState(false);
   const bridgeStreamingRef = useRef('');
@@ -125,40 +138,41 @@ export function useChat(socket: Socket | null) {
     };
 
     const onAiComplete = (data: { fullText?: string }) => {
-      // Persist tool results as messages so ToolCards survive after streaming ends
-      setToolCalls(prev => {
-        const toolMessages: ChatMessage[] = [];
-        prev.forEach(({ call, result }) => {
-          if (result) {
-            toolMessages.push({
-              id: Date.now() + Math.random(),
-              workspace_id: '',
-              user_id: null,
-              role: 'tool' as const,
-              content: JSON.stringify(result.result),
-              tool_name: call.name,
-              tool_call_id: call.callId,
-              created_at: new Date().toISOString(),
-            });
-          }
-        });
-        if (toolMessages.length > 0) {
-          setMessages(prev => [...prev, ...toolMessages]);
+      // Collect tool results before clearing
+      const currentToolCalls = toolCallsRef.current;
+      const toolMessages: ChatMessage[] = [];
+      currentToolCalls.forEach(({ call, result }) => {
+        if (result) {
+          toolMessages.push({
+            id: Date.now() + Math.random(),
+            workspace_id: '',
+            user_id: null,
+            role: 'tool' as const,
+            content: JSON.stringify(result.result),
+            tool_name: call.name,
+            tool_call_id: call.callId,
+            created_at: new Date().toISOString(),
+          });
         }
-        return new Map(); // clear streaming tool calls
       });
 
-      // Add the AI text response
+      // Build all new messages in one update
+      const newMessages: ChatMessage[] = [...toolMessages];
       if (data?.fullText) {
-        setMessages(prev => [...prev, {
-          id: Date.now(),
+        newMessages.push({
+          id: Date.now() + 1,
           workspace_id: '',
           user_id: null,
           role: 'assistant' as const,
-          content: data.fullText!,
+          content: data.fullText,
           created_at: new Date().toISOString(),
-        }]);
+        });
       }
+      if (newMessages.length > 0) {
+        setMessages(prev => [...prev, ...newMessages]);
+      }
+
+      setToolCalls(new Map());
       setStreaming(false);
       streamingContentRef.current = '';
       setStreamingContent('');
