@@ -36,6 +36,19 @@ export default function ChatView({
   const messagesRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [inputValue, setInputValue] = useState('');
+  const [showScrollButton, setShowScrollButton] = useState(false);
+
+  // Track scroll position to show/hide scroll-to-bottom button
+  useEffect(() => {
+    const el = messagesRef.current;
+    if (!el) return;
+    const handleScroll = () => {
+      const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+      setShowScrollButton(!isNearBottom);
+    };
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, []);
 
   // Auto-scroll to bottom on new messages / streaming — only if user is near bottom
   useEffect(() => {
@@ -77,9 +90,20 @@ export default function ChatView({
     ? `${typingUsers.map(u => u.displayName || u.username).join(', ')} ${typingUsers.length === 1 ? 'is' : 'are'} typing...`
     : '';
 
+  const scrollToBottom = () => {
+    if (messagesRef.current) {
+      messagesRef.current.scrollTo({ top: messagesRef.current.scrollHeight, behavior: 'smooth' });
+    }
+  };
+
   return (
     <>
       <div className="chat-messages" ref={messagesRef}>
+        {showScrollButton && (
+          <button className="scroll-to-bottom" onClick={scrollToBottom} title="Scroll to bottom">
+            ↓
+          </button>
+        )}
         {messages.length === 0 && !streaming && (
           <div className="welcome-state">
             <div className="welcome-header">
