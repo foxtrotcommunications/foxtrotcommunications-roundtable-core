@@ -151,7 +151,7 @@ export default function ChatView({
                   key={msg.id}
                   call={{ name: msg.tool_name || 'tool', args: {}, callId: msg.tool_call_id || `hist-${msg.id}` }}
                   result={{ callId: msg.tool_call_id || `hist-${msg.id}`, result }}
-                  defaultCollapsed
+                  defaultCollapsed={msg.tool_name !== 'render_chart'}
                 />
               );
             } catch { return null; }
