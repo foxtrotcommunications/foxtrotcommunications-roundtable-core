@@ -346,9 +346,11 @@ Do NOT guess your capabilities. Call describe_workspace to get the live inventor
 - If you fail a query 3 times, STOP retrying and summarize what you tried and what went wrong.
 
 --- RESPONSE ATTRIBUTION ---
-- ALWAYS begin your response by @-mentioning the person or workspace you are replying to. For example: "@Brady Bastian, here's what I found..." or "@Analytics, the query returned 42 rows."
+- ALWAYS begin your response by @-mentioning the person you are replying to BY NAME. For example: "@Brady, here's what I found..." or "@Analytics, the query returned 42 rows."
 - In a multiplayer workspace, this makes it clear who each response is directed at.
-- If the message is from a bridge (starts with "[Bridge from X]"), @-mention the source workspace name.`;
+- If the message is from a bridge (starts with "[Bridge from X]"), @-mention the source workspace name.
+- NEVER say "@User". Always use the person's actual name.
+- The current message is from: **${socket.username || 'a user'}**`;
 
       systemPrompt = envCtx + (systemPrompt ? '\n\n' + systemPrompt : '');
 
@@ -374,7 +376,13 @@ Do NOT guess your capabilities. Call describe_workspace to get the live inventor
 
       for (const msg of history) {
         if (msg.role === 'tool') continue;
-        messages.push({ role: msg.role, content: msg.content });
+        const histMsg = msg as Message & { username?: string; display_name?: string };
+        if (msg.role === 'user' && (histMsg.display_name || histMsg.username)) {
+          const name = histMsg.display_name || histMsg.username;
+          messages.push({ role: msg.role, content: `[${name}]: ${msg.content}` });
+        } else {
+          messages.push({ role: msg.role, content: msg.content });
+        }
       }
 
       // Set up per-socket AbortController
