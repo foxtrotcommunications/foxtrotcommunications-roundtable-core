@@ -36,18 +36,21 @@ const server = http.createServer(app);
 app.set('trust proxy', 1);
 
 // Security headers
+const cspDirectives = {
+  defaultSrc: ["'self'"],
+  scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.socket.io", "https://cdnjs.cloudflare.com"],
+  styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdnjs.cloudflare.com"],
+  fontSrc: ["'self'", "https://fonts.gstatic.com"],
+  connectSrc: ["'self'", "ws:", "wss:"],
+  imgSrc: ["'self'", "data:", "https:"],
+  upgradeInsecureRequests: null,  // disable — not all deployments have TLS
+};
+if (config.embedMode) {
+  // Allow iframing from any parent when embed mode is enabled
+  cspDirectives.frameAncestors = ["*"];
+}
 app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.socket.io", "https://cdnjs.cloudflare.com"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdnjs.cloudflare.com"],
-      fontSrc: ["'self'", "https://fonts.gstatic.com"],
-      connectSrc: ["'self'", "ws:", "wss:"],
-      imgSrc: ["'self'", "data:", "https:"],
-      upgradeInsecureRequests: null,  // disable — not all deployments have TLS
-    },
-  },
+  contentSecurityPolicy: { directives: cspDirectives },
   hsts: false,                       // disable — only enable behind a real TLS terminator
   crossOriginEmbedderPolicy: false,  // Required for Socket.IO
 }));

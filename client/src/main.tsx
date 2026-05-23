@@ -16,6 +16,15 @@ if (import.meta.env.VITE_SENTRY_DSN) {
   });
 }
 
+// Apply saved theme before first paint to prevent flash
+(function initTheme() {
+  const saved = localStorage.getItem('rt-theme') || 'dark';
+  const resolved = saved === 'system'
+    ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : saved;
+  document.documentElement.setAttribute('data-theme', resolved);
+})();
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />
