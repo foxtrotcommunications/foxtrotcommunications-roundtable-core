@@ -125,8 +125,30 @@ export function useChat(socket: Socket | null) {
     };
 
     const onAiComplete = (data: { fullText?: string }) => {
-      // The server sends fullText with the complete AI response.
-      // We need to add it as a message since the server doesn't emit new-message for AI responses.
+      // Persist tool results as messages so ToolCards survive after streaming ends
+      setToolCalls(prev => {
+        const toolMessages: ChatMessage[] = [];
+        prev.forEach(({ call, result }) => {
+          if (result) {
+            toolMessages.push({
+              id: Date.now() + Math.random(),
+              workspace_id: '',
+              user_id: null,
+              role: 'tool' as const,
+              content: JSON.stringify(result.result),
+              tool_name: call.name,
+              tool_call_id: call.callId,
+              created_at: new Date().toISOString(),
+            });
+          }
+        });
+        if (toolMessages.length > 0) {
+          setMessages(prev => [...prev, ...toolMessages]);
+        }
+        return new Map(); // clear streaming tool calls
+      });
+
+      // Add the AI text response
       if (data?.fullText) {
         setMessages(prev => [...prev, {
           id: Date.now(),
