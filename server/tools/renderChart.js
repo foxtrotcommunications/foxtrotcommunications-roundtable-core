@@ -16,11 +16,22 @@ module.exports = {
       },
       labels: {
         type: 'array',
+        items: { type: 'string' },
         description: 'X-axis labels (categories). For pie/doughnut, these are slice labels.',
       },
       datasets: {
         type: 'array',
-        description: 'Array of dataset objects. Each: { label: string, data: number[], backgroundColor?: string, borderColor?: string }',
+        items: {
+          type: 'object',
+          properties: {
+            label: { type: 'string', description: 'Dataset name (legend label)' },
+            data: { type: 'array', items: { type: 'number' }, description: 'Data values' },
+            backgroundColor: { type: 'string', description: 'Fill color (CSS color string)' },
+            borderColor: { type: 'string', description: 'Border color (CSS color string)' },
+          },
+          required: ['label', 'data'],
+        },
+        description: 'Array of dataset objects with label, data array, and optional colors.',
       },
       xAxisLabel: {
         type: 'string',
