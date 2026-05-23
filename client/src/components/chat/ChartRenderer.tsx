@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, memo } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -45,7 +45,7 @@ interface Props {
   onToggleTable?: () => void;
 }
 
-export default function ChartRenderer({ config, onToggleTable }: Props) {
+function ChartRenderer({ config, onToggleTable }: Props) {
   const chartRef = useRef<ChartJS | null>(null);
 
   const datasets = config.datasets.map((ds, i) => ({
@@ -141,3 +141,5 @@ export default function ChartRenderer({ config, onToggleTable }: Props) {
     </div>
   );
 }
+
+export default memo(ChartRenderer);
