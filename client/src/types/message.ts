@@ -89,8 +89,24 @@ export interface ErrorResult {
   error: string;
 }
 
+export interface ChartResult {
+  chartType: 'bar' | 'line' | 'pie' | 'doughnut' | 'scatter' | 'area';
+  title: string;
+  labels: string[];
+  datasets: Array<{
+    label: string;
+    data: number[];
+    backgroundColor?: string | string[];
+    borderColor?: string | string[];
+  }>;
+  xAxisLabel?: string | null;
+  yAxisLabel?: string | null;
+  stacked?: boolean;
+}
+
 export type ToolResultData =
   | QueryResult
+  | ChartResult
   | FileResult
   | ShellResult
   | SearchResult

@@ -1,7 +1,7 @@
 // REST API client — typed version of the vanilla api.js
 
 import type { ChatMessage } from './types/message';
-import type { Workspace, User, ApiKeyInfo, DataSources } from './types/workspace';
+import type { Workspace, User, ApiKeyInfo, DataSources, Insight } from './types/workspace';
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const opts: RequestInit = {
@@ -52,3 +52,9 @@ export const deleteKey = (id: number) => request<void>('DELETE', `/keys/${id}`);
 // Bridges
 export const getBridges = () =>
   request<{ bridgeId: string; targetWsId: string; targetName: string; permissions: string[] }[]>('GET', '/workspace/bridges');
+
+// Insights
+export const getInsights = () => request<Insight[]>('GET', '/insights');
+export const addInsight = (data: { title: string; content: string; sourceMessageId?: number; category?: string }) =>
+  request<Insight>('POST', '/insights', data);
+export const deleteInsight = (id: number) => request<void>('DELETE', `/insights/${id}`);

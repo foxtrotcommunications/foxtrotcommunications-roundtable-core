@@ -7,4 +7,11 @@ module.exports = {
   globals: {
     localStorage: undefined,
   },
+  transform: {
+    '^.+\\.ts$': ['ts-jest', {
+      tsconfig: 'server/tsconfig.json',
+      isolatedModules: true,
+    }],
+  },
+  moduleFileExtensions: ['js', 'ts', 'json'],
 };

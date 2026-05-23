@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { TOOL_ICONS } from './utils';
-import type { ToolCall, ToolResult, QueryResult, FileResult, ShellResult, SearchResult, FileListResult, FindFileResult, WriteResult, GitCommitResult } from '../../types/message';
+import ChartRenderer from './ChartRenderer';
+import type { ToolCall, ToolResult, QueryResult, ChartResult, FileResult, ShellResult, SearchResult, FileListResult, FindFileResult, WriteResult, GitCommitResult } from '../../types/message';
 
 interface Props {
   call: ToolCall;
@@ -48,6 +49,11 @@ function ToolResultBody({ result }: { result: ToolResult['result'] }) {
   // Error
   if ('error' in r && typeof r.error === 'string') {
     return <div className="tool-result-error">❌ {r.error}</div>;
+  }
+
+  // Chart result (from render_chart tool)
+  if ('chartType' in r) {
+    return <ChartRenderer config={r as unknown as ChartResult} />;
   }
 
   // Query result (BigQuery / Snowflake / Databricks)
@@ -168,14 +174,66 @@ function ToolResultBody({ result }: { result: ToolResult['result'] }) {
 }
 
 function QueryResultTable({ data }: { data: QueryResult }) {
+  const [viewMode, setViewMode] = useState<'table' | 'chart'>('table');
   const maxDisplay = 50;
   const displayRows = data.rows.slice(0, maxDisplay);
+
+  // Auto-detect best chart type from data shape
+  const autoChartConfig = (): ChartResult | null => {
+    if (!data.columns.length || !data.rows.length) return null;
+
+    const numericCols = data.columns.filter(col =>
+      data.rows.every(row => {
+        const val = row[String(col)];
+        return val === null || val === undefined || !isNaN(Number(val));
+      })
+    );
+    const labelCol = data.columns.find(col => !numericCols.includes(col)) || data.columns[0];
+
+    if (numericCols.length === 0) return null;
+
+    const labels = data.rows.slice(0, 50).map(row => String(row[String(labelCol)] ?? ''));
+    const datasets = numericCols
+      .filter(col => col !== labelCol)
+      .slice(0, 5) // max 5 datasets
+      .map(col => ({
+        label: String(col),
+        data: data.rows.slice(0, 50).map(row => Number(row[String(col)]) || 0),
+      }));
+
+    if (datasets.length === 0) return null;
+
+    // Heuristic: detect time series
+    const firstLabel = labels[0]?.toLowerCase() || '';
+    const isTimeSeries = /^\d{4}[-/]/.test(firstLabel) || /date|time|month|year|day|week/i.test(String(labelCol));
+    const chartType = isTimeSeries ? 'line' : data.rows.length <= 8 && datasets.length === 1 ? 'pie' : 'bar';
+
+    return {
+      chartType,
+      title: data.sql ? `Results: ${data.sql.slice(0, 60)}` : 'Query Results',
+      labels,
+      datasets,
+    };
+  };
+
+  if (viewMode === 'chart') {
+    const chartConfig = autoChartConfig();
+    if (chartConfig) {
+      return <ChartRenderer config={chartConfig} onToggleTable={() => setViewMode('table')} />;
+    }
+    setViewMode('table'); // Fallback if chart can't be generated
+  }
 
   return (
     <div style={{ marginTop: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
         <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: "'SF Mono', monospace" }}>{data.sql || ''}</span>
-        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{data.totalRows} row{data.totalRows !== 1 ? 's' : ''}{data.truncated ? ' (truncated)' : ''}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {data.rows.length > 0 && data.columns.length > 0 && (
+            <button className="chart-toggle" onClick={() => setViewMode('chart')} title="View as chart">📊</button>
+          )}
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{data.totalRows} row{data.totalRows !== 1 ? 's' : ''}{data.truncated ? ' (truncated)' : ''}</span>
+        </div>
       </div>
       {data.columns.length === 0 || data.rows.length === 0 ? (
         <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '8px 0' }}>No rows returned.</div>

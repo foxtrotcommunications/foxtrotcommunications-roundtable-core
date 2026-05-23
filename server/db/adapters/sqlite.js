@@ -29,6 +29,35 @@ class SQLiteAdapter {
     console.log(`[DB] Database file: ${path.resolve(this.dbPath)}`);
   }
 
+  // ─── Insights ───────────────────────────────────
+
+  async getInsights(workspaceId) {
+    return this._queryAll(
+      `SELECT i.*, u.username, u.display_name
+       FROM workspace_insights i
+       LEFT JOIN users u ON i.user_id = u.id
+       WHERE i.workspace_id = ?
+       ORDER BY i.pinned_at DESC`,
+      [workspaceId]
+    );
+  }
+
+  async addInsight(workspaceId, userId, title, content, sourceMessageId = null, category = 'general') {
+    const result = this._run(
+      `INSERT INTO workspace_insights (workspace_id, user_id, title, content, source_message_id, category)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [workspaceId, userId, title, content, sourceMessageId, category]
+    );
+    return this._queryOne('SELECT * FROM workspace_insights WHERE id = ?', [result.lastInsertRowid]);
+  }
+
+  async deleteInsight(insightId, workspaceId) {
+    this._run(
+      'DELETE FROM workspace_insights WHERE id = ? AND workspace_id = ?',
+      [insightId, workspaceId]
+    );
+  }
+
   async close() {
     if (this.db) { this.db.close(); this.db = null; }
   }
@@ -114,6 +143,18 @@ class SQLiteAdapter {
       );
       CREATE INDEX IF NOT EXISTS idx_usage_workspace ON workspace_usage(workspace_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_usage_workspace_user ON workspace_usage(workspace_id, user_id);
+
+      CREATE TABLE IF NOT EXISTS workspace_insights (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        user_id INTEGER REFERENCES users(id),
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        source_message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
+        category TEXT DEFAULT 'general',
+        pinned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_insights_workspace ON workspace_insights(workspace_id, pinned_at DESC);
     `);
     console.log('[DB] Migrations complete');
   }

@@ -1,33 +1,84 @@
-// server/sockets/chatHandler.js — Message handling + AI streaming with tools (workspace-based)
-const workspaceService = require('../services/workspaceService');
-const { streamCompletion } = require('../services/aiProvider');
-const config = require('../config');
+// server/sockets/chatHandler.ts — Message handling + AI streaming with tools (workspace-based)
+import type { Server } from 'socket.io';
+import type {
+  RoundtableSocket,
+  StreamEvent,
+  Workspace,
+  Message,
+  WorkspaceConfig,
+  DataSources,
+  DatabaseAdapter,
+  AppConfig,
+} from '../types';
+
+const workspaceService = require('../services/workspaceService') as {
+  workspaceId: string;
+  ensureWorkspace(): Promise<import('../types').Workspace>;
+  getWorkspace(): Promise<import('../types').Workspace | null>;
+  saveMessage(userId: number | null, role: string, content: string, toolName?: string | null, toolCallId?: string | null, sourceWorkspaceId?: string | null): Promise<import('../types').Message>;
+  getConversationHistory(limit: number): Promise<import('../types').Message[]>;
+  getMessages(options?: { limit?: number; before?: number }): Promise<{ messages: import('../types').Message[]; hasMore: boolean }>;
+  getUserApiKey(userId: number, provider: string): Promise<string>;
+  getUserById(userId: number): Promise<import('../types').User | null>;
+};
+const { streamCompletion } = require('../services/aiProvider') as {
+  streamCompletion: (provider: string, model: string, messages: Record<string, unknown>[], apiKey: string, enableTools?: boolean, signal?: AbortSignal | null, enabledToolNames?: string[] | null, workspaceConfig?: WorkspaceConfig) => AsyncGenerator<StreamEvent>;
+};
+const config = require('../config') as AppConfig;
 
 // Active generation state is tracked per-socket (on the socket object itself),
 // so multiple users in the same workspace can each have independent AI calls.
 // socket.abortController — AbortController for the current stream
 // socket.isGenerating   — boolean guard against double-submission
 
-function setupChatHandlers(io, socket) {
-  const wsChannel = `ws:${config.workspaceId}`;
+interface BridgeEntry {
+  targetName: string;
+  targetUrl?: string;
+  [key: string]: unknown;
+}
 
-  socket.on('send-message', async ({ content, activeRepo }) => {
+interface BridgeToolResult {
+  error?: string;
+  taskId?: string;
+  [key: string]: unknown;
+}
+
+// ─── Per-socket rate limiting ─────────────────────────────────────────
+const RATE_LIMIT_WINDOW: number = 60_000; // 1 minute
+const RATE_LIMIT_MAX: number = parseInt(process.env.AI_RATE_LIMIT || '5', 10);
+
+function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
+  const wsChannel: string = `ws:${config.workspaceId}`;
+  const aiMessageTimestamps: number[] = []; // per-socket rate tracker
+
+  socket.on('send-message', async ({ content, activeRepo }: { content: string; activeRepo?: string }) => {
     try {
       // Save and broadcast every message
-      const userMessage = await workspaceService.saveMessage(socket.userId, 'user', content);
+      const userMessage: Message = await workspaceService.saveMessage(socket.userId, 'user', content);
       io.to(wsChannel).emit('new-message', userMessage);
 
       // Only invoke AI when the message contains @ai (case-insensitive)
       // Also detect @ai-{workspace} for bridge delegation
-      const mentionsAI = /@ai\b/i.test(content);
-      const bridgeMention = content.match(/@ai-(\S+)/i);
+      const mentionsAI: boolean = /@ai\b/i.test(content);
+      const bridgeMention: RegExpMatchArray | null = content.match(/@ai-(\S+)/i);
       if (!mentionsAI && !bridgeMention) return;
+
+      // ── Rate limiting for AI-triggering messages ──────────────────
+      const now: number = Date.now();
+      while (aiMessageTimestamps.length > 0 && now - aiMessageTimestamps[0] > RATE_LIMIT_WINDOW) {
+        aiMessageTimestamps.shift();
+      }
+      if (aiMessageTimestamps.length >= RATE_LIMIT_MAX) {
+        socket.emit('error-message', { error: `Rate limit: max ${RATE_LIMIT_MAX} AI messages per minute. Please wait a moment.` });
+        return;
+      }
+      aiMessageTimestamps.push(now);
 
       // ── Bridge delegation via @ai-{workspace} ─────────────────
       if (bridgeMention) {
-        const targetName = bridgeMention[1];
+        const targetName: string = bridgeMention[1];
         // Strip the @ai-workspace from the content to get the actual message
-        const bridgeContent = content.replace(/@ai-\S+\s*/i, '').trim();
+        const bridgeContent: string = content.replace(/@ai-\S+\s*/i, '').trim();
 
         if (!bridgeContent) {
           socket.emit('error-message', { error: `What would you like to ask ${targetName}? e.g. @ai-${targetName} review this query` });
@@ -35,35 +86,35 @@ function setupChatHandlers(io, socket) {
         }
 
         // Check if a bridge exists for this workspace
-        const manifest = process.env.RT_BRIDGES;
+        const manifest: string | undefined = process.env.RT_BRIDGES;
         if (!manifest) {
           socket.emit('error-message', { error: `No bridges configured. Cannot reach "${targetName}".` });
           return;
         }
 
-        let bridges;
+        let bridges: BridgeEntry[];
         try { bridges = JSON.parse(manifest); } catch { bridges = []; }
 
-        const bridge = bridges.find(
-          (b) => b.targetName.toLowerCase() === targetName.toLowerCase()
+        const bridge: BridgeEntry | undefined = bridges.find(
+          (b: BridgeEntry) => b.targetName.toLowerCase() === targetName.toLowerCase()
         );
 
         if (!bridge) {
           // Fuzzy match — suggest close names
-          const suggestions = bridges
-            .filter((b) => {
-              const t = b.targetName.toLowerCase();
-              const q = targetName.toLowerCase();
+          const suggestions: string[] = bridges
+            .filter((b: BridgeEntry) => {
+              const t: string = b.targetName.toLowerCase();
+              const q: string = targetName.toLowerCase();
               return t.startsWith(q) || q.startsWith(t) || t.includes(q) || q.includes(t);
             })
-            .map((b) => `@ai-${b.targetName.toLowerCase()}`);
+            .map((b: BridgeEntry) => `@ai-${b.targetName.toLowerCase()}`);
 
           if (suggestions.length > 0) {
             socket.emit('error-message', {
               error: `No bridge to "${targetName}". Did you mean ${suggestions.join(' or ')}?`,
             });
           } else {
-            const available = bridges.map((b) => `@ai-${b.targetName.toLowerCase()}`).join(', ');
+            const available: string = bridges.map((b: BridgeEntry) => `@ai-${b.targetName.toLowerCase()}`).join(', ');
             socket.emit('error-message', {
               error: `No bridge to "${targetName}". Available: ${available || 'none'}`,
             });
@@ -86,29 +137,32 @@ function setupChatHandlers(io, socket) {
         });
 
         try {
-          const bridgeTool = require('../tools/bridgeWorkspace');
-          const result = await bridgeTool.execute({
+          const bridgeTool = require('../tools/bridgeWorkspace') as {
+            execute: (args: Record<string, unknown>) => Promise<BridgeToolResult>;
+          };
+          const result: BridgeToolResult = await bridgeTool.execute({
             target: bridge.targetName,
             action: 'delegate',
             content: bridgeContent,
           });
 
-          const callId = `bridge-${Date.now()}`;
+          const callId: string = `bridge-${Date.now()}`;
           io.to(wsChannel).emit('tool-result', {
             name: 'bridge_workspace',
             callId,
             result,
           });
 
-          const responseText = result.error
+          const responseText: string = result.error
             ? `❌ Bridge to ${bridge.targetName} failed: ${result.error}`
             : `🔗 Task delegated to **${bridge.targetName}**. Task ID: \`${result.taskId}\`\n\nThe ${bridge.targetName} workspace's AI is processing your request. Results will appear here when complete.`;
 
           await workspaceService.saveMessage(null, 'assistant', responseText);
           io.to(wsChannel).emit('ai-chunk', { content: responseText, userId: socket.userId });
           io.to(wsChannel).emit('ai-complete', { fullText: responseText, userId: socket.userId });
-        } catch (err) {
-          io.to(wsChannel).emit('ai-error', { error: `Bridge delegation failed: ${err.message}` });
+        } catch (err: unknown) {
+          const error = err as Error;
+          io.to(wsChannel).emit('ai-error', { error: `Bridge delegation failed: ${error.message}` });
         } finally {
           socket.isGenerating = false;
           socket.abortController = null;
@@ -123,20 +177,31 @@ function setupChatHandlers(io, socket) {
       }
 
       // ── Monthly token credit pool ──────────────────────────────────────
-      // Each workspace gets a monthly token credit (500K for Team, 1M for Business).
-      // After credits are exhausted, usage continues but is flagged as overage
-      // and auto-charged via Stripe metered billing.
-      const MONTHLY_TOKEN_CREDIT = parseInt(process.env.MONTHLY_TOKEN_CREDIT || '1000000', 10);
-      let isOverage = false;
+      // Each workspace gets a monthly token credit (default 1M tokens).
+      // TOKEN_CAP_MODE controls behavior when credits are exhausted:
+      //   'hard' — block the request (free tier / beta)
+      //   'soft' — warn but allow (paid tier with Stripe metered billing)
+      const MONTHLY_TOKEN_CREDIT: number = parseInt(process.env.MONTHLY_TOKEN_CREDIT || '1000000', 10);
+      const TOKEN_CAP_MODE: string = process.env.TOKEN_CAP_MODE || 'hard';
+      let isOverage: boolean = false;
       if (MONTHLY_TOKEN_CREDIT > 0) {
         try {
-          const { getAdapter } = require('../db/adapter');
-          const monthlyTokens = await getAdapter().getMonthlyTokens(config.workspaceId);
+          const { getAdapter } = require('../db/adapter') as { getAdapter: () => DatabaseAdapter };
+          const monthlyTokens: number = await getAdapter().getMonthlyTokens(config.workspaceId);
           if (monthlyTokens >= MONTHLY_TOKEN_CREDIT) {
             isOverage = true;
-            const pct = Math.round((monthlyTokens / MONTHLY_TOKEN_CREDIT) * 100);
+            const pct: number = Math.round((monthlyTokens / MONTHLY_TOKEN_CREDIT) * 100);
             console.log(`[Credits] Workspace ${config.workspaceId} is over monthly credit: ${monthlyTokens.toLocaleString()} / ${MONTHLY_TOKEN_CREDIT.toLocaleString()} (${pct}%)`);
-            // Notify the user but DON'T block — overages are auto-charged
+
+            if (TOKEN_CAP_MODE === 'hard') {
+              // HARD CAP — block the request (free tier / beta)
+              socket.emit('error-message', {
+                error: `Monthly token limit reached (${monthlyTokens.toLocaleString()} / ${MONTHLY_TOKEN_CREDIT.toLocaleString()} tokens). Your free trial includes ${MONTHLY_TOKEN_CREDIT.toLocaleString()} tokens per month. Contact support to upgrade.`,
+              });
+              return;
+            }
+
+            // SOFT CAP — notify the user but allow (paid tier, overages auto-charged)
             socket.emit('credit-warning', {
               message: `Monthly AI credit pool used (${monthlyTokens.toLocaleString()} / ${MONTHLY_TOKEN_CREDIT.toLocaleString()} tokens — ${pct}%). Additional usage is billed automatically.`,
               monthlyTokens,
@@ -144,21 +209,22 @@ function setupChatHandlers(io, socket) {
               percentage: pct,
             });
           }
-        } catch (capErr) {
-          console.warn('[Credits] Could not check usage — allowing request:', capErr.message);
+        } catch (capErr: unknown) {
+          const capError = capErr as Error;
+          console.warn('[Credits] Could not check usage — allowing request:', capError.message);
         }
       }
 
 
-      const workspace = await workspaceService.getWorkspace();
+      const workspace: Workspace | null = await workspaceService.getWorkspace();
 
       // AI provider config from workspace or defaults
-      const aiProvider = (workspace && workspace.ai_provider) || 'vertexai';
-      const aiModel = (workspace && workspace.ai_model) || 'gemini-2.5-flash';
-      const toolsEnabled = workspace ? (workspace.tools_enabled ?? true) : true;
+      const aiProvider: string = (workspace && workspace.ai_provider) || 'vertexai';
+      const aiModel: string = (workspace && workspace.ai_model) || 'gemini-2.5-flash';
+      const toolsEnabled: boolean = workspace ? (workspace.tools_enabled ?? true) : true;
 
       // Parse per-workspace data source config
-      let dataSources = {};
+      let dataSources: DataSources = {};
       if (workspace?.data_sources) {
         try {
           dataSources = typeof workspace.data_sources === 'string'
@@ -166,19 +232,19 @@ function setupChatHandlers(io, socket) {
             : workspace.data_sources;
         } catch (_) {}
       }
-      const workspaceConfig = { dataSources };
+      const workspaceConfig: WorkspaceConfig = { dataSources };
 
       // Resolve enabled tool names from workspace config (null = all tools)
-      let enabledToolNames = null;
+      let enabledToolNames: string[] | null = null;
       if (workspace && workspace.enabled_tools) {
         try {
-          const parsed = JSON.parse(workspace.enabled_tools);
-          if (Array.isArray(parsed) && parsed.length > 0) enabledToolNames = parsed;
+          const parsed: unknown = JSON.parse(workspace.enabled_tools);
+          if (Array.isArray(parsed) && parsed.length > 0) enabledToolNames = parsed as string[];
         } catch (_) {}
       }
 
       // Vertex AI uses ADC, Ollama uses no auth — skip API key for both
-      let apiKey = '';
+      let apiKey: string = '';
       if (aiProvider === 'vertexai') {
         if (!config.vertexai.project) {
           io.to(wsChannel).emit('ai-error', { error: 'GCP_PROJECT not set. Required for Vertex AI.' });
@@ -188,8 +254,8 @@ function setupChatHandlers(io, socket) {
         // No API key needed — pass per-workspace host into workspaceConfig
         workspaceConfig.ollamaHost = workspace?.ollama_host || config.ollama?.host || 'http://localhost:11434';
       } else {
-        const userKey = await workspaceService.getUserApiKey(socket.userId, aiProvider);
-        const serverKey = config.ai[aiProvider] || '';
+        const userKey: string = await workspaceService.getUserApiKey(socket.userId, aiProvider);
+        const serverKey: string = config.ai[aiProvider as keyof typeof config.ai] || '';
         apiKey = userKey || serverKey;
 
         if (!apiKey) {
@@ -198,19 +264,19 @@ function setupChatHandlers(io, socket) {
         }
       }
 
-      const history = await workspaceService.getConversationHistory(50);
-      const messages = [];
+      const history: Message[] = await workspaceService.getConversationHistory(50);
+      const messages: Record<string, unknown>[] = [];
 
       // Build system prompt with workspace context
-      let systemPrompt = (workspace && workspace.system_prompt) || '';
+      let systemPrompt: string = (workspace && workspace.system_prompt) || '';
       try {
-        const workspaceDir = require('path').resolve(__dirname, '..', '..', 'workspace');
-        const fs = require('fs');
+        const workspaceDir: string = require('path').resolve(__dirname, '..', '..', 'workspace');
+        const fs = require('fs') as typeof import('fs');
         if (fs.existsSync(workspaceDir)) {
           const repos = fs.readdirSync(workspaceDir, { withFileTypes: true })
-            .filter(e => e.isDirectory() && fs.existsSync(require('path').join(workspaceDir, e.name, '.git')));
+            .filter((e: import('fs').Dirent) => e.isDirectory() && fs.existsSync(require('path').join(workspaceDir, e.name, '.git')));
           if (repos.length > 0) {
-            let ctx = '\n\n--- WORKSPACE CONTEXT ---\nYou have DIRECT ACCESS to these cloned repositories via your tools. ALWAYS use your tools to find and read code. NEVER say a file does not exist without first using find_file to search for it.\n\nTOOL USAGE:\n- find_file: Search for any file by name across repos. USE THIS FIRST when a user mentions a file.\n- list_files: List directory contents. Use directory="reponame/path" for subdirectories.\n- read_file: Read file contents. Use filepath="reponame/path/to/file"\n- write_file: Edit files. Use filepath="reponame/path/to/file"\n- git_commit: Commit, push, and create PRs. Use directory="reponame"\n\nWhen a user mentions a filename, ALWAYS use find_file first to locate it, then read_file to read it. Do NOT guess paths or say a file does not exist.\n';
+            let ctx: string = '\n\n--- WORKSPACE CONTEXT ---\nYou have DIRECT ACCESS to these cloned repositories via your tools. ALWAYS use your tools to find and read code. NEVER say a file does not exist without first using find_file to search for it.\n\nTOOL USAGE:\n- find_file: Search for any file by name across repos. USE THIS FIRST when a user mentions a file.\n- list_files: List directory contents. Use directory=\"reponame/path\" for subdirectories.\n- read_file: Read file contents. Use filepath=\"reponame/path/to/file\"\n- write_file: Edit files. Use filepath=\"reponame/path/to/file\"\n- git_commit: Commit, push, and create PRs. Use directory=\"reponame\"\n\nWhen a user mentions a filename, ALWAYS use find_file first to locate it, then read_file to read it. Do NOT guess paths or say a file does not exist.\n';
 
             // Inject the active repo context
             if (activeRepo) {
@@ -219,11 +285,11 @@ function setupChatHandlers(io, socket) {
 
             ctx += '\nAvailable repos:\n';
             for (const repo of repos) {
-              const repoPath = require('path').join(workspaceDir, repo.name);
-              const entries = fs.readdirSync(repoPath, { withFileTypes: true })
-                .filter(e => !e.name.startsWith('.') && e.name !== 'node_modules')
+              const repoPath: string = require('path').join(workspaceDir, repo.name);
+              const entries: string = fs.readdirSync(repoPath, { withFileTypes: true })
+                .filter((e: import('fs').Dirent) => !e.name.startsWith('.') && e.name !== 'node_modules')
                 .slice(0, 20)
-                .map(e => '  ' + (e.isDirectory() ? '[dir]' : '[file]') + ' ' + e.name)
+                .map((e: import('fs').Dirent) => '  ' + (e.isDirectory() ? '[dir]' : '[file]') + ' ' + e.name)
                 .join('\n');
               ctx += '[repo] ' + repo.name + '/\n' + entries + '\n\n';
             }
@@ -236,15 +302,15 @@ function setupChatHandlers(io, socket) {
       // Lean system prompt with behavioral rules + data context.
       // The AI discovers its own capabilities via describe_workspace tool.
 
-      const gcpProject = config.vertexai?.project || process.env.GCP_PROJECT || '';
-      const gcpRegion  = process.env.GCP_LOCATION || 'us-central1';
-      const bqProject  = dataSources?.bigquery?.project || gcpProject;
+      const gcpProject: string = config.vertexai?.project || process.env.GCP_PROJECT || '';
+      const gcpRegion: string  = process.env.GCP_LOCATION || 'us-central1';
+      const bqProject: string  = dataSources?.bigquery?.project || gcpProject;
 
       // Build BigQuery dataset context dynamically from workspace data sources
-      let bqDatasetCtx = '';
+      let bqDatasetCtx: string = '';
       if (bqProject) {
-        const bqDataProject = dataSources?.bigquery?.dataProject || bqProject;
-        const bqDatasets = dataSources?.bigquery?.datasets;
+        const bqDataProject: string = dataSources?.bigquery?.dataProject || bqProject;
+        const bqDatasets: Record<string, string> | undefined = dataSources?.bigquery?.datasets;
         if (bqDatasets && typeof bqDatasets === 'object' && Object.keys(bqDatasets).length > 0) {
           bqDatasetCtx += `\n- Authorized BigQuery datasets in \`${bqDataProject}\`:`;
           for (const [dsName, dsDesc] of Object.entries(bqDatasets)) {
@@ -256,8 +322,8 @@ function setupChatHandlers(io, socket) {
         }
       }
 
-      const orgLabel = config.platformOrg ? ` by ${config.platformOrg}` : '';
-      const envCtx = `You are the AI assistant for the "${config.workspaceName}" workspace on the Roundtable platform${orgLabel}. This is a real-time multiplayer workspace — multiple users may be present simultaneously.
+      const orgLabel: string = config.platformOrg ? ` by ${config.platformOrg}` : '';
+      const envCtx: string = `You are the AI assistant for the "${config.workspaceName}" workspace on the Roundtable platform${orgLabel}. This is a real-time multiplayer workspace — multiple users may be present simultaneously.
 
 --- SELF-DISCOVERY ---
 You have a describe_workspace tool. Call it when:
@@ -288,15 +354,15 @@ Do NOT guess your capabilities. Call describe_workspace to get the live inventor
 
       // Auto-inject schema YAML files from workspace/uploads/ into the system prompt
       try {
-        const uploadsDir = require('path').resolve(__dirname, '..', '..', 'workspace', 'uploads');
-        const fs = require('fs');
+        const uploadsDir: string = require('path').resolve(__dirname, '..', '..', 'workspace', 'uploads');
+        const fs = require('fs') as typeof import('fs');
         if (fs.existsSync(uploadsDir)) {
-          const schemaFiles = fs.readdirSync(uploadsDir)
-            .filter(f => f.endsWith('.yaml') || f.endsWith('.yml'));
+          const schemaFiles: string[] = fs.readdirSync(uploadsDir)
+            .filter((f: string) => f.endsWith('.yaml') || f.endsWith('.yml'));
           if (schemaFiles.length > 0) {
-            let schemaCtx = '\n\n--- DATA SCHEMA DEFINITIONS ---\nThe following schemas define ALL available tables and columns. Use ONLY these table names in queries. Do NOT guess or invent table names.\n';
+            let schemaCtx: string = '\n\n--- DATA SCHEMA DEFINITIONS ---\nThe following schemas define ALL available tables and columns. Use ONLY these table names in queries. Do NOT guess or invent table names.\n';
             for (const sf of schemaFiles) {
-              const content = fs.readFileSync(require('path').join(uploadsDir, sf), 'utf8');
+              const content: string = fs.readFileSync(require('path').join(uploadsDir, sf), 'utf8');
               schemaCtx += `\n### ${sf}\n\`\`\`yaml\n${content}\n\`\`\`\n`;
             }
             systemPrompt += schemaCtx;
@@ -312,17 +378,17 @@ Do NOT guess your capabilities. Call describe_workspace to get the live inventor
       }
 
       // Set up per-socket AbortController
-      const abortController = new AbortController();
+      const abortController: AbortController = new AbortController();
       socket.abortController = abortController;
       socket.isGenerating = true;
 
       // Broadcast to the workspace that this user's AI is active
       io.to(wsChannel).emit('ai-start', { userId: socket.userId, username: socket.username });
 
-      let fullText = '';
-      let usageData = null;
-      let toolCallCount = 0;
-      const toolNamesUsed = [];
+      let fullText: string = '';
+      let usageData: { promptTokens: number; completionTokens: number; totalTokens: number } | null = null;
+      let toolCallCount: number = 0;
+      const toolNamesUsed: string[] = [];
 
       try {
         for await (const event of streamCompletion(
@@ -369,10 +435,11 @@ Do NOT guess your capabilities. Call describe_workspace to get the live inventor
               break;
           }
         }
-      } catch (err) {
-        if (err.name !== 'AbortError') {
-          console.error(`[Chat] AI stream error in workspace ${config.workspaceId}:`, err);
-          io.to(wsChannel).emit('ai-error', { error: `AI generation failed: ${err.message}` });
+      } catch (err: unknown) {
+        const error = err as Error & { name: string };
+        if (error.name !== 'AbortError') {
+          console.error(`[Chat] AI stream error in workspace ${config.workspaceId}:`, error);
+          io.to(wsChannel).emit('ai-error', { error: `AI generation failed: ${error.message}` });
         }
       } finally {
         socket.isGenerating = false;
@@ -381,7 +448,7 @@ Do NOT guess your capabilities. Call describe_workspace to get the live inventor
 
         // Record usage to database (fire-and-forget)
         try {
-          const { getAdapter } = require('../db/adapter');
+          const { getAdapter } = require('../db/adapter') as { getAdapter: () => DatabaseAdapter };
           await getAdapter().recordUsage(
             config.workspaceId,
             socket.userId,
@@ -393,17 +460,18 @@ Do NOT guess your capabilities. Call describe_workspace to get the live inventor
             toolCallCount,
             toolNamesUsed,
           );
-        } catch (usageErr) {
-          console.error('[Usage] Failed to record usage:', usageErr.message);
+        } catch (usageErr: unknown) {
+          const usageError = usageErr as Error;
+          console.error('[Usage] Failed to record usage:', usageError.message);
         }
 
         // Report usage to dashboard for billing (fire-and-forget)
         try {
-          const dashboardUrl = process.env.RT_DASHBOARD_URL;
+          const dashboardUrl: string | undefined = process.env.RT_DASHBOARD_URL;
           if (dashboardUrl && usageData?.totalTokens) {
-            const crypto = require('crypto');
-            const ts = Date.now().toString();
-            const sig = crypto.createHmac('sha256', config.sessionSecret)
+            const crypto = require('crypto') as typeof import('crypto');
+            const ts: string = Date.now().toString();
+            const sig: string = crypto.createHmac('sha256', config.sessionSecret)
               .update(`${config.workspaceId}:${ts}`)
               .digest('hex');
             fetch(`${dashboardUrl}/api/usage-report/report`, {
@@ -420,12 +488,13 @@ Do NOT guess your capabilities. Call describe_workspace to get the live inventor
                 timestamp: ts,
                 signature: sig,
               }),
-            }).catch(err => console.warn('[Usage] Dashboard report failed:', err.message));
+            }).catch((err: Error) => console.warn('[Usage] Dashboard report failed:', err.message));
           }
         } catch (_) {}
       }
-    } catch (err) {
-      console.error('[Chat] Error:', err);
+    } catch (err: unknown) {
+      const error = err as Error;
+      console.error('[Chat] Error:', error);
       socket.emit('error-message', { error: 'Failed to send message' });
     }
   });

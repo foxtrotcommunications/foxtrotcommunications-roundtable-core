@@ -10,6 +10,7 @@ const writeFile = require('./writeFile');
 const listFiles = require('./listFiles');
 const findFile = require('./findFile');
 const shellExec = require('./shellExec');
+const renderChart = require('./renderChart');
 
 // Data warehouse tools (loaded conditionally based on config)
 const queryBigQuery = require('./queryBigQuery');
@@ -38,6 +39,7 @@ const tools = {
   list_files: listFiles,
   find_file: findFile,
   shell_exec: shellExec,
+  render_chart: renderChart,
   // Data warehouse tools — always registered, return config error if not set up
   query_bigquery: queryBigQuery,
   query_snowflake: querySnowflake,
