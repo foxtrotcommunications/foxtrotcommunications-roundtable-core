@@ -99,11 +99,6 @@ export default function ChatView({
   return (
     <>
       <div className="chat-messages" ref={messagesRef}>
-        {showScrollButton && (
-          <button className="scroll-to-bottom" onClick={scrollToBottom} title="Scroll to bottom">
-            ↓
-          </button>
-        )}
         {messages.length === 0 && !streaming && (
           <div className="welcome-state">
             <div className="welcome-header">
@@ -268,6 +263,12 @@ export default function ChatView({
       <div className="typing-bar" style={{ opacity: typingText ? 1 : 0 }}>
         {typingText}
       </div>
+
+      {showScrollButton && (
+        <button className="scroll-to-bottom" onClick={scrollToBottom} title="Scroll to bottom">
+          ↓
+        </button>
+      )}
 
       {/* Input area */}
       <div className="chat-input-area">
