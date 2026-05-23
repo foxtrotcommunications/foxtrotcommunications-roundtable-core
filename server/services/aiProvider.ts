@@ -1,8 +1,44 @@
-// server/services/aiProvider.js — Unified multi-provider AI interface with tool support
-const fetch = require('node-fetch');
-const { GoogleGenAI } = require('@google/genai');
-const { executeTool, toOpenAITools, toAnthropicTools, toGoogleTools } = require('../tools');
-const config = require('../config');
+// server/services/aiProvider.ts — Unified multi-provider AI interface with tool support
+import type {
+  StreamEvent,
+  OpenAIToolCall,
+  OpenAIUsage,
+  AnthropicToolUse,
+  AnthropicUsage,
+  GoogleFunctionCall,
+  GoogleUsageMetadata,
+  WorkspaceConfig,
+  ChatMessage,
+} from '../types';
+import type { Response as NodeFetchResponse } from 'node-fetch';
+
+const fetch = require('node-fetch') as typeof import('node-fetch').default;
+const { GoogleGenAI } = require('@google/genai') as { GoogleGenAI: new (opts: Record<string, unknown>) => GoogleGenAIClient };
+const { executeTool, toOpenAITools, toAnthropicTools, toGoogleTools } = require('../tools') as {
+  executeTool: (name: string, args: Record<string, unknown>, config?: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  toOpenAITools: (enabledToolNames?: string[] | null) => Record<string, unknown>[];
+  toAnthropicTools: (enabledToolNames?: string[] | null) => Record<string, unknown>[];
+  toGoogleTools: (enabledToolNames?: string[] | null) => Record<string, unknown>[];
+};
+const config = require('../config') as import('../types').AppConfig;
+
+// Minimal type for the @google/genai client
+interface GoogleGenAIClient {
+  models: {
+    generateContentStream(opts: Record<string, unknown>): Promise<AsyncIterable<GoogleGenAIChunk>>;
+  };
+}
+
+interface GoogleGenAIChunk {
+  text?: string;
+  functionCalls?: GoogleFunctionCall[];
+  candidates?: Array<{
+    content?: {
+      parts?: Record<string, unknown>[];
+    };
+  }>;
+  usageMetadata?: GoogleUsageMetadata;
+}
 
 /**
  * Stream a completion from the specified AI provider, with tool-use loop.
@@ -23,8 +59,8 @@ const config = require('../config');
  * @param {string[]|null} enabledToolNames — optional tool allowlist; null = all tools
  * @param {object} [workspaceConfig] — per-workspace config { dataSources: {...} }
  */
-async function* streamCompletion(provider, model, messages, apiKey, enableTools = true, signal = null, enabledToolNames = null, workspaceConfig = {}) {
-  const maxToolRounds = 10;
+async function* streamCompletion(provider: string, model: string, messages: ChatMessage[], apiKey: string, enableTools: boolean = true, signal: AbortSignal | null = null, enabledToolNames: string[] | null = null, workspaceConfig: WorkspaceConfig = {}): AsyncGenerator<StreamEvent> {
+  const maxToolRounds: number = 10;
 
   try {
     switch (provider) {
@@ -46,25 +82,26 @@ async function* streamCompletion(provider, model, messages, apiKey, enableTools 
       default:
         yield { type: 'error', error: `Unknown provider: ${provider}` };
     }
-  } catch (err) {
-    if (err.name === 'AbortError') {
+  } catch (err: unknown) {
+    const error = err as Error & { name: string };
+    if (error.name === 'AbortError') {
       yield { type: 'done', fullText: '' };
     } else {
-      yield { type: 'error', error: err.message };
+      yield { type: 'error', error: error.message };
     }
   }
 }
 
 // ─── OpenAI ─────────────────────────────────────────────
 
-async function* streamOpenAI(model, messages, apiKey, enableTools, maxRounds, signal, enabledToolNames, workspaceConfig = {}) {
-  let currentMessages = [...messages];
-  let fullText = '';
+async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: string, enableTools: boolean, maxRounds: number, signal: AbortSignal | null, enabledToolNames: string[] | null, workspaceConfig: WorkspaceConfig = {}): AsyncGenerator<StreamEvent> {
+  let currentMessages: Array<Record<string, unknown> | ChatMessage> = [...messages];
+  let fullText: string = '';
 
-  for (let round = 0; round < maxRounds; round++) {
+  for (let round: number = 0; round < maxRounds; round++) {
     if (signal?.aborted) { yield { type: 'done', fullText }; return; }
 
-    const body = {
+    const body: Record<string, unknown> = {
       model,
       messages: currentMessages,
       stream: true,
@@ -76,18 +113,18 @@ async function* streamOpenAI(model, messages, apiKey, enableTools, maxRounds, si
       body.tool_choice = 'auto';
     }
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response: NodeFetchResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(body),
-      signal,
+      signal: signal as AbortSignal | undefined,
     });
 
     if (!response.ok) {
-      const errText = await response.text();
+      const errText: string = await response.text();
       yield { type: 'error', error: `OpenAI API error (${response.status}): ${errText}` };
       return;
     }
@@ -109,7 +146,7 @@ async function* streamOpenAI(model, messages, apiKey, enableTools, maxRounds, si
     currentMessages.push({
       role: 'assistant',
       content: text || null,
-      tool_calls: toolCalls.map((tc) => ({
+      tool_calls: toolCalls.map((tc: OpenAIToolCall) => ({
         id: tc.id,
         type: 'function',
         function: { name: tc.name, arguments: tc.arguments },
@@ -120,7 +157,7 @@ async function* streamOpenAI(model, messages, apiKey, enableTools, maxRounds, si
     for (const tc of toolCalls) {
       yield { type: 'tool-call', name: tc.name, args: JSON.parse(tc.arguments), callId: tc.id };
 
-      const result = await executeTool(tc.name, JSON.parse(tc.arguments), { ...workspaceConfig, model });
+      const result: Record<string, unknown> = await executeTool(tc.name, JSON.parse(tc.arguments), { ...workspaceConfig, model });
       yield { type: 'tool-result', name: tc.name, callId: tc.id, result };
 
       currentMessages.push({
@@ -134,38 +171,39 @@ async function* streamOpenAI(model, messages, apiKey, enableTools, maxRounds, si
   yield { type: 'done', fullText };
 }
 
-async function* parseOpenAIStream(response, signal) {
-  const toolCalls = [];
-  let text = '';
-  let usage = null;
+async function* parseOpenAIStream(response: NodeFetchResponse, signal: AbortSignal | null): AsyncGenerator<StreamEvent, { toolCalls: OpenAIToolCall[]; text: string; usage: OpenAIUsage | null }> {
+  const toolCalls: OpenAIToolCall[] = [];
+  let text: string = '';
+  let usage: OpenAIUsage | null = null;
 
-  const body = response.body;
-  let buffer = '';
+  const body = response.body as AsyncIterable<Buffer>;
+  let buffer: string = '';
 
   for await (const chunk of body) {
     if (signal?.aborted) break;
     buffer += chunk.toString();
-    const lines = buffer.split('\n');
+    const lines: string[] = buffer.split('\n');
     buffer = lines.pop() || '';
 
     for (const line of lines) {
-      const trimmed = line.trim();
+      const trimmed: string = line.trim();
       if (!trimmed || !trimmed.startsWith('data: ')) continue;
-      const data = trimmed.slice(6);
+      const data: string = trimmed.slice(6);
       if (data === '[DONE]') continue;
 
       try {
-        const parsed = JSON.parse(data);
-        const delta = parsed.choices?.[0]?.delta;
+        const parsed: Record<string, unknown> = JSON.parse(data);
+        const choices = parsed.choices as Array<{ delta?: Record<string, unknown> }> | undefined;
+        const delta = choices?.[0]?.delta;
         if (!delta) continue;
 
         if (delta.content) {
-          text += delta.content;
-          yield { type: 'text-delta', content: delta.content };
+          text += delta.content as string;
+          yield { type: 'text-delta', content: delta.content as string };
         }
 
         if (delta.tool_calls) {
-          for (const tc of delta.tool_calls) {
+          for (const tc of delta.tool_calls as Array<{ index?: number; id?: string; function?: { name?: string; arguments?: string } }>) {
             if (tc.index !== undefined) {
               if (!toolCalls[tc.index]) {
                 toolCalls[tc.index] = { id: '', name: '', arguments: '' };
@@ -178,8 +216,8 @@ async function* parseOpenAIStream(response, signal) {
         }
 
         // Capture usage from final chunk (stream_options.include_usage)
-        if (parsed.usage) {
-          usage = parsed.usage;
+        if ((parsed as Record<string, unknown>).usage) {
+          usage = (parsed as Record<string, unknown>).usage as OpenAIUsage;
         }
       } catch (e) {
         // Skip malformed JSON
@@ -192,15 +230,15 @@ async function* parseOpenAIStream(response, signal) {
 
 // ─── Anthropic ──────────────────────────────────────────
 
-async function* streamAnthropic(model, messages, apiKey, enableTools, maxRounds, signal, enabledToolNames) {
-  let currentMessages = formatAnthropicMessages(messages);
-  let systemPrompt = extractSystemPrompt(messages);
-  let fullText = '';
+async function* streamAnthropic(model: string, messages: ChatMessage[], apiKey: string, enableTools: boolean, maxRounds: number, signal: AbortSignal | null, enabledToolNames: string[] | null, workspaceConfig: WorkspaceConfig = {}): AsyncGenerator<StreamEvent> {
+  let currentMessages: Record<string, unknown>[] = formatAnthropicMessages(messages);
+  let systemPrompt: string = extractSystemPrompt(messages);
+  let fullText: string = '';
 
-  for (let round = 0; round < maxRounds; round++) {
+  for (let round: number = 0; round < maxRounds; round++) {
     if (signal?.aborted) { yield { type: 'done', fullText }; return; }
 
-    const body = {
+    const body: Record<string, unknown> = {
       model,
       messages: currentMessages,
       max_tokens: 4096,
@@ -215,7 +253,7 @@ async function* streamAnthropic(model, messages, apiKey, enableTools, maxRounds,
       body.tools = toAnthropicTools(enabledToolNames);
     }
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response: NodeFetchResponse = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -223,11 +261,11 @@ async function* streamAnthropic(model, messages, apiKey, enableTools, maxRounds,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify(body),
-      signal,
+      signal: signal as AbortSignal | undefined,
     });
 
     if (!response.ok) {
-      const errText = await response.text();
+      const errText: string = await response.text();
       yield { type: 'error', error: `Anthropic API error (${response.status}): ${errText}` };
       return;
     }
@@ -246,7 +284,7 @@ async function* streamAnthropic(model, messages, apiKey, enableTools, maxRounds,
     }
 
     // Build assistant content blocks
-    const assistantContent = [];
+    const assistantContent: Record<string, unknown>[] = [];
     if (text) assistantContent.push({ type: 'text', text });
     for (const tu of toolUses) {
       assistantContent.push({
@@ -259,11 +297,11 @@ async function* streamAnthropic(model, messages, apiKey, enableTools, maxRounds,
     currentMessages.push({ role: 'assistant', content: assistantContent });
 
     // Execute tools
-    const toolResults = [];
+    const toolResults: Record<string, unknown>[] = [];
     for (const tu of toolUses) {
       yield { type: 'tool-call', name: tu.name, args: tu.input, callId: tu.id };
 
-      const result = await executeTool(tu.name, tu.input, { ...workspaceConfig, model });
+      const result: Record<string, unknown> = await executeTool(tu.name, tu.input, { ...workspaceConfig, model });
       yield { type: 'tool-result', name: tu.name, callId: tu.id, result };
 
       toolResults.push({
@@ -279,47 +317,49 @@ async function* streamAnthropic(model, messages, apiKey, enableTools, maxRounds,
   yield { type: 'done', fullText };
 }
 
-async function* parseAnthropicStream(response, signal) {
-  const toolUses = [];
-  let text = '';
-  let stopReason = '';
-  let currentToolUse = null;
-  let currentToolJson = '';
-  let usage = null;
+async function* parseAnthropicStream(response: NodeFetchResponse, signal: AbortSignal | null): AsyncGenerator<StreamEvent, { toolUses: AnthropicToolUse[]; text: string; stopReason: string; usage: AnthropicUsage | null }> {
+  const toolUses: AnthropicToolUse[] = [];
+  let text: string = '';
+  let stopReason: string = '';
+  let currentToolUse: AnthropicToolUse | null = null;
+  let currentToolJson: string = '';
+  let usage: AnthropicUsage | null = null;
 
-  const body = response.body;
-  let buffer = '';
+  const body = response.body as AsyncIterable<Buffer>;
+  let buffer: string = '';
 
   for await (const chunk of body) {
     if (signal?.aborted) break;
     buffer += chunk.toString();
-    const lines = buffer.split('\n');
+    const lines: string[] = buffer.split('\n');
     buffer = lines.pop() || '';
 
     for (const line of lines) {
-      const trimmed = line.trim();
+      const trimmed: string = line.trim();
       if (!trimmed.startsWith('data: ')) continue;
-      const data = trimmed.slice(6);
+      const data: string = trimmed.slice(6);
 
       try {
-        const parsed = JSON.parse(data);
+        const parsed: Record<string, unknown> = JSON.parse(data);
 
-        if (parsed.type === 'content_block_start' && parsed.content_block?.type === 'tool_use') {
+        if (parsed.type === 'content_block_start' && (parsed.content_block as Record<string, unknown>)?.type === 'tool_use') {
+          const contentBlock = parsed.content_block as { id: string; name: string };
           currentToolUse = {
-            id: parsed.content_block.id,
-            name: parsed.content_block.name,
+            id: contentBlock.id,
+            name: contentBlock.name,
             input: {},
           };
           currentToolJson = '';
         }
 
         if (parsed.type === 'content_block_delta') {
-          if (parsed.delta?.type === 'text_delta') {
-            text += parsed.delta.text;
-            yield { type: 'text-delta', content: parsed.delta.text };
+          const delta = parsed.delta as Record<string, unknown> | undefined;
+          if (delta?.type === 'text_delta') {
+            text += delta.text as string;
+            yield { type: 'text-delta', content: delta.text as string };
           }
-          if (parsed.delta?.type === 'input_json_delta' && currentToolUse) {
-            currentToolJson += parsed.delta.partial_json;
+          if (delta?.type === 'input_json_delta' && currentToolUse) {
+            currentToolJson += delta.partial_json as string;
           }
         }
 
@@ -334,19 +374,21 @@ async function* parseAnthropicStream(response, signal) {
           currentToolJson = '';
         }
 
-        if (parsed.type === 'message_delta' && parsed.delta?.stop_reason) {
-          stopReason = parsed.delta.stop_reason;
+        if (parsed.type === 'message_delta' && (parsed.delta as Record<string, unknown>)?.stop_reason) {
+          stopReason = (parsed.delta as Record<string, unknown>).stop_reason as string;
         }
 
         // Capture usage from message_start and message_delta
-        if (parsed.type === 'message_start' && parsed.message?.usage) {
-          usage = { input_tokens: parsed.message.usage.input_tokens || 0, output_tokens: 0 };
+        if (parsed.type === 'message_start' && (parsed.message as Record<string, unknown>)?.usage) {
+          const msgUsage = (parsed.message as Record<string, unknown>).usage as Record<string, number>;
+          usage = { input_tokens: msgUsage.input_tokens || 0, output_tokens: 0 };
         }
         if (parsed.type === 'message_delta' && parsed.usage) {
+          const deltaUsage = parsed.usage as Record<string, number>;
           if (usage) {
-            usage.output_tokens = parsed.usage.output_tokens || 0;
+            usage.output_tokens = deltaUsage.output_tokens || 0;
           } else {
-            usage = { input_tokens: 0, output_tokens: parsed.usage.output_tokens || 0 };
+            usage = { input_tokens: 0, output_tokens: deltaUsage.output_tokens || 0 };
           }
         }
       } catch (e) {
@@ -360,15 +402,15 @@ async function* parseAnthropicStream(response, signal) {
 
 // ─── Google / Gemini ────────────────────────────────────
 
-async function* streamGoogle(model, messages, apiKey, enableTools, maxRounds, signal, enabledToolNames, workspaceConfig = {}) {
-  let contents = formatGoogleMessages(messages);
-  let systemInstruction = extractGoogleSystemInstruction(messages);
-  let fullText = '';
+async function* streamGoogle(model: string, messages: ChatMessage[], apiKey: string, enableTools: boolean, maxRounds: number, signal: AbortSignal | null, enabledToolNames: string[] | null, workspaceConfig: WorkspaceConfig = {}): AsyncGenerator<StreamEvent> {
+  let contents: Record<string, unknown>[] = formatGoogleMessages(messages);
+  let systemInstruction: string = extractGoogleSystemInstruction(messages);
+  let fullText: string = '';
 
-  for (let round = 0; round < maxRounds; round++) {
+  for (let round: number = 0; round < maxRounds; round++) {
     if (signal?.aborted) { yield { type: 'done', fullText }; return; }
 
-    const body = {
+    const body: Record<string, unknown> = {
       contents,
     };
 
@@ -380,17 +422,17 @@ async function* streamGoogle(model, messages, apiKey, enableTools, maxRounds, si
       body.tools = toGoogleTools(enabledToolNames);
     }
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse`;
+    const url: string = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse`;
 
-    const response = await fetch(url, {
+    const response: NodeFetchResponse = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      signal,
+      signal: signal as AbortSignal | undefined,
     });
 
     if (!response.ok) {
-      const errText = await response.text();
+      const errText: string = await response.text();
       yield { type: 'error', error: `Google AI error (${response.status}): ${errText}` };
       return;
     }
@@ -411,18 +453,18 @@ async function* streamGoogle(model, messages, apiKey, enableTools, maxRounds, si
     // Add model response with function calls
     contents.push({
       role: 'model',
-      parts: functionCalls.map((fc) => ({
+      parts: functionCalls.map((fc: GoogleFunctionCall) => ({
         functionCall: { name: fc.name, args: fc.args },
       })),
     });
 
     // Execute tools and add responses
-    const functionResponses = [];
+    const functionResponses: Record<string, unknown>[] = [];
     for (const fc of functionCalls) {
-      const callId = `call_${Date.now()}_${fc.name}`;
+      const callId: string = `call_${Date.now()}_${fc.name}`;
       yield { type: 'tool-call', name: fc.name, args: fc.args, callId };
 
-      const result = await executeTool(fc.name, fc.args, { ...workspaceConfig, model });
+      const result: Record<string, unknown> = await executeTool(fc.name, fc.args, { ...workspaceConfig, model });
       yield { type: 'tool-result', name: fc.name, callId, result };
 
       functionResponses.push({
@@ -436,28 +478,29 @@ async function* streamGoogle(model, messages, apiKey, enableTools, maxRounds, si
   yield { type: 'done', fullText };
 }
 
-async function* parseGoogleStream(response, signal) {
-  const functionCalls = [];
-  let text = '';
-  let usage = null;
+async function* parseGoogleStream(response: NodeFetchResponse, signal: AbortSignal | null): AsyncGenerator<StreamEvent, { functionCalls: GoogleFunctionCall[]; text: string; usage: GoogleUsageMetadata | null }> {
+  const functionCalls: GoogleFunctionCall[] = [];
+  let text: string = '';
+  let usage: GoogleUsageMetadata | null = null;
 
-  const body = response.body;
-  let buffer = '';
+  const body = response.body as AsyncIterable<Buffer>;
+  let buffer: string = '';
 
   for await (const chunk of body) {
     if (signal?.aborted) break;
     buffer += chunk.toString();
-    const lines = buffer.split('\n');
+    const lines: string[] = buffer.split('\n');
     buffer = lines.pop() || '';
 
     for (const line of lines) {
-      const trimmed = line.trim();
+      const trimmed: string = line.trim();
       if (!trimmed.startsWith('data: ')) continue;
-      const data = trimmed.slice(6);
+      const data: string = trimmed.slice(6);
 
       try {
-        const parsed = JSON.parse(data);
-        const parts = parsed.candidates?.[0]?.content?.parts || [];
+        const parsed: Record<string, unknown> = JSON.parse(data);
+        const candidates = parsed.candidates as Array<{ content?: { parts?: Array<{ text?: string; functionCall?: { name: string; args?: Record<string, unknown> } }> } }> | undefined;
+        const parts = candidates?.[0]?.content?.parts || [];
 
         for (const part of parts) {
           if (part.text) {
@@ -474,7 +517,7 @@ async function* parseGoogleStream(response, signal) {
 
         // Capture usage metadata from Google response
         if (parsed.usageMetadata) {
-          usage = parsed.usageMetadata;
+          usage = parsed.usageMetadata as GoogleUsageMetadata;
         }
       } catch (e) {
         // Skip
@@ -487,44 +530,45 @@ async function* parseGoogleStream(response, signal) {
 
 // ─── Ollama / OpenAI-compatible ─────────────────────────
 
-async function* streamOllama(model, messages, enableTools, maxRounds, signal, enabledToolNames, workspaceConfig = {}) {
-  const host = (workspaceConfig.ollamaHost || config.ollama.host || 'http://localhost:11434').replace(/\/+$/, '');
-  let currentMessages = [...messages];
-  let fullText = '';
+async function* streamOllama(model: string, messages: ChatMessage[], enableTools: boolean, maxRounds: number, signal: AbortSignal | null, enabledToolNames: string[] | null, workspaceConfig: WorkspaceConfig = {}): AsyncGenerator<StreamEvent> {
+  const host: string = (workspaceConfig.ollamaHost || config.ollama.host || 'http://localhost:11434').replace(/\/+$/, '');
+  let currentMessages: Array<Record<string, unknown> | ChatMessage> = [...messages];
+  let fullText: string = '';
 
-  for (let round = 0; round < maxRounds; round++) {
+  for (let round: number = 0; round < maxRounds; round++) {
     if (signal?.aborted) { yield { type: 'done', fullText }; return; }
 
-    const body = {
+    const body: Record<string, unknown> = {
       model,
       messages: currentMessages,
       stream: true,
     };
 
     if (enableTools && round < maxRounds - 1) {
-      const tools = toOpenAITools(enabledToolNames);
+      const tools: Record<string, unknown>[] = toOpenAITools(enabledToolNames);
       if (tools && tools.length > 0) {
         body.tools = tools;
         body.tool_choice = 'auto';
       }
     }
 
-    let response;
+    let response: NodeFetchResponse;
     try {
       response = await fetch(`${host}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-        signal,
+        signal: signal as AbortSignal | undefined,
       });
-    } catch (err) {
-      if (err.name === 'AbortError') { yield { type: 'done', fullText }; return; }
-      yield { type: 'error', error: `Cannot reach Ollama at ${host}: ${err.message}` };
+    } catch (err: unknown) {
+      const error = err as Error & { name: string };
+      if (error.name === 'AbortError') { yield { type: 'done', fullText }; return; }
+      yield { type: 'error', error: `Cannot reach Ollama at ${host}: ${error.message}` };
       return;
     }
 
     if (!response.ok) {
-      const errText = await response.text();
+      const errText: string = await response.text();
       yield { type: 'error', error: `Ollama error (${response.status}): ${errText}` };
       return;
     }
@@ -546,7 +590,7 @@ async function* streamOllama(model, messages, enableTools, maxRounds, signal, en
     currentMessages.push({
       role: 'assistant',
       content: text || null,
-      tool_calls: toolCalls.map((tc) => ({
+      tool_calls: toolCalls.map((tc: OpenAIToolCall) => ({
         id: tc.id,
         type: 'function',
         function: { name: tc.name, arguments: tc.arguments },
@@ -557,7 +601,7 @@ async function* streamOllama(model, messages, enableTools, maxRounds, signal, en
     for (const tc of toolCalls) {
       yield { type: 'tool-call', name: tc.name, args: JSON.parse(tc.arguments), callId: tc.id };
 
-      const result = await executeTool(tc.name, JSON.parse(tc.arguments), { ...workspaceConfig, model });
+      const result: Record<string, unknown> = await executeTool(tc.name, JSON.parse(tc.arguments), { ...workspaceConfig, model });
       yield { type: 'tool-result', name: tc.name, callId: tc.id, result };
 
       currentMessages.push({
@@ -573,26 +617,26 @@ async function* streamOllama(model, messages, enableTools, maxRounds, signal, en
 
 // ─── Helpers ────────────────────────────────────────────
 
-function extractSystemPrompt(messages) {
-  const sys = messages.find((m) => m.role === 'system');
+function extractSystemPrompt(messages: ChatMessage[]): string {
+  const sys: ChatMessage | undefined = messages.find((m: ChatMessage) => m.role === 'system');
   return sys ? sys.content : '';
 }
 
-function formatAnthropicMessages(messages) {
+function formatAnthropicMessages(messages: ChatMessage[]): Record<string, unknown>[] {
   return messages
-    .filter((m) => m.role !== 'system')
-    .map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }));
+    .filter((m: ChatMessage) => m.role !== 'system')
+    .map((m: ChatMessage) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }));
 }
 
-function extractGoogleSystemInstruction(messages) {
-  const sys = messages.find((m) => m.role === 'system');
+function extractGoogleSystemInstruction(messages: ChatMessage[]): string {
+  const sys: ChatMessage | undefined = messages.find((m: ChatMessage) => m.role === 'system');
   return sys ? sys.content : '';
 }
 
-function formatGoogleMessages(messages) {
+function formatGoogleMessages(messages: ChatMessage[]): Record<string, unknown>[] {
   return messages
-    .filter((m) => m.role !== 'system')
-    .map((m) => ({
+    .filter((m: ChatMessage) => m.role !== 'system')
+    .map((m: ChatMessage) => ({
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: m.content }],
     }));
@@ -600,18 +644,18 @@ function formatGoogleMessages(messages) {
 
 // ─── Vertex AI (Google Cloud ADC) — @google/genai SDK ───
 
-let genaiRegionalClient = null;
-let genaiGlobalClient = null;
+let genaiRegionalClient: GoogleGenAIClient | null = null;
+let genaiGlobalClient: GoogleGenAIClient | null = null;
 
 /**
  * Preview models (e.g. gemini-3.1-pro-preview) are only available on the
  * global Vertex AI endpoint. GA models use the regional endpoint.
  */
-function getGenAIClient(model) {
-  const project = config.vertexai.project;
+function getGenAIClient(model: string): GoogleGenAIClient {
+  const project: string = config.vertexai.project;
   if (!project) throw new Error('GCP_PROJECT not set. Required for Vertex AI.');
 
-  const isPreview = model && model.includes('-preview');
+  const isPreview: boolean = !!(model && model.includes('-preview'));
 
   if (isPreview) {
     if (!genaiGlobalClient) {
@@ -625,7 +669,7 @@ function getGenAIClient(model) {
   }
 
   if (!genaiRegionalClient) {
-    const location = config.vertexai.location;
+    const location: string = config.vertexai.location;
     genaiRegionalClient = new GoogleGenAI({
       vertexai: true,
       project,
@@ -635,16 +679,16 @@ function getGenAIClient(model) {
   return genaiRegionalClient;
 }
 
-async function* streamVertexAI(model, messages, enableTools, maxRounds, signal, enabledToolNames, workspaceConfig = {}) {
-  const ai = getGenAIClient(model);
-  const systemInstruction = extractGoogleSystemInstruction(messages);
-  const contents = formatGoogleMessages(messages);
-  let fullText = '';
+async function* streamVertexAI(model: string, messages: ChatMessage[], enableTools: boolean, maxRounds: number, signal: AbortSignal | null, enabledToolNames: string[] | null, workspaceConfig: WorkspaceConfig = {}): AsyncGenerator<StreamEvent> {
+  const ai: GoogleGenAIClient = getGenAIClient(model);
+  const systemInstruction: string = extractGoogleSystemInstruction(messages);
+  const contents: Record<string, unknown>[] = formatGoogleMessages(messages);
+  let fullText: string = '';
 
-  for (let round = 0; round < maxRounds; round++) {
+  for (let round: number = 0; round < maxRounds; round++) {
     if (signal?.aborted) { yield { type: 'done', fullText }; return; }
 
-    const requestConfig = {};
+    const requestConfig: Record<string, unknown> = {};
     if (systemInstruction) {
       requestConfig.systemInstruction = systemInstruction;
     }
@@ -652,16 +696,16 @@ async function* streamVertexAI(model, messages, enableTools, maxRounds, signal, 
       requestConfig.tools = toGoogleTools(enabledToolNames);
     }
 
-    const stream = await ai.models.generateContentStream({
+    const stream: AsyncIterable<GoogleGenAIChunk> = await ai.models.generateContentStream({
       model,
       contents,
       config: requestConfig,
     });
 
-    let text = '';
-    const functionCalls = [];
-    const rawModelParts = []; // Preserve original parts for thought_signature support
-    let usageMetadata = null;
+    let text: string = '';
+    const functionCalls: GoogleFunctionCall[] = [];
+    const rawModelParts: Record<string, unknown>[] = []; // Preserve original parts for thought_signature support
+    let usageMetadata: GoogleUsageMetadata | null = null;
 
     for await (const chunk of stream) {
       if (signal?.aborted) break;
@@ -682,7 +726,7 @@ async function* streamVertexAI(model, messages, enableTools, maxRounds, signal, 
       }
 
       // Preserve raw parts from each chunk (includes thought_signature for Gemini 3.1+)
-      const candidateParts = chunk.candidates?.[0]?.content?.parts;
+      const candidateParts: Record<string, unknown>[] | undefined = chunk.candidates?.[0]?.content?.parts;
       if (candidateParts) {
         rawModelParts.push(...candidateParts);
       }
@@ -714,18 +758,18 @@ async function* streamVertexAI(model, messages, enableTools, maxRounds, signal, 
     // Add model response preserving original parts (includes thought_signature)
     contents.push({
       role: 'model',
-      parts: rawModelParts.length > 0 ? rawModelParts : functionCalls.map((fc) => ({
+      parts: rawModelParts.length > 0 ? rawModelParts : functionCalls.map((fc: GoogleFunctionCall) => ({
         functionCall: { name: fc.name, args: fc.args },
       })),
     });
 
     // Execute tools
-    const functionResponses = [];
+    const functionResponses: Record<string, unknown>[] = [];
     for (const fc of functionCalls) {
-      const callId = `call_${Date.now()}_${fc.name}`;
+      const callId: string = `call_${Date.now()}_${fc.name}`;
       yield { type: 'tool-call', name: fc.name, args: fc.args, callId };
 
-      const result = await executeTool(fc.name, fc.args, { ...workspaceConfig, model });
+      const result: Record<string, unknown> = await executeTool(fc.name, fc.args, { ...workspaceConfig, model });
       yield { type: 'tool-result', name: fc.name, callId, result };
 
       functionResponses.push({

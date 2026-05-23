@@ -7,6 +7,8 @@ import PresenceBar from '../components/presence/PresenceBar';
 import BridgeButton from '../components/presence/BridgeIndicator';
 import BridgePanel from '../components/presence/BridgePanel';
 import SettingsModal from '../components/settings/SettingsModal';
+import ExportMenu from '../components/chat/ExportMenu';
+import InsightsPanel from '../components/insights/InsightsPanel';
 import Toast, { useToast } from '../components/common/Toast';
 import type { User, Workspace } from '../types/workspace';
 
@@ -22,6 +24,7 @@ export default function WorkspacePage({ user, onLogout }: Props) {
     () => localStorage.getItem('code-panel-open') === 'true'
   );
   const [bridgePanelOpen, setBridgePanelOpen] = useState(false);
+  const [insightsPanelOpen, setInsightsPanelOpen] = useState(false);
   const [hasBridges, setHasBridges] = useState(false);
   const [activeRepo, setActiveRepo] = useState<string | null>(null);
   const { toasts, addToast, removeToast } = useToast();
@@ -103,6 +106,13 @@ export default function WorkspacePage({ user, onLogout }: Props) {
                 isOpen={bridgePanelOpen}
                 onClick={() => setBridgePanelOpen(!bridgePanelOpen)}
               />
+              <ExportMenu messages={chat.messages} workspaceName={workspace?.name} />
+              <button
+                className={`btn btn-ghost btn-sm${insightsPanelOpen ? ' active' : ''}`}
+                onClick={() => setInsightsPanelOpen(!insightsPanelOpen)}
+                title="Insights"
+                style={insightsPanelOpen ? { background: 'var(--accent-glow)', color: 'var(--accent-primary)' } : {}}
+              >📌</button>
               <button
                 className={`btn btn-ghost btn-sm${codePanelOpen ? ' active' : ''}`}
                 onClick={toggleCodePanel}
@@ -133,6 +143,11 @@ export default function WorkspacePage({ user, onLogout }: Props) {
         <BridgePanel
           isOpen={bridgePanelOpen}
           onClose={() => setBridgePanelOpen(false)}
+        />
+
+        <InsightsPanel
+          isOpen={insightsPanelOpen}
+          onClose={() => setInsightsPanelOpen(false)}
         />
 
         <CodePanel

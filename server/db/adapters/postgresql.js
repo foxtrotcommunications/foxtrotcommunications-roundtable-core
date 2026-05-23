@@ -57,6 +57,36 @@ class PostgreSQLAdapter {
     console.log('[DB] PostgreSQL adapter initialized');
   }
 
+  // ─── Insights ───────────────────────────────────
+
+  async getInsights(workspaceId) {
+    const result = await this.pool.query(
+      `SELECT i.*, u.username, u.display_name
+       FROM workspace_insights i
+       LEFT JOIN users u ON i.user_id = u.id
+       WHERE i.workspace_id = $1
+       ORDER BY i.pinned_at DESC`,
+      [workspaceId]
+    );
+    return result.rows;
+  }
+
+  async addInsight(workspaceId, userId, title, content, sourceMessageId = null, category = 'general') {
+    const result = await this.pool.query(
+      `INSERT INTO workspace_insights (workspace_id, user_id, title, content, source_message_id, category)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [workspaceId, userId, title, content, sourceMessageId, category]
+    );
+    return result.rows[0];
+  }
+
+  async deleteInsight(insightId, workspaceId) {
+    await this.pool.query(
+      `DELETE FROM workspace_insights WHERE id = $1 AND workspace_id = $2`,
+      [insightId, workspaceId]
+    );
+  }
+
   async close() {
     if (this.pool) { await this.pool.end(); this.pool = null; }
   }

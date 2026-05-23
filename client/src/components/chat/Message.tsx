@@ -1,5 +1,6 @@
 import MessageContent from './MessageContent';
 import { getUserColor, formatTime } from './utils';
+import PinButton from '../insights/PinButton';
 import type { ChatMessage } from '../../types/message';
 
 interface Props { message: ChatMessage; highlighted?: boolean; }
@@ -47,6 +48,7 @@ export default function Message({ message, highlighted }: Props) {
         <div className="message-content">
           <MessageContent content={displayContent} />
         </div>
+        {isAssistant && <PinButton messageId={message.id} content={message.content} />}
       </div>
     </div>
   );

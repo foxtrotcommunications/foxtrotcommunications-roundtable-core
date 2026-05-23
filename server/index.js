@@ -1,4 +1,18 @@
 // server/index.js — Roundtable server entry point (workspace-per-container)
+
+// Sentry error tracking — set SENTRY_DSN env var to enable
+let Sentry = null;
+if (process.env.SENTRY_DSN) {
+  Sentry = require('@sentry/node');
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || 'development',
+    tracesSampleRate: 0.1, // 10% of transactions for performance monitoring
+    release: `roundtable@${require('../package.json').version || '1.0.0'}`,
+  });
+  console.log('[Sentry] Error tracking enabled');
+}
+
 const express = require('express');
 const http = require('http');
 const path = require('path');
@@ -12,6 +26,7 @@ const { setupSockets } = require('./sockets');
 const authRoutes = require('./routes/auth');
 const fileRoutes = require('./routes/fileRoutes');
 const bridgeReceive = require('./routes/bridgeReceive');
+const insightRoutes = require('./routes/insightRoutes');
 const { requireAuth } = require('./middleware/auth');
 
 const app = express();
@@ -179,6 +194,7 @@ app.use('/api', apiLimiter);
 app.use('/api/auth', authRoutes);
 app.use('/api/bridge', bridgeReceive);  // HMAC-authed, no user session needed
 app.use('/api', requireAuth, fileRoutes);
+app.use('/api/insights', requireAuth, insightRoutes);
 
 // Workspace info
 app.get('/api/workspace/info', requireAuth, async (req, res) => {
@@ -359,6 +375,11 @@ async function start() {
 start().catch((err) => { console.error('Failed to start:', err); process.exit(1); });
 
 // ─── Global Error Handling ────────────────────────────────
+
+// Sentry error handler (must be before other error handlers)
+if (Sentry) {
+  app.use(Sentry.expressErrorHandler());
+}
 
 // Express error-handling middleware (must be after all routes)
 app.use((err, req, res, _next) => {

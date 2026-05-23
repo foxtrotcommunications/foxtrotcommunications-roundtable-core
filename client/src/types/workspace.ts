@@ -56,3 +56,16 @@ export interface PresenceUser {
   displayName: string;
   activity?: 'active' | 'composing' | 'idle';
 }
+
+export interface Insight {
+  id: number;
+  workspace_id: string;
+  user_id: number;
+  title: string;
+  content: string;
+  source_message_id: number | null;
+  category: 'kpi' | 'risk' | 'opportunity' | 'decision' | 'general';
+  pinned_at: string;
+  username?: string;
+  display_name?: string;
+}

@@ -1,9 +1,11 @@
-// server/config.js — Environment configuration loader
+// server/config.ts — Environment configuration loader
+import type { AppConfig } from './types';
+
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
 
-const config = {
-  port: parseInt(process.env.PORT, 10) || 3000,
+const config: AppConfig = {
+  port: parseInt(process.env.PORT as string, 10) || 3000,
   sessionSecret: process.env.SESSION_SECRET || 'roundtable-dev-secret-change-me',
 
   // Database (PostgreSQL required)
