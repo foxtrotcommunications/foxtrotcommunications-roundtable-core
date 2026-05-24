@@ -2,12 +2,15 @@
 const { Server } = require('socket.io');
 const { setupWorkspaceHandlers } = require('./workspaceHandler');
 const { setupChatHandlers } = require('./chatHandler');
+const config = require('../config');
+const crypto = require('crypto');
 
 function setupSockets(httpServer, sessionMiddleware) {
   // Derive allowed origins from workspace URL (set by kubernetes provisioning)
   const wsUrl = process.env.WORKSPACE_URL || '';
   const dashboardUrl = process.env.RT_DASHBOARD_URL || '';
-  const allowedOrigins = [wsUrl, dashboardUrl].filter(Boolean);
+  const embedOrigins = (process.env.EMBED_ALLOWED_ORIGINS || '').split(',').map(o => o.trim()).filter(Boolean);
+  const allowedOrigins = [wsUrl, dashboardUrl, ...embedOrigins].filter(Boolean);
 
   const io = new Server(httpServer, {
     cors: {
@@ -40,6 +43,16 @@ function setupSockets(httpServer, sessionMiddleware) {
     if (session && session.userId) {
       socket.userId = session.userId;
       socket.username = session.username;
+      next();
+    } else if (config.embedMode) {
+      // In embed mode, auto-create guest identity when cookies are blocked
+      const adjectives = ['swift', 'bright', 'calm', 'bold', 'keen', 'warm', 'wise', 'fair', 'kind', 'glad'];
+      const animals = ['fox', 'owl', 'elk', 'jay', 'bee', 'ant', 'ram', 'cod', 'emu', 'yak'];
+      const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
+      const animal = animals[Math.floor(Math.random() * animals.length)];
+      const suffix = crypto.randomBytes(2).toString('hex');
+      socket.userId = -1;
+      socket.username = `${adj}-${animal}-${suffix}`;
       next();
     } else {
       next(new Error('Authentication required'));
