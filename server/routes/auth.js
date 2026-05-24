@@ -64,6 +64,38 @@ router.post('/logout', (req, res) => {
   });
 });
 
+// ── Demo auto-login: assign random guest identity, no credentials needed ──
+const ADJECTIVES = ['brave','swift','clever','bright','bold','calm','keen','wise','warm','vivid'];
+const NOUNS = ['falcon','otter','panda','tiger','whale','raven','fox','lynx','wolf','bear'];
+
+function randomGuestName() {
+  const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+  const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
+  const tag = crypto.randomBytes(2).toString('hex');
+  return `${adj}-${noun}-${tag}`;
+}
+
+router.post('/demo', async (req, res) => {
+  const config = require('../config');
+  if (!config.demoMode) {
+    return res.status(403).json({ error: 'Demo mode is not enabled' });
+  }
+
+  try {
+    const guestName = randomGuestName();
+    const dummyHash = await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 4);
+    const db = getAdapter();
+    const user = await db.createUser(guestName, guestName, dummyHash);
+
+    req.session.userId = user.id;
+    req.session.username = user.username;
+    res.status(201).json({ id: user.id, username: user.username, displayName: user.display_name });
+  } catch (err) {
+    console.error('[Auth] Demo login error:', err);
+    res.status(500).json({ error: 'Failed to create demo session' });
+  }
+});
+
 router.get('/me', requireAuth, async (req, res) => {
   const db = getAdapter();
   const user = await db.getUserById(req.session.userId);
