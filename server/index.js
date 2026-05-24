@@ -46,8 +46,17 @@ const cspDirectives = {
   upgradeInsecureRequests: null,  // disable — not all deployments have TLS
 };
 if (config.embedMode) {
-  // Allow iframing from any parent when embed mode is enabled
-  cspDirectives.frameAncestors = ["*"];
+  // Allow iframing only from specific parent origins — NEVER use wildcard in production
+  const allowedOrigins = (process.env.EMBED_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map(o => o.trim())
+    .filter(Boolean);
+  if (allowedOrigins.length === 0) {
+    console.warn('[SECURITY] EMBED_MODE is enabled but EMBED_ALLOWED_ORIGINS is not set. No sites can embed this workspace.');
+    cspDirectives.frameAncestors = ["'none'"];
+  } else {
+    cspDirectives.frameAncestors = allowedOrigins;
+  }
 }
 app.use(helmet({
   contentSecurityPolicy: { directives: cspDirectives },
@@ -98,12 +107,19 @@ const sessionMiddleware = session({
 app.use(sessionMiddleware);
 
 if (config.embedMode) {
+  const allowedOrigins = (process.env.EMBED_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map(o => o.trim())
+    .filter(Boolean);
   app.use((req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.removeHeader('X-Frame-Options');
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.removeHeader('X-Frame-Options');
+    }
     if (req.method === 'OPTIONS') return res.sendStatus(200);
     next();
   });
