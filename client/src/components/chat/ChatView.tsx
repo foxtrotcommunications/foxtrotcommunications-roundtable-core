@@ -62,6 +62,16 @@ export default function ChatView({
     return () => window.removeEventListener('message', handler);
   }, []);
 
+  // Scroll to bottom on initial message load
+  const initialScrollDone = useRef(false);
+  useEffect(() => {
+    const el = messagesRef.current;
+    if (!el || messages.length === 0 || initialScrollDone.current) return;
+    initialScrollDone.current = true;
+    // Use requestAnimationFrame to ensure DOM has rendered
+    requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+  }, [messages]);
+
   // Auto-scroll to bottom on new messages / streaming — only if user is near bottom
   useEffect(() => {
     const el = messagesRef.current;
