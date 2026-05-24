@@ -104,12 +104,22 @@ module.exports = {
 
       // Allow safe piping (e.g., grep | head, npm test | cat)
       // But block pipe to shells (already caught above)
+      // SECURITY: Only pass safe env vars — strip API keys, secrets, database URLs
+      const safeEnv = {
+        PATH: process.env.PATH,
+        HOME: WORKSPACE_DIR,
+        LANG: process.env.LANG || 'en_US.UTF-8',
+        TERM: process.env.TERM || 'xterm',
+        NODE_ENV: process.env.NODE_ENV || 'production',
+        USER: process.env.USER || 'roundtable',
+        TMPDIR: WORKSPACE_DIR,
+      };
       const output = execSync(command, {
         cwd: workDir,
         timeout: 60000,
         maxBuffer: 2 * 1024 * 1024, // 2MB
         encoding: 'utf-8',
-        env: { ...process.env, HOME: WORKSPACE_DIR },
+        env: safeEnv,
       });
 
       return {

@@ -1,9 +1,18 @@
 // server/tools/gitPull.js — Pull latest changes from remote
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
 const WORKSPACE_DIR = path.resolve(__dirname, '..', '..', 'workspace');
+
+// Sanitize git ref names — alphanumeric, hyphens, underscores, dots, slashes only
+function sanitizeRef(ref) {
+  if (!ref) return ref;
+  if (!/^[\w./-]+$/.test(ref)) {
+    throw new Error(`Invalid git reference: ${ref}`);
+  }
+  return ref;
+}
 
 module.exports = {
   name: 'git_pull',
@@ -42,32 +51,39 @@ module.exports = {
         return { error: `${directory} is not a git repository` };
       }
 
+      // Sanitize user-provided ref names to prevent injection
+      const safeRemote = sanitizeRef(remote);
+      const safeBranch = branch ? sanitizeRef(branch) : null;
+
       const opts = { cwd: repoPath, timeout: 60000, encoding: 'utf-8' };
 
-      // Get current state before pull
-      const currentBranch = execSync('git branch --show-current', opts).trim();
-      const beforeHash = execSync('git rev-parse --short HEAD', opts).trim();
+      // Get current state before pull — using execFileSync with array args
+      const currentBranch = execFileSync('git', ['branch', '--show-current'], opts).trim();
+      const beforeHash = execFileSync('git', ['rev-parse', '--short', 'HEAD'], opts).trim();
 
       // Fetch first to see what's coming
-      execSync(`git fetch ${remote}`, opts);
+      execFileSync('git', ['fetch', safeRemote], opts);
 
-      // Build pull command
-      const rebaseFlag = rebase ? ' --rebase' : '';
-      const branchArg = branch ? ` ${remote} ${branch}` : '';
-      const pullCmd = `git pull${rebaseFlag}${branchArg}`;
+      // Build pull args as array — never shell-interpreted
+      const pullArgs = ['pull'];
+      if (rebase) pullArgs.push('--rebase');
+      if (safeBranch) {
+        pullArgs.push(safeRemote, safeBranch);
+      }
 
-      const output = execSync(pullCmd, opts).trim();
+      const output = execFileSync('git', pullArgs, opts).trim();
 
       // Get state after pull
-      const afterHash = execSync('git rev-parse --short HEAD', opts).trim();
+      const afterHash = execFileSync('git', ['rev-parse', '--short', 'HEAD'], opts).trim();
       const changed = beforeHash !== afterHash;
 
       // Count new commits if any
       let newCommits = 0;
       if (changed) {
         try {
-          const log = execSync(
-            `git log --oneline ${beforeHash}..${afterHash}`,
+          const log = execFileSync(
+            'git',
+            ['log', '--oneline', `${beforeHash}..${afterHash}`],
             opts,
           ).trim();
           newCommits = log ? log.split('\n').length : 0;
