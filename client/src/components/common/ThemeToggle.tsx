@@ -13,7 +13,7 @@ function applyTheme(theme: Theme) {
 
 export default function ThemeToggle() {
   const [theme, setTheme] = useState<Theme>(() => {
-    return (localStorage.getItem('rt-theme') as Theme) || 'dark';
+    return (localStorage.getItem('rt-theme') as Theme) || 'system';
   });
 
   useEffect(() => {

@@ -22,7 +22,7 @@ window.__ROUNDTABLE_DEMO__ = window.self !== window.top;
 
 // Apply saved theme before first paint to prevent flash
 (function initTheme() {
-  const saved = localStorage.getItem('rt-theme') || 'dark';
+  const saved = localStorage.getItem('rt-theme') || 'system';
   const resolved = saved === 'system'
     ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
     : saved;
