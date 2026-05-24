@@ -27,6 +27,9 @@ export const logout = () => request<void>('POST', '/auth/logout');
 
 export const me = () => request<User>('GET', '/auth/me');
 
+// Demo mode: auto-create a guest session (server returns 403 if not in demo mode)
+export const demoLogin = () => request<User>('POST', '/auth/demo');
+
 // Workspace
 export const getWorkspaceInfo = () => request<Workspace>('GET', '/workspace/info');
 

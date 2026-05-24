@@ -161,6 +161,7 @@ export interface AppConfig {
   workspaceUrl: string;
   platformOrg: string;
   embedMode: boolean;
+  demoMode: boolean;
   ai: {
     openai: string;
     anthropic: string;

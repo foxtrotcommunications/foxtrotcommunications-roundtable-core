@@ -10,7 +10,19 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.me().then(setUser).catch(() => setUser(null)).finally(() => setLoading(false));
+    api.me()
+      .then(setUser)
+      .catch(async () => {
+        // Not authenticated — try demo auto-login (succeeds if DEMO_MODE=true)
+        try {
+          const demoUser = await api.demoLogin();
+          setUser(demoUser);
+        } catch {
+          // Demo mode not enabled — fall through to login page
+          setUser(null);
+        }
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   if (loading) return null;
