@@ -16,6 +16,10 @@ if (import.meta.env.VITE_SENTRY_DSN) {
   });
 }
 
+// Detect demo/embed mode — when loaded in an iframe, hide toolbar
+declare global { interface Window { __ROUNDTABLE_DEMO__?: boolean; } }
+window.__ROUNDTABLE_DEMO__ = window.self !== window.top;
+
 // Apply saved theme before first paint to prevent flash
 (function initTheme() {
   const saved = localStorage.getItem('rt-theme') || 'dark';

@@ -50,6 +50,18 @@ export default function ChatView({
     return () => el.removeEventListener('scroll', handleScroll);
   }, []);
 
+  // Listen for postMessage from parent page (embed demo prompt injection)
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === 'roundtable:setPrompt' && typeof e.data.text === 'string') {
+        setInputValue(e.data.text);
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, []);
+
   // Auto-scroll to bottom on new messages / streaming — only if user is near bottom
   useEffect(() => {
     const el = messagesRef.current;
