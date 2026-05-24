@@ -5,6 +5,7 @@ const calculator = require('./calculator');
 const codeRunner = require('./codeRunner');
 const gitClone = require('./gitClone');
 const gitCommit = require('./gitCommit');
+const gitPull = require('./gitPull');
 const readFile = require('./readFile');
 const writeFile = require('./writeFile');
 const listFiles = require('./listFiles');
@@ -35,6 +36,7 @@ const tools = {
   run_code: codeRunner,
   git_clone: gitClone,
   git_commit: gitCommit,
+  git_pull: gitPull,
   read_file: readFile,
   write_file: writeFile,
   list_files: listFiles,

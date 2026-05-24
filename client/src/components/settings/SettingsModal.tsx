@@ -7,7 +7,7 @@ const TOOL_CATALOG = [
   { group: '🌐 Web', tools: ['web_search', 'read_url'] },
   { group: '💻 Code', tools: ['run_code', 'shell_exec', 'calculator'] },
   { group: '📁 Files', tools: ['read_file', 'write_file', 'list_files', 'find_file'] },
-  { group: '🔀 Git', tools: ['git_clone', 'git_commit'] },
+  { group: '🔀 Git', tools: ['git_clone', 'git_commit', 'git_pull'] },
   { group: '🗄️ Data', tools: ['query_bigquery', 'query_snowflake', 'query_databricks', 'trigger_synthea_pipeline'] },
 ];
 
