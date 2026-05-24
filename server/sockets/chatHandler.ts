@@ -55,6 +55,11 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
     try {
       // Save and broadcast every message
       const userMessage: Message = await workspaceService.saveMessage(socket.userId, 'user', content);
+      // For embed guests (null userId), attach socket username since there's no DB user
+      if (!socket.userId && socket.username) {
+        userMessage.username = socket.username;
+        userMessage.display_name = socket.username;
+      }
       io.to(wsChannel).emit('new-message', userMessage);
 
       // Only invoke AI when the message contains @ai (case-insensitive)
