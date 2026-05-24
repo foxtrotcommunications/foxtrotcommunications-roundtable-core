@@ -88,7 +88,12 @@ const sessionMiddleware = session({
   secret: config.sessionSecret,
   resave: false,
   saveUninitialized: false,
-  cookie: { maxAge: 7 * 24 * 60 * 60 * 1000, httpOnly: true, sameSite: 'lax', secure: isProd && process.env.SECURE_COOKIES === 'true' },
+  cookie: {
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+    httpOnly: true,
+    sameSite: config.embedMode ? 'none' : 'lax',
+    secure: config.embedMode || (isProd && process.env.SECURE_COOKIES === 'true'),
+  },
 });
 app.use(sessionMiddleware);
 
