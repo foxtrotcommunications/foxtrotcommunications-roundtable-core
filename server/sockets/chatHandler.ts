@@ -384,7 +384,13 @@ Do NOT guess your capabilities. Call describe_workspace to get the live inventor
         const histMsg = msg as Message & { username?: string; display_name?: string };
         if (msg.role === 'user' && (histMsg.display_name || histMsg.username)) {
           const name = histMsg.display_name || histMsg.username;
-          messages.push({ role: msg.role, content: `[${name}]: ${msg.content}` });
+          // In embed mode with guest users, only attribute messages to the current user
+          // to prevent the AI from addressing a previous guest's name
+          if (!socket.userId && name !== socket.username) {
+            messages.push({ role: msg.role, content: msg.content });
+          } else {
+            messages.push({ role: msg.role, content: `[${name}]: ${msg.content}` });
+          }
         } else {
           messages.push({ role: msg.role, content: msg.content });
         }
