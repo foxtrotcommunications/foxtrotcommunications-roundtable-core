@@ -76,8 +76,7 @@ function randomGuestName() {
 }
 
 router.post('/demo', async (req, res) => {
-  const config = require('../config');
-  if (!config.demoMode) {
+  if (process.env.DEMO_MODE !== 'true') {
     return res.status(403).json({ error: 'Demo mode is not enabled' });
   }
 
