@@ -16,9 +16,9 @@ if (import.meta.env.VITE_SENTRY_DSN) {
   });
 }
 
-// Detect demo/embed mode — when loaded in an iframe, hide toolbar
+// Detect demo/embed mode — when loaded in an iframe OR with ?embed=1
 declare global { interface Window { __ROUNDTABLE_DEMO__?: boolean; } }
-window.__ROUNDTABLE_DEMO__ = window.self !== window.top;
+window.__ROUNDTABLE_DEMO__ = window.self !== window.top || new URLSearchParams(window.location.search).has('embed');
 
 // Apply saved theme before first paint to prevent flash
 (function initTheme() {
