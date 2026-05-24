@@ -18,9 +18,9 @@ function requireAuth(req, res, next) {
     const guestName = `${adj}-${animal}-${suffix}`;
 
     // Attach guest identity to the request (not saved to session/DB)
-    req.session.userId = -1;
+    req.session.userId = null;
     req.session.username = guestName;
-    req.guestUser = { id: -1, username: guestName, displayName: guestName };
+    req.guestUser = { id: null, username: guestName, displayName: guestName };
     return next();
   }
 

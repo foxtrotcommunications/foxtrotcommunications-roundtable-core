@@ -51,7 +51,7 @@ function setupSockets(httpServer, sessionMiddleware) {
       const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
       const animal = animals[Math.floor(Math.random() * animals.length)];
       const suffix = crypto.randomBytes(2).toString('hex');
-      socket.userId = -1;
+      socket.userId = null;
       socket.username = `${adj}-${animal}-${suffix}`;
       next();
     } else {
