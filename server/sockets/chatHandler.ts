@@ -269,7 +269,9 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
         }
       }
 
-      const history: Message[] = await workspaceService.getConversationHistory(50);
+      // In embed mode, use smaller history window (ephemeral guest sessions)
+      const historyLimit: number = config.embedMode ? 10 : 50;
+      const history: Message[] = await workspaceService.getConversationHistory(historyLimit);
       const messages: Record<string, unknown>[] = [];
 
       // Build system prompt with workspace context
