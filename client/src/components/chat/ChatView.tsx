@@ -188,6 +188,8 @@ export default function ChatView({
 
         {messages.map(msg => {
           if (msg.role === 'tool') {
+            // In demo/embed mode, hide tool calls — they show as distracting empty lines
+            if (window.__ROUNDTABLE_DEMO__) return null;
             try {
               const result = JSON.parse(msg.content);
               return (
@@ -209,7 +211,7 @@ export default function ChatView({
         })}
 
         {/* Live tool calls during streaming */}
-        {streaming && Array.from(toolCalls.values()).map(({ call, result }) => (
+        {streaming && !window.__ROUNDTABLE_DEMO__ && Array.from(toolCalls.values()).map(({ call, result }) => (
           <ToolCard key={call.callId} call={call} result={result} />
         ))}
 
