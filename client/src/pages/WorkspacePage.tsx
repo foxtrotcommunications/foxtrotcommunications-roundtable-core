@@ -99,6 +99,8 @@ export default function WorkspacePage({ user, onLogout }: Props) {
               <p>{workspace?.ai_provider || 'vertexai'} · {workspace?.ai_model || 'gemini-2.5-flash'}</p>
             </div>
             <div className="chat-header-actions">
+              {/* Hide toolbar in demo mode — only show workspace name + model */}
+              {!window.__ROUNDTABLE_DEMO__ && (<>
               <PresenceBar users={presence.users} />
               <button className="btn btn-ghost btn-sm" onClick={() => setSettingsOpen(true)} title="Settings">⚙️</button>
               <BridgeButton
@@ -120,6 +122,7 @@ export default function WorkspacePage({ user, onLogout }: Props) {
                 style={codePanelOpen ? { background: 'var(--accent-glow)', color: 'var(--accent-primary)' } : {}}
               >📁</button>
               <button className="btn btn-ghost btn-sm" onClick={onLogout} title="Logout">↪</button>
+              </>)}
             </div>
           </div>
 
