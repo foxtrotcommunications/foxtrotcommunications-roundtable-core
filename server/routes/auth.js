@@ -96,6 +96,10 @@ router.post('/demo', async (req, res) => {
 });
 
 router.get('/me', requireAuth, async (req, res) => {
+  // In embed mode, guest users have id=-1 and aren't in the DB
+  if (req.guestUser) {
+    return res.json(req.guestUser);
+  }
   const db = getAdapter();
   const user = await db.getUserById(req.session.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
