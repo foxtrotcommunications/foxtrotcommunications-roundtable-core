@@ -30,6 +30,7 @@ Roundtable auto-detects the environment: if no `DATABASE_URL` is set, it uses SQ
 |------|----------|---------|------|----------|
 | **Local dev** | SQLite (auto) | `npm run dev` | ~3 min | Development, testing, evaluation |
 | **Docker quickstart** | PostgreSQL (compose) | `docker compose -f docker-compose.quickstart.yml up` | ~3 min | Quick demo on a VM |
+| **Cloud Run** | PostgreSQL (Cloud SQL) | `gcloud run deploy` | ~5 min | Serverless production |
 | **GKE production** | PostgreSQL (Cloud SQL) | `./deploy-gke.sh dev Development` | ~5 min | Enterprise deployment |
 
 ### Prerequisites
@@ -55,6 +56,7 @@ Roundtable auto-detects the environment: if no `DATABASE_URL` is set, it uses SQ
 - **Presence** — See who's online in each workspace
 - **Streaming** — AI responses stream token-by-token to all participants
 - **Embeddable** — Embed in other apps via iframe with `EMBED_MODE=true`
+- 🎨 **Theme system** — Light, dark, and system (OS preference) color schemes
 - **React + TypeScript** — Modern frontend with Vite, hot-reload dev server
 
 ## Deployment
@@ -137,7 +139,12 @@ See [`k8s/overlays/tls/`](k8s/overlays/tls/) for HTTPS setup with cert-manager +
 | `WORKSPACE_ID` | `default` | Unique workspace identity |
 | `WORKSPACE_NAME` | `Roundtable` | Display name for the workspace |
 | `EMBED_MODE` | `false` | Allow iframe embedding |
-| `SECURE_COOKIES` | `true` in prod | Set `false` for HTTP-only deployments |
+| `EMBED_ALLOWED_ORIGINS` | - | Comma-separated origins allowed to embed this workspace (required when `EMBED_MODE=true`) |
+| `DEMO_MODE` | `false` | Enable auto-login guest accounts (`true`/`false`) |
+| `WORKSPACE_URL` | - | Public URL of this workspace (required for cross-workspace bridge) |
+| `PLATFORM_ORG` | - | Organization name shown in system prompt and describe_workspace |
+| `SECURE_COOKIES` | `false` | Force secure cookies in production (`true`/`false`) |
+| `SHELL_EXEC_ENABLED` | `false` | Allow the shell_exec tool (`true`/`false`) |
 
 ### AI Providers
 
@@ -149,12 +156,16 @@ See [`k8s/overlays/tls/`](k8s/overlays/tls/) for HTTPS setup with cert-manager +
 | `GCP_PROJECT` | GCP project for Vertex AI (uses ADC, no key needed) |
 | `GCP_LOCATION` | Vertex AI region (default: `us-central1`) |
 | `OLLAMA_HOST` | Default Ollama host URL (default: `http://localhost:11434`, overridable per-workspace) |
+| `GOOGLE_SEARCH_API_KEY` | Google Custom Search API key (for web_search tool) |
+| `GOOGLE_SEARCH_ENGINE_ID` | Google Custom Search engine ID |
 
 ### Data Warehouses
 
 | Variable | Description |
 |----------|-------------|
 | `GCP_PROJECT` | BigQuery — uses same ADC as Vertex AI |
+| `BQ_PROJECT` | Override BigQuery billing project (cross-project access, default: `GCP_PROJECT` value) |
+| `BQ_LOCATION` | BigQuery dataset location (default: `US`) |
 | `BQ_MAX_BYTES` | BigQuery — max bytes scanned per query (default: 1GB) |
 | `SNOWFLAKE_ACCOUNT` | Snowflake account identifier |
 | `SNOWFLAKE_USERNAME` | Snowflake username |
@@ -195,6 +206,30 @@ Enable or disable individual tools per workspace. Disabled tools are removed fro
 ### API Keys tab
 
 Users can configure personal API keys (OpenAI, Anthropic, Google AI) that override server-level defaults for their sessions.
+
+### Embed Mode
+
+Roundtable can be embedded as an iframe in external sites. Set `EMBED_MODE=true` to enable:
+
+- **Cross-origin cookies**: Session cookies use `SameSite=None; Secure`
+- **Stateless guest auth**: When third-party cookies are blocked (e.g., Chrome incognito), requests are auto-assigned ephemeral guest identities — no cookies required
+- **CORS**: Only origins listed in `EMBED_ALLOWED_ORIGINS` are allowed
+- **Socket.IO**: WebSocket connections also support stateless guest auth
+
+```bash
+EMBED_MODE=true
+EMBED_ALLOWED_ORIGINS=https://example.com,https://dashboard.example.com
+```
+
+The parent page can inject prompt text into the embedded workspace using `postMessage`:
+
+```javascript
+iframe.contentWindow.postMessage({ type: 'roundtable:setPrompt', text: 'Your prompt here' }, '*');
+```
+
+### Demo Mode
+
+Set `DEMO_MODE=true` to enable the `/api/auth/demo` endpoint, which creates auto-login guest accounts with random names (e.g., `brave-falcon-a1b2`). Useful for public demos.
 
 ## Built-in Tools
 
