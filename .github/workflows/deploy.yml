@@ -80,4 +80,17 @@ jobs:
             --memory 1Gi \
             --cpu 1 \
             --session-affinity \
-            --update-env-vars "NODE_ENV=production,DEMO_MODE=true,ALLOW_REGISTRATION=true"
+            --timeout 300 \
+            --update-env-vars "\
+              NODE_ENV=production,\
+              DEMO_MODE=true,\
+              ALLOW_REGISTRATION=true,\
+              GCP_PROJECT=${{ env.PROJECT_ID }},\
+              GCP_LOCATION=${{ env.REGION }},\
+              WORKSPACE_ID=demo,\
+              WORKSPACE_NAME=Demo,\
+              EMBED_MODE=true,\
+              EMBED_ALLOWED_ORIGINS=https://roundtable.foxtrotcommunications.net" \
+            --update-secrets "\
+              SESSION_SECRET=session-secret-prod:latest,\
+              GOOGLE_AI_API_KEY=vertex-ai-api:latest"
