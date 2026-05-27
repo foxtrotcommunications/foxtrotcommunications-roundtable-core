@@ -11,9 +11,9 @@ on:
         type: string
 
 env:
-  PROJECT_ID: roundtable-public
+  PROJECT_ID: foxtrot-communications-public
   REGION: us-central1
-  ARTIFACT_REGISTRY: us-central1-docker.pkg.dev/roundtable-public/roundtable
+  ARTIFACT_REGISTRY: us-central1-docker.pkg.dev/foxtrot-communications-public/roundtable
 
 jobs:
   build:
