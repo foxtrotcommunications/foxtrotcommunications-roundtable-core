@@ -115,6 +115,8 @@ export interface Message {
   tool_name?: string | null;
   tool_call_id?: string | null;
   created_at: string;
+  username?: string;
+  display_name?: string;
 }
 
 export interface User {
