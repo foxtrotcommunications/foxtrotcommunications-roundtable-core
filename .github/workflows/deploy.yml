@@ -80,4 +80,4 @@ jobs:
             --memory 1Gi \
             --cpu 1 \
             --session-affinity \
-            --set-env-vars "NODE_ENV=production,DEMO_MODE=true,ALLOW_REGISTRATION=true"
+            --update-env-vars "NODE_ENV=production,DEMO_MODE=true,ALLOW_REGISTRATION=true"
