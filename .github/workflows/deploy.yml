@@ -1,0 +1,83 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      workspace_id:
+        description: 'Workspace ID to deploy'
+        required: true
+        type: string
+
+env:
+  PROJECT_ID: foxtrot-communications-public
+  REGION: us-central1
+  ARTIFACT_REGISTRY: us-central1-docker.pkg.dev/foxtrot-communications-public/roundtable
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      image: ${{ steps.build.outputs.image }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push image
+        id: build
+        run: |
+          IMAGE=${{ env.ARTIFACT_REGISTRY }}/roundtable-core:${{ github.sha }}
+          docker build -t $IMAGE -t ${{ env.ARTIFACT_REGISTRY }}/roundtable-core:latest .
+          docker push $IMAGE
+          docker push ${{ env.ARTIFACT_REGISTRY }}/roundtable-core:latest
+          echo "image=$IMAGE" >> $GITHUB_OUTPUT
+
+  deploy-demo:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy demo workspace to Cloud Run
+        run: |
+          gcloud run deploy rt-demo \
+            --image ${{ needs.build.outputs.image }} \
+            --region ${{ env.REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --port 3000 \
+            --min-instances 1 \
+            --max-instances 5 \
+            --memory 1Gi \
+            --cpu 1 \
+            --session-affinity \
+            --set-env-vars "NODE_ENV=production,DEMO_MODE=true,ALLOW_REGISTRATION=true"
