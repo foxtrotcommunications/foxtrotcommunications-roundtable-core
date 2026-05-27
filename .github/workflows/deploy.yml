@@ -44,7 +44,7 @@ jobs:
         id: build
         run: |
           IMAGE=${{ env.ARTIFACT_REGISTRY }}/roundtable-core:${{ github.sha }}
-          docker build -t $IMAGE -t ${{ env.ARTIFACT_REGISTRY }}/roundtable-core:latest .
+          docker build --no-cache -t $IMAGE -t ${{ env.ARTIFACT_REGISTRY }}/roundtable-core:latest .
           docker push $IMAGE
           docker push ${{ env.ARTIFACT_REGISTRY }}/roundtable-core:latest
           echo "image=$IMAGE" >> $GITHUB_OUTPUT
