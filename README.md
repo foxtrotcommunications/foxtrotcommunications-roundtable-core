@@ -8,6 +8,7 @@ Roundtable is designed as a **platform for agent orchestration** — connect you
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-98%20passing-brightgreen.svg)](#testing)
+[![CI](https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable-core/actions/workflows/ci.yml/badge.svg)](https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable-core/actions/workflows/ci.yml)
 
 ## Quick Start
 
@@ -353,7 +354,7 @@ Security policies and compliance documentation are maintained in [`docs/security
 
 Infrastructure security controls include:
 
-- **Workspace Isolation** — Each workspace runs as its own K8s pod with a dedicated database
+- **Workspace Isolation** — Each workspace runs as its own K8s pod with a dedicated database and per-pod NetworkPolicy (ingress restricted to ingress controller only)
 - **Workload Identity** — No static service account keys; pods authenticate via GKE Workload Identity
 - **Encryption** — TLS in transit (Let's Encrypt), AES-256 at rest (Cloud SQL, Firestore)
 - **Audit Logging** — Cloud Audit Logs exported to immutable storage (`gs://roundtable-audit-logs`)
