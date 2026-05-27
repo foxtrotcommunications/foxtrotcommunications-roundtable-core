@@ -3,6 +3,7 @@ import Message from './Message';
 import ToolCard from './ToolCard';
 import MessageContent from './MessageContent';
 import MentionDropdown from './MentionDropdown';
+import OnboardingTooltip from './OnboardingTooltip';
 import type { MentionItem } from './MentionDropdown';
 import type { ChatMessage, ToolCall, ToolResult } from '../../types/message';
 import type { PresenceUser } from '../../types/workspace';
@@ -206,6 +207,11 @@ export default function ChatView({
 
   return (
     <>
+      {/* First-visit onboarding */}
+      <OnboardingTooltip
+        onDismiss={() => {}}
+        onTryPrompt={(prompt) => { setInputValue(prompt); inputRef.current?.focus(); }}
+      />
       <div className="chat-messages" ref={messagesRef}>
         {messages.length === 0 && !streaming && (
           <div className="welcome-state">
