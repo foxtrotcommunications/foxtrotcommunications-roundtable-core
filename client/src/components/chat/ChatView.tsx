@@ -296,25 +296,48 @@ export default function ChatView({
 
       {/* Input area */}
       <div className="chat-input-area">
-        <div className="chat-input-wrapper">
-          <textarea
-            ref={inputRef}
-            className="chat-input"
-            placeholder="Message the workspace… Use @ai to invoke AI"
-            rows={1}
-            value={inputValue}
-            onChange={e => handleInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-          />
-          {streaming ? (
-            <button className="chat-send-btn" onClick={onStopGeneration} title="Stop generation">
-              <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
-            </button>
-          ) : (
-            <button className="chat-send-btn" onClick={handleSend} disabled={!inputValue.trim()}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-            </button>
-          )}
+        <div className="chat-input-row">
+          <div className="chat-help-trigger">
+            <button className="chat-help-btn" aria-label="How to use">?</button>
+            <div className="chat-help-popup">
+              <div className="chat-help-title">How to chat</div>
+              <div className="chat-help-item">
+                <span className="chat-help-tag tag-ai">@ai</span>
+                <span>Ask the AI assistant a question or give it a task</span>
+              </div>
+              <div className="chat-help-item">
+                <span className="chat-help-tag tag-team">message</span>
+                <span>Send a message to your teammates (no AI)</span>
+              </div>
+              <div className="chat-help-divider" />
+              <div className="chat-help-example">
+                <code>@ai search the web for NVDA earnings</code>
+              </div>
+              <div className="chat-help-example">
+                <code>@ai write a Python script to analyze this data</code>
+              </div>
+            </div>
+          </div>
+          <div className="chat-input-wrapper">
+            <textarea
+              ref={inputRef}
+              className="chat-input"
+              placeholder="Message the workspace… Use @ai to invoke AI"
+              rows={1}
+              value={inputValue}
+              onChange={e => handleInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+            />
+            {streaming ? (
+              <button className="chat-send-btn" onClick={onStopGeneration} title="Stop generation">
+                <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+              </button>
+            ) : (
+              <button className="chat-send-btn" onClick={handleSend} disabled={!inputValue.trim()}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </>
