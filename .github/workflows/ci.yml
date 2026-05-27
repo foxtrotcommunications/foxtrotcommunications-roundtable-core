@@ -5,6 +5,17 @@ on:
     branches: [main]
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      workspace_id:
+        description: 'Workspace ID to deploy'
+        required: true
+        type: string
+
+env:
+  PROJECT_ID: roundtable-public
+  REGION: us-central1
+  ARTIFACT_REGISTRY: us-central1-docker.pkg.dev/roundtable-public/roundtable
 
 jobs:
   test:
@@ -54,3 +65,85 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+
+  # ── Build & Deploy (main branch only) ──────────────────────
+  build:
+    needs: test
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      image: ${{ steps.build.outputs.image }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push image
+        id: build
+        run: |
+          IMAGE=${{ env.ARTIFACT_REGISTRY }}/roundtable-core:${{ github.sha }}
+          docker build --no-cache -t $IMAGE -t ${{ env.ARTIFACT_REGISTRY }}/roundtable-core:latest .
+          docker push $IMAGE
+          docker push ${{ env.ARTIFACT_REGISTRY }}/roundtable-core:latest
+          echo "image=$IMAGE" >> $GITHUB_OUTPUT
+
+  deploy-demo:
+    needs: build
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy demo workspace to Cloud Run
+        run: |
+          gcloud run deploy rt-demo \
+            --image ${{ needs.build.outputs.image }} \
+            --region ${{ env.REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --port 3000 \
+            --min-instances 1 \
+            --max-instances 5 \
+            --memory 1Gi \
+            --cpu 1 \
+            --session-affinity \
+            --timeout 300 \
+            --update-env-vars "\
+              NODE_ENV=production,\
+              DEMO_MODE=true,\
+              ALLOW_REGISTRATION=true,\
+              GCP_PROJECT=${{ env.PROJECT_ID }},\
+              GCP_LOCATION=${{ env.REGION }},\
+              WORKSPACE_ID=demo,\
+              WORKSPACE_NAME=Demo,\
+              EMBED_MODE=true,\
+              EMBED_ALLOWED_ORIGINS=https://roundtable.foxtrotcommunications.net" \
+            --update-secrets "\
+              SESSION_SECRET=session-secret-prod:latest,\
+              GOOGLE_AI_API_KEY=vertex-ai-api:latest"
