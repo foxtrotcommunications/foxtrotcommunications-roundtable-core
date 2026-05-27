@@ -20,6 +20,7 @@ const config: AppConfig = {
   platformOrg: process.env.PLATFORM_ORG || '',
 
   embedMode: process.env.EMBED_MODE === 'true',
+  demoMode: process.env.DEMO_MODE === 'true',
 
   // Server-level AI keys (fallback if user hasn't configured their own)
   ai: {
