@@ -20,8 +20,8 @@ class WorkspaceService {
     return getAdapter().getWorkspace(this.workspaceId);
   }
 
-  async saveMessage(userId: number | null, role: string, content: string, toolName?: string | null, toolCallId?: string | null, sourceWorkspaceId?: string | null): Promise<Message> {
-    return getAdapter().saveMessage(this.workspaceId, userId, role, content, toolName, toolCallId, sourceWorkspaceId);
+  async saveMessage(userId: number | null, role: string, content: string, toolName?: string | null, toolCallId?: string | null, sourceWorkspaceId?: string | null, guestUsername?: string | null, guestDisplayName?: string | null): Promise<Message> {
+    return getAdapter().saveMessage(this.workspaceId, userId, role, content, toolName, toolCallId, sourceWorkspaceId, guestUsername, guestDisplayName);
   }
 
   async getConversationHistory(limit: number): Promise<Message[]> {

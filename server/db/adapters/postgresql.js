@@ -149,6 +149,8 @@ class PostgreSQLAdapter {
         content TEXT NOT NULL,
         tool_name TEXT,
         tool_call_id TEXT,
+        guest_username TEXT,
+        guest_display_name TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
@@ -203,6 +205,10 @@ class PostgreSQLAdapter {
     await this.pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email IS NOT NULL;`);
 
     console.log('[DB] Migrations complete');
+
+    // Guest username columns on messages — for embed/demo users without a user_id
+    await this.pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS guest_username TEXT DEFAULT NULL;`);
+    await this.pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS guest_display_name TEXT DEFAULT NULL;`);
   }
 
   // ─── Users ──────────────────────────────────────
@@ -327,13 +333,13 @@ class PostgreSQLAdapter {
   }
 
   // ─── Messages ───────────────────────────────────
-  async saveMessage(workspaceId, userId, role, content, toolName = null, toolCallId = null, sourceWorkspaceId = null) {
+  async saveMessage(workspaceId, userId, role, content, toolName = null, toolCallId = null, sourceWorkspaceId = null, guestUsername = null, guestDisplayName = null) {
     const id = await this._execute(
-      'INSERT INTO messages (workspace_id, user_id, role, content, tool_name, tool_call_id, source_workspace_id) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-      [workspaceId, userId, role, content, toolName, toolCallId, sourceWorkspaceId]
+      'INSERT INTO messages (workspace_id, user_id, role, content, tool_name, tool_call_id, source_workspace_id, guest_username, guest_display_name) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+      [workspaceId, userId, role, content, toolName, toolCallId, sourceWorkspaceId, guestUsername, guestDisplayName]
     );
     return this._queryOne(`
-      SELECT m.*, u.username, u.display_name FROM messages m
+      SELECT m.*, COALESCE(u.username, m.guest_username) AS username, COALESCE(u.display_name, m.guest_display_name) AS display_name FROM messages m
       LEFT JOIN users u ON u.id = m.user_id WHERE m.id = $1
     `, [id]);
   }
@@ -342,14 +348,14 @@ class PostgreSQLAdapter {
     const limit = Math.min(options.limit || 50, 200);
     if (options.before) {
       const rows = await this._queryAll(`
-        SELECT m.*, u.username, u.display_name FROM messages m
+        SELECT m.*, COALESCE(u.username, m.guest_username) AS username, COALESCE(u.display_name, m.guest_display_name) AS display_name FROM messages m
         LEFT JOIN users u ON u.id = m.user_id
         WHERE m.workspace_id = $1 AND m.id < $2 ORDER BY m.created_at DESC LIMIT $3
       `, [workspaceId, options.before, limit]);
       return rows.reverse();
     }
     const rows = await this._queryAll(`
-      SELECT m.*, u.username, u.display_name FROM messages m
+      SELECT m.*, COALESCE(u.username, m.guest_username) AS username, COALESCE(u.display_name, m.guest_display_name) AS display_name FROM messages m
       LEFT JOIN users u ON u.id = m.user_id
       WHERE m.workspace_id = $1 ORDER BY m.created_at DESC LIMIT $2
     `, [workspaceId, limit]);

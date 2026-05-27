@@ -54,12 +54,11 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
   socket.on('send-message', async ({ content, activeRepo }: { content: string; activeRepo?: string }) => {
     try {
       // Save and broadcast every message
-      const userMessage: Message = await workspaceService.saveMessage(socket.userId, 'user', content);
-      // For embed guests (null userId), attach socket username since there's no DB user
-      if (!socket.userId && socket.username) {
-        userMessage.username = socket.username;
-        userMessage.display_name = socket.username;
-      }
+      // For embed guests (null userId), persist socket username as guest fields
+      const guestName = !socket.userId && socket.username ? socket.username : null;
+      const userMessage: Message = await workspaceService.saveMessage(
+        socket.userId, 'user', content, null, null, null, guestName, guestName
+      );
       io.to(wsChannel).emit('new-message', userMessage);
 
       // Only invoke AI when the message contains @ai (case-insensitive)

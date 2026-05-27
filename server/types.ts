@@ -202,7 +202,7 @@ export interface DatabaseAdapter {
   close(): Promise<void>;
   getWorkspace(workspaceId: string): Promise<Workspace | null>;
   registerWorkspace(id: string, name: string, url: string, createdBy: number | null): Promise<Workspace>;
-  saveMessage(workspaceId: string, userId: number | null, role: string, content: string, toolName?: string | null, toolCallId?: string | null, sourceWorkspaceId?: string | null): Promise<Message>;
+  saveMessage(workspaceId: string, userId: number | null, role: string, content: string, toolName?: string | null, toolCallId?: string | null, sourceWorkspaceId?: string | null, guestUsername?: string | null, guestDisplayName?: string | null): Promise<Message>;
   getConversationHistory(workspaceId: string, limit: number): Promise<Message[]>;
   getMessages(workspaceId: string, options?: { limit?: number; before?: number }): Promise<{ messages: Message[]; hasMore: boolean }>;
   getApiKey(userId: number, provider: string): Promise<string>;
