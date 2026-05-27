@@ -136,6 +136,7 @@ export default function WorkspacePage({ user, onLogout }: Props) {
             onStopGeneration={chat.stopGeneration}
             onTyping={presence.sendTypingStart}
             typingUsers={presence.users.filter(u => u.activity === 'composing')}
+            onlineUsers={presence.users}
             currentUsername={user.username}
             bridgeProcessing={chat.bridgeProcessing}
             bridgeStreamingContent={chat.bridgeStreamingContent}

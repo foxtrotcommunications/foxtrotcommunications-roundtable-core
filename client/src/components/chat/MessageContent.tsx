@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import CodeBlock from './CodeBlock';
@@ -21,6 +21,31 @@ function extractText(node: unknown): string {
     if (el.props?.children != null) return extractText(el.props.children);
   }
   return '';
+}
+
+/** Replace @mentions in a text string with styled span elements */
+function renderMentions(text: string): ReactNode[] {
+  const parts = text.split(/(@\w[\w-]*)/g);
+  return parts.map((part, i) => {
+    const mentionMatch = part.match(/^@(\w[\w-]*)$/);
+    if (mentionMatch) {
+      const username = mentionMatch[1];
+      const isAi = username.toLowerCase() === 'ai';
+      return (
+        <span key={i} className={`mention${isAi ? ' mention-ai' : ''}`}>
+          {part}
+        </span>
+      );
+    }
+    return part;
+  });
+}
+
+/** Recursively process React children to add mention styling */
+function processMentions(children: ReactNode): ReactNode {
+  if (typeof children === 'string') return renderMentions(children);
+  if (Array.isArray(children)) return children.map((c, i) => <span key={i}>{processMentions(c)}</span>);
+  return children;
 }
 
 export default function MessageContent({ content }: Props) {
@@ -61,6 +86,13 @@ export default function MessageContent({ content }: Props) {
         },
         pre({ children }) {
           return <>{children}</>;
+        },
+        // Render @mentions as styled pills in paragraphs and list items
+        p({ children }) {
+          return <p>{processMentions(children)}</p>;
+        },
+        li({ children }) {
+          return <li>{processMentions(children)}</li>;
         },
       }}
     >
