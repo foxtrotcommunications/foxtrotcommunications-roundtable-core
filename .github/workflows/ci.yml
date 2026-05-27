@@ -123,6 +123,7 @@ jobs:
       - name: Deploy demo workspace to Cloud Run
         run: |
           gcloud run deploy rt-demo \
+            --project ${{ env.PROJECT_ID }} \
             --image ${{ needs.build.outputs.image }} \
             --region ${{ env.REGION }} \
             --platform managed \
