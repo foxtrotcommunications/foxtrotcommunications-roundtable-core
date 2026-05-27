@@ -378,6 +378,24 @@ Do NOT guess your capabilities. Call describe_workspace to get the live inventor
         }
       } catch (e) { /* ignore schema scan errors */ }
 
+      // Auto-inject markdown docs from workspace/docs/ into the system prompt
+      try {
+        const docsDir: string = require('path').resolve(__dirname, '..', '..', 'workspace', 'docs');
+        const fs = require('fs') as typeof import('fs');
+        if (fs.existsSync(docsDir)) {
+          const docFiles: string[] = fs.readdirSync(docsDir)
+            .filter((f: string) => f.endsWith('.md'));
+          if (docFiles.length > 0) {
+            let docsCtx: string = '\n\n--- WORKSPACE DOCUMENTATION ---\nThe following documents provide context about this workspace and its data. Use them to answer user questions.\n';
+            for (const df of docFiles) {
+              const content: string = fs.readFileSync(require('path').join(docsDir, df), 'utf8');
+              docsCtx += `\n### ${df}\n${content}\n`;
+            }
+            systemPrompt += docsCtx;
+          }
+        }
+      } catch (e) { /* ignore docs scan errors */ }
+
       if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
 
       for (const msg of history) {
