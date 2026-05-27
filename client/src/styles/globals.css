@@ -468,7 +468,7 @@ html, body { height: 100%; font-family: 'Inter', system-ui, sans-serif; backgrou
 .typing-bar:empty { visibility: hidden; }
 .typing-bar .streaming-dot { display: inline-block; width: 4px; height: 4px; margin-right: 6px; }
 .chat-input-area { padding: 16px 24px; border-top: 1px solid var(--border-subtle); background: var(--bg-secondary); flex-shrink: 0; }
-.chat-input-wrapper { display: flex; gap: 10px; align-items: flex-end; background: var(--bg-tertiary); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 8px 12px; transition: var(--transition-fast); }
+.chat-input-wrapper { position: relative; display: flex; gap: 10px; align-items: flex-end; background: var(--bg-tertiary); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 8px 12px; transition: var(--transition-fast); }
 .chat-input-wrapper:focus-within { border-color: var(--accent-primary); box-shadow: 0 0 0 3px var(--accent-glow); }
 .chat-input { flex: 1; background: none; border: none; color: var(--text-primary); font-size: 14px; font-family: inherit; resize: none; outline: none; max-height: 120px; min-height: 24px; line-height: 1.5; }
 .chat-input::placeholder { color: var(--text-muted); }
