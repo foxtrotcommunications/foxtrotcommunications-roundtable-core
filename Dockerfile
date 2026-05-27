@@ -30,6 +30,9 @@ COPY --from=client-build /build/dist ./client/dist/
 RUN mkdir -p /app/workspace && \
     git clone --depth 1 https://github.com/foxtrotcommunications/foxtrotcommunications-avalon-public.git /app/workspace/foxtrotcommunications-avalon-public
 
+# Copy workspace docs (auto-injected into AI system prompt)
+COPY workspace/docs/ ./workspace/docs/
+
 ENV NODE_ENV=production
 ENV PORT=3000
 
