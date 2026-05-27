@@ -2,6 +2,8 @@ import { useRef, useEffect, useState, type KeyboardEvent } from 'react';
 import Message from './Message';
 import ToolCard from './ToolCard';
 import MessageContent from './MessageContent';
+import MentionDropdown from './MentionDropdown';
+import type { MentionItem } from './MentionDropdown';
 import type { ChatMessage, ToolCall, ToolResult } from '../../types/message';
 import type { PresenceUser } from '../../types/workspace';
 import type { TokenUsage } from '../../hooks/useSocket';
@@ -16,6 +18,7 @@ interface Props {
   onStopGeneration: () => void;
   onTyping: () => void;
   typingUsers: PresenceUser[];
+  onlineUsers: PresenceUser[];
   currentUsername?: string;
   bridgeProcessing?: boolean;
   bridgeStreamingContent?: string;
@@ -30,13 +33,18 @@ function formatTokenCount(n: number): string {
 
 export default function ChatView({
   messages, streaming, streamingContent, toolCalls, lastUsage,
-  onSendMessage, onStopGeneration, onTyping, typingUsers, currentUsername,
+  onSendMessage, onStopGeneration, onTyping, typingUsers, onlineUsers, currentUsername,
   bridgeProcessing, bridgeStreamingContent, bridgeSourceName,
 }: Props) {
   const messagesRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [inputValue, setInputValue] = useState('');
   const [showScrollButton, setShowScrollButton] = useState(false);
+
+  // @mention autocomplete state
+  const [showMention, setShowMention] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState('');
+  const [mentionIndex, setMentionIndex] = useState(0);
 
   // Track scroll position to show/hide scroll-to-bottom button
   useEffect(() => {
@@ -90,11 +98,59 @@ export default function ChatView({
     if (inputRef.current) inputRef.current.style.height = 'auto';
   };
 
+  /** Build the filtered mention items list (same logic as MentionDropdown) */
+  const getMentionItems = (): MentionItem[] => {
+    const q = mentionQuery.toLowerCase();
+    const items: MentionItem[] = [
+      { type: 'ai', username: 'ai', displayName: 'AI Assistant' },
+    ];
+    for (const u of onlineUsers) {
+      if (u.username.toLowerCase() === 'ai') continue;
+      items.push({ type: 'user', username: u.username, displayName: u.displayName || u.username });
+    }
+    return items.filter(item =>
+      !q || item.username.toLowerCase().includes(q) || item.displayName.toLowerCase().includes(q)
+    );
+  };
+
   const handleKeyDown = (e: KeyboardEvent) => {
+    // Mention dropdown navigation
+    if (showMention) {
+      const items = getMentionItems();
+      if (items.length === 0) { setShowMention(false); return; }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionIndex(i => Math.min(i + 1, items.length - 1));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionIndex(i => Math.max(0, i - 1));
+        return;
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault();
+        const idx = Math.min(mentionIndex, items.length - 1);
+        handleMentionSelect(items[idx]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowMention(false);
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
+  };
+
+  /** Extract @mention query from cursor position */
+  const detectMention = (value: string, cursorPos: number): string | null => {
+    const before = value.substring(0, cursorPos);
+    const match = before.match(/@(\w*)$/);
+    return match ? match[1] : null;
   };
 
   const handleInput = (value: string) => {
@@ -104,7 +160,37 @@ export default function ChatView({
     if (inputRef.current) {
       inputRef.current.style.height = 'auto';
       inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, 120) + 'px';
+      // Detect @mention
+      const cursor = inputRef.current.selectionStart ?? value.length;
+      const query = detectMention(value, cursor);
+      if (query !== null) {
+        setShowMention(true);
+        setMentionQuery(query);
+        setMentionIndex(0);
+      } else {
+        setShowMention(false);
+      }
     }
+  };
+
+  /** Insert a mention at the current @ position */
+  const handleMentionSelect = (item: MentionItem) => {
+    const textarea = inputRef.current;
+    if (!textarea) return;
+    const cursor = textarea.selectionStart ?? inputValue.length;
+    const before = inputValue.substring(0, cursor);
+    const after = inputValue.substring(cursor);
+    // Replace @query with @username
+    const replaced = before.replace(/@\w*$/, `@${item.username} `);
+    const newValue = replaced + after;
+    setInputValue(newValue);
+    setShowMention(false);
+    // Restore cursor position after React re-render
+    const newCursor = replaced.length;
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(newCursor, newCursor);
+    });
   };
 
   // Typing indicator text
@@ -319,6 +405,14 @@ export default function ChatView({
             </div>
           </div>
           <div className="chat-input-wrapper">
+            {showMention && (
+              <MentionDropdown
+                query={mentionQuery}
+                users={onlineUsers}
+                selectedIndex={mentionIndex}
+                onSelect={handleMentionSelect}
+              />
+            )}
             <textarea
               ref={inputRef}
               className="chat-input"
@@ -327,6 +421,7 @@ export default function ChatView({
               value={inputValue}
               onChange={e => handleInput(e.target.value)}
               onKeyDown={handleKeyDown}
+              onBlur={() => setTimeout(() => setShowMention(false), 150)}
             />
             {streaming ? (
               <button className="chat-send-btn" onClick={onStopGeneration} title="Stop generation">

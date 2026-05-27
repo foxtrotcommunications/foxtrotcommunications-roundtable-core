@@ -521,6 +521,45 @@ html, body { height: 100%; font-family: 'Inter', system-ui, sans-serif; backgrou
   background: var(--bg-tertiary); padding: 4px 8px; border-radius: 4px; display: block;
 }
 
+/* ─── @Mention Autocomplete Dropdown ─── */
+.mention-dropdown {
+  position: absolute; bottom: calc(100% + 8px); left: 0; right: 0;
+  background: var(--bg-elevated); border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg); padding: 6px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.4); z-index: 60;
+  max-height: 240px; overflow-y: auto;
+  animation: fadeIn 0.1s ease;
+}
+.mention-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: var(--radius-md);
+  cursor: pointer; transition: background 0.1s ease;
+}
+.mention-item:hover, .mention-item.selected {
+  background: var(--bg-tertiary);
+}
+.mention-item-ai.selected, .mention-item-ai:hover {
+  background: rgba(16,185,129,0.08);
+}
+.mention-item-avatar {
+  width: 28px; height: 28px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; color: #fff;
+  flex-shrink: 0;
+}
+.mention-item-info {
+  display: flex; flex-direction: column; gap: 1px; min-width: 0;
+}
+.mention-item-name {
+  font-size: 13px; font-weight: 600; color: var(--text-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mention-item-ai .mention-item-name { color: #10b981; }
+.mention-item-username {
+  font-size: 11px; color: var(--text-muted);
+  font-family: 'SF Mono', Monaco, monospace;
+}
+
 /* ─── Welcome State ─── */
 .welcome-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px 24px; gap: 32px; animation: fadeIn 0.5s ease; max-width: 640px; margin: 0 auto; }
 .welcome-header { display: flex; flex-direction: column; align-items: center; gap: 12px; }
