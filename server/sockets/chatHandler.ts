@@ -15,7 +15,7 @@ const workspaceService = require('../services/workspaceService') as {
   workspaceId: string;
   ensureWorkspace(): Promise<import('../types').Workspace>;
   getWorkspace(): Promise<import('../types').Workspace | null>;
-  saveMessage(userId: number | null, role: string, content: string, toolName?: string | null, toolCallId?: string | null, sourceWorkspaceId?: string | null): Promise<import('../types').Message>;
+  saveMessage(userId: number | null, role: string, content: string, toolName?: string | null, toolCallId?: string | null, sourceWorkspaceId?: string | null, guestUsername?: string | null, guestDisplayName?: string | null): Promise<import('../types').Message>;
   getConversationHistory(limit: number): Promise<import('../types').Message[]>;
   getMessages(options?: { limit?: number; before?: number }): Promise<{ messages: import('../types').Message[]; hasMore: boolean }>;
   getUserApiKey(userId: number, provider: string): Promise<string>;
