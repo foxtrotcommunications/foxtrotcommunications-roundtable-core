@@ -32,4 +32,5 @@ export const TOOL_ICONS: Record<string, string> = {
   list_files: '📁', find_file: '🔎', shell_exec: '⚡', web_search: '🔍',
   read_url: '🌐', calculator: '🧮', run_code: '▶️',
   query_bigquery: '🗄️', query_snowflake: '❄️', query_databricks: '🧱',
+  download_query_results: '⬇️',
 };

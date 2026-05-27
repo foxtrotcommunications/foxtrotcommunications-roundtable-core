@@ -18,6 +18,7 @@ const queryBigQuery = require('./queryBigQuery');
 const querySnowflake = require('./querySnowflake');
 const queryDatabricks = require('./queryDatabricks');
 const triggerSyntheaPipeline = require('./triggerSyntheaPipeline');
+const downloadQueryResults = require('./downloadQueryResults');
 
 // Meta-tools — always available regardless of workspace config
 const describeWorkspace = require('./describeWorkspace');
@@ -48,6 +49,7 @@ const tools = {
   query_snowflake: querySnowflake,
   query_databricks: queryDatabricks,
   trigger_synthea_pipeline: triggerSyntheaPipeline,
+  download_query_results: downloadQueryResults,
   // Workspace bridge tool — communicate with other workspaces
   bridge_workspace: bridgeWorkspace,
 };

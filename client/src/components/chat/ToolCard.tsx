@@ -164,6 +164,32 @@ function ToolResultBody({ result }: { result: ToolResult['result'] }) {
     );
   }
 
+  // Download result
+  if ('downloadUrl' in r && typeof r.downloadUrl === 'string') {
+    return (
+      <div className="tool-result-success" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <a
+          href={r.downloadUrl as string}
+          download={r.filename as string || 'download.csv'}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '8px 16px', borderRadius: 8,
+            background: 'var(--accent-primary)', color: '#fff',
+            textDecoration: 'none', fontWeight: 600, fontSize: 13,
+            transition: 'opacity 0.15s',
+          }}
+          onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
+          onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+        >
+          ⬇️ Download {r.filename as string || 'file'}
+        </a>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+          {r.rowCount as number} rows · expires in {r.expiresIn as string}
+        </span>
+      </div>
+    );
+  }
+
   // Calculator / code runner
   if ('result' in r && r.result !== undefined) {
     return <div className="tool-result-success">= <strong>{String(r.result)}</strong></div>;

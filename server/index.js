@@ -220,6 +220,17 @@ app.use('/api/bridge', bridgeReceive);  // HMAC-authed, no user session needed
 app.use('/api', requireAuth, fileRoutes);
 app.use('/api/insights', requireAuth, insightRoutes);
 
+// Download endpoint — serves in-memory files from download_query_results tool
+// No auth required: download IDs are unguessable UUIDs with 30-min TTL
+const { _downloads } = require('./tools/downloadQueryResults');
+app.get('/api/downloads/:id', (req, res) => {
+  const entry = _downloads.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Download not found or expired' });
+  res.setHeader('Content-Type', entry.contentType);
+  res.setHeader('Content-Disposition', `attachment; filename="${entry.filename}"`);
+  res.send(entry.data);
+});
+
 // Workspace info
 app.get('/api/workspace/info', requireAuth, async (req, res) => {
   try {
