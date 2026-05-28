@@ -4,26 +4,40 @@ import mermaid from 'mermaid';
 // Initialize mermaid with a dark theme that matches the app
 mermaid.initialize({
   startOnLoad: false,
-  theme: 'dark',
+  theme: 'base',
   themeVariables: {
-    primaryColor: '#6366f1',
-    primaryTextColor: '#e2e8f0',
-    primaryBorderColor: '#818cf8',
+    // Node colors
+    primaryColor: '#c7d2fe',
+    primaryTextColor: '#1e293b',
+    primaryBorderColor: '#6366f1',
+    secondaryColor: '#fde68a',
+    secondaryTextColor: '#1e293b',
+    secondaryBorderColor: '#d97706',
+    tertiaryColor: '#bbf7d0',
+    tertiaryTextColor: '#1e293b',
+    tertiaryBorderColor: '#16a34a',
+    // Lines and labels
     lineColor: '#94a3b8',
-    secondaryColor: '#1e293b',
-    tertiaryColor: '#0f172a',
-    background: '#1e293b',
-    mainBkg: '#1e293b',
+    textColor: '#e2e8f0',
+    // Background
+    background: '#0f172a',
+    mainBkg: '#c7d2fe',
     nodeBorder: '#6366f1',
-    clusterBkg: '#0f172a',
+    clusterBkg: '#1e293b',
+    clusterBorder: '#334155',
     titleColor: '#e2e8f0',
     edgeLabelBackground: '#1e293b',
+    // Node text
+    nodeTextColor: '#1e293b',
     fontSize: '14px',
+    fontFamily: '"Inter", system-ui, sans-serif',
   },
   flowchart: {
     htmlLabels: true,
     curve: 'basis',
     padding: 15,
+    nodeSpacing: 30,
+    rankSpacing: 50,
   },
   securityLevel: 'strict',
 });
