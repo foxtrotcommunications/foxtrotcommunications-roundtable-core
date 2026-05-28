@@ -26,10 +26,26 @@ const { streamCompletion } = require('../services/aiProvider') as {
 };
 const config = require('../config') as AppConfig;
 
-// Active generation state is tracked per-socket (on the socket object itself),
-// so multiple users in the same workspace can each have independent AI calls.
-// socket.abortController — AbortController for the current stream
-// socket.isGenerating   — boolean guard against double-submission
+// ─── Workspace-level AI request queue ─────────────────────────────────
+// Only one AI request runs at a time per workspace to prevent
+// interleaved streaming. Additional requests are queued.
+interface QueuedRequest {
+  socket: RoundtableSocket;
+  content: string;
+  activeRepo?: string;
+  isOverage: boolean;
+}
+const workspaceQueues = new Map<string, QueuedRequest[]>();
+const workspaceProcessing = new Map<string, boolean>();
+
+function getQueue(wsId: string): QueuedRequest[] {
+  if (!workspaceQueues.has(wsId)) workspaceQueues.set(wsId, []);
+  return workspaceQueues.get(wsId)!;
+}
+
+function isProcessing(wsId: string): boolean {
+  return workspaceProcessing.get(wsId) || false;
+}
 
 interface BridgeEntry {
   targetName: string;
@@ -51,15 +67,17 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
   const wsChannel: string = `ws:${config.workspaceId}`;
   const aiMessageTimestamps: number[] = []; // per-socket rate tracker
 
-  socket.on('send-message', async ({ content, activeRepo }: { content: string; activeRepo?: string }) => {
+  socket.on('send-message', async ({ content, activeRepo, _fromQueue }: { content: string; activeRepo?: string; _fromQueue?: boolean }) => {
     try {
-      // Save and broadcast every message
-      // For embed guests (null userId), persist socket username as guest fields
-      const guestName = !socket.userId && socket.username ? socket.username : null;
-      const userMessage: Message = await workspaceService.saveMessage(
-        socket.userId, 'user', content, null, null, null, guestName, guestName
-      );
-      io.to(wsChannel).emit('new-message', userMessage);
+      // Save and broadcast every message (skip for queued re-processing)
+      if (!_fromQueue) {
+        // For embed guests (null userId), persist socket username as guest fields
+        const guestName = !socket.userId && socket.username ? socket.username : null;
+        const userMessage: Message = await workspaceService.saveMessage(
+          socket.userId, 'user', content, null, null, null, guestName, guestName
+        );
+        io.to(wsChannel).emit('new-message', userMessage);
+      }
 
       // Only invoke AI when the message contains @ai (case-insensitive)
       // Also detect @ai-{workspace} for bridge delegation
@@ -174,9 +192,21 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
         return;
       }
 
-      // Per-socket guard — only one active generation per user
+      // Per-socket guard — only one active request per user (in queue or processing)
       if (socket.isGenerating) {
         socket.emit('error-message', { error: 'Your AI request is still processing. Please wait or stop it first.' });
+        return;
+      }
+
+      // ── Workspace-level queue: only one AI request at a time ──
+      if (isProcessing(config.workspaceId)) {
+        const queue = getQueue(config.workspaceId);
+        queue.push({ socket, content, activeRepo, isOverage: false });
+        socket.isGenerating = true; // prevent double-queuing from same user
+        const position = queue.length;
+        socket.emit('ai-queued', { position, message: `Your request is queued (position ${position}). The AI will respond when the current request finishes.` });
+        io.to(wsChannel).emit('ai-queue-update', { queueLength: position });
+        console.log(`[Queue] Request from ${socket.username} queued at position ${position} for workspace ${config.workspaceId}`);
         return;
       }
 
@@ -415,6 +445,9 @@ Do NOT guess your capabilities. Call describe_workspace to get the live inventor
         }
       }
 
+      // Mark workspace as processing
+      workspaceProcessing.set(config.workspaceId, true);
+
       // Set up per-socket AbortController
       const abortController: AbortController = new AbortController();
       socket.abortController = abortController;
@@ -484,6 +517,23 @@ Do NOT guess your capabilities. Call describe_workspace to get the live inventor
         socket.abortController = null;
         io.to(wsChannel).emit('ai-complete', { fullText, userId: socket.userId });
 
+        // ── Process next queued request ──────────────────────────
+        workspaceProcessing.set(config.workspaceId, false);
+        const queue = getQueue(config.workspaceId);
+        if (queue.length > 0) {
+          const next = queue.shift()!;
+          io.to(wsChannel).emit('ai-queue-update', { queueLength: queue.length });
+          console.log(`[Queue] Processing next request from ${next.socket.username} for workspace ${config.workspaceId} (${queue.length} remaining)`);
+          // Reset the queued user's isGenerating so the handler accepts it
+          next.socket.isGenerating = false;
+          // Re-invoke — message was already saved, so pass _fromQueue to skip re-save
+          setImmediate(() => {
+            next.socket.emit('send-message', { content: next.content, activeRepo: next.activeRepo, _fromQueue: true });
+          });
+        } else {
+          io.to(wsChannel).emit('ai-queue-update', { queueLength: 0 });
+        }
+
         // Record usage to database (fire-and-forget)
         try {
           const { getAdapter } = require('../db/adapter') as { getAdapter: () => DatabaseAdapter };
@@ -548,6 +598,14 @@ Do NOT guess your capabilities. Call describe_workspace to get the live inventor
   socket.on('disconnect', () => {
     if (socket.abortController) {
       socket.abortController.abort();
+    }
+    // Remove any queued requests from this socket
+    const queue = getQueue(config.workspaceId);
+    const before = queue.length;
+    const filtered = queue.filter(r => r.socket.id !== socket.id);
+    if (filtered.length !== before) {
+      workspaceQueues.set(config.workspaceId, filtered);
+      console.log(`[Queue] Removed ${before - filtered.length} queued request(s) from disconnected user ${socket.username}`);
     }
   });
 }
