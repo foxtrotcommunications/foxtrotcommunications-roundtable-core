@@ -32,27 +32,52 @@ function downloadSvgAsPng(svgString: string, filename: string) {
   const width = bbox ? bbox[2] : parseFloat(svgEl.getAttribute('width') || '800');
   const height = bbox ? bbox[3] : parseFloat(svgEl.getAttribute('height') || '600');
 
-  // Inject light-theme CSS overrides for readable PNG export.
-  // Targets mermaid CSS classes directly rather than fragile hex remapping.
-  const style = doc.createElementNS('http://www.w3.org/2000/svg', 'style');
-  style.textContent = `
-    /* White background */
-    .mermaid-container, svg { background: #ffffff; }
-    /* All text → dark */
-    text, .label, .edgeLabel span, .edgeLabel p,
-    .nodeLabel, .cluster-label { fill: #1e293b !important; color: #1e293b !important; }
-    /* Edge labels background → white */
-    .edgeLabel rect, .labelBkg { fill: #ffffff !important; stroke: none !important; }
-    /* Lines and arrows → dark */
-    .edgePath .path, .flowchart-link { stroke: #475569 !important; }
-    .arrowheadPath, marker path { fill: #475569 !important; stroke: #475569 !important; }
-    /* Node shapes — keep light purple fills with indigo borders */
-    .node rect, .node polygon, .node circle, .node ellipse,
-    .node .label-container { fill: #e0e7ff !important; stroke: #6366f1 !important; }
-    /* Cluster/subgraph backgrounds */
-    .cluster rect { fill: #f1f5f9 !important; stroke: #cbd5e1 !important; }
-  `;
-  svgEl.insertBefore(style, svgEl.firstChild);
+  // Remap dark-theme inline colors to light-theme for readable PNG export.
+  // Walk every element and swap fill/stroke attributes + inline styles.
+  const darkToLight: Record<string, string> = {
+    '#0f172a': '#ffffff',  // bg → white
+    '#1e293b': '#334155',  // dark slate (used for text AND bg) → medium dark
+    '#334155': '#94a3b8',  // cluster border → lighter
+    '#e2e8f0': '#1e293b',  // light text → dark
+    '#94a3b8': '#475569',  // light gray → darker gray
+    '#c7d2fe': '#e0e7ff',  // node fill → lighter
+  };
+
+  function remapColor(c: string | null): string | null {
+    if (!c) return null;
+    const lower = c.toLowerCase();
+    return darkToLight[lower] || null;
+  }
+
+  const allEls = svgEl.querySelectorAll('*');
+  allEls.forEach(el => {
+    // Remap fill attribute
+    const fill = el.getAttribute('fill');
+    const newFill = remapColor(fill);
+    if (newFill) el.setAttribute('fill', newFill);
+
+    // Remap stroke attribute
+    const stroke = el.getAttribute('stroke');
+    const newStroke = remapColor(stroke);
+    if (newStroke) el.setAttribute('stroke', newStroke);
+
+    // Remap inline style fill/stroke
+    const style = el.getAttribute('style');
+    if (style) {
+      let newStyle = style;
+      for (const [from, to] of Object.entries(darkToLight)) {
+        newStyle = newStyle.replace(new RegExp(from.replace('#', '\\#'), 'gi'), to);
+      }
+      if (newStyle !== style) el.setAttribute('style', newStyle);
+    }
+  });
+
+  // Force all text elements to be dark
+  svgEl.querySelectorAll('text, tspan').forEach(el => {
+    el.setAttribute('fill', '#1e293b');
+    const s = el.getAttribute('style');
+    if (s) el.setAttribute('style', s.replace(/fill:\s*[^;]+/g, 'fill: #1e293b'));
+  });
 
   // Add a white background rect
   const bgRect = doc.createElementNS('http://www.w3.org/2000/svg', 'rect');
