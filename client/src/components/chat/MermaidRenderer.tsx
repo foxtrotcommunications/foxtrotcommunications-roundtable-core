@@ -27,8 +27,12 @@ mermaid.initialize({
     clusterBorder: '#334155',
     titleColor: '#e2e8f0',
     edgeLabelBackground: '#1e293b',
-    // Node text
+    // Node text — dark on light pastel nodes
     nodeTextColor: '#1e293b',
+    // Edge label text — light on dark background
+    actorTextColor: '#e2e8f0',
+    signalTextColor: '#e2e8f0',
+    labelTextColor: '#e2e8f0',
     fontSize: '14px',
     fontFamily: '"Inter", system-ui, sans-serif',
   },
