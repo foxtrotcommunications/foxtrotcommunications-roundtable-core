@@ -803,6 +803,63 @@ select:focus { border-color: var(--accent-primary); }
   margin: 0;
   overflow-x: auto;
 }
+
+/* ─── Collapsible Blocks ─────────────────────────────── */
+.collapsible-block {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  margin: 8px 0;
+  overflow: hidden;
+  background: var(--bg-secondary);
+}
+.collapsible-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.collapsible-header:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.collapsible-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+.collapsible-label {
+  flex: 1;
+  text-align: left;
+}
+.collapsible-chevron {
+  font-size: 10px;
+  transition: transform 0.2s ease;
+  color: var(--text-secondary);
+  opacity: 0.6;
+}
+.collapsible-chevron.chevron-open {
+  transform: rotate(90deg);
+}
+.collapsible-content {
+  padding: 0 4px 4px;
+}
+/* Remove inner margin/border when chart/mermaid is inside collapsible */
+.collapsible-content .chart-container,
+.collapsible-content .mermaid-container {
+  margin: 0;
+  border: none;
+  border-radius: 0 0 12px 12px;
+}
+.table-scroll-wrapper {
+  overflow-x: auto;
+  padding: 0 10px 10px;
+}
 .chart-container canvas {
   max-height: 400px;
 }

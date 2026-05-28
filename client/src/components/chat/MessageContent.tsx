@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import CodeBlock from './CodeBlock';
 import ChartRenderer from './ChartRenderer';
 import MermaidRenderer from './MermaidRenderer';
+import CollapsibleBlock from './CollapsibleBlock';
 import type { ChartResult } from '../../types/message';
 
 interface Props {
@@ -72,7 +73,11 @@ export default function MessageContent({ content, streaming }: Props) {
               const raw = extractText(children).trim();
               const config = JSON.parse(raw) as ChartResult;
               if (config.chartType && config.labels && config.datasets) {
-                return <ChartRenderer config={config} />;
+                return (
+                  <CollapsibleBlock label={config.title || 'Chart'} icon="📊">
+                    <ChartRenderer config={config} />
+                  </CollapsibleBlock>
+                );
               }
             } catch {
               // Fall through to code block if JSON is invalid
@@ -82,7 +87,11 @@ export default function MessageContent({ content, streaming }: Props) {
           // Mermaid diagram block: ```mermaid ... ```
           if (lang === 'mermaid' && !streaming) {
             const raw = extractText(children).trim();
-            return <MermaidRenderer code={raw} />;
+            return (
+              <CollapsibleBlock label="Diagram" icon="🔀">
+                <MermaidRenderer code={raw} />
+              </CollapsibleBlock>
+            );
           }
 
           if (match || isBlock) {
@@ -103,6 +112,16 @@ export default function MessageContent({ content, streaming }: Props) {
         },
         li({ children }) {
           return <li>{processMentions(children)}</li>;
+        },
+        // Wrap tables in a collapsible block
+        table({ children }) {
+          return (
+            <CollapsibleBlock label="Table" icon="📋">
+              <div className="table-scroll-wrapper">
+                <table>{children}</table>
+              </div>
+            </CollapsibleBlock>
+          );
         },
       }}
     >
