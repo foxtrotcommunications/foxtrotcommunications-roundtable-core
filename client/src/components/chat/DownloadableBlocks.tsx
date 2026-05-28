@@ -3,32 +3,73 @@ import CollapsibleBlock from './CollapsibleBlock';
 
 /** Convert SVG string to PNG and trigger download */
 function downloadSvgAsPng(svgString: string, filename: string) {
-  const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
-  const url = URL.createObjectURL(svgBlob);
+  // Parse the SVG and ensure it has proper dimensions and xmlns
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(svgString, 'image/svg+xml');
+  const svgEl = doc.querySelector('svg');
+  if (!svgEl) return;
+
+  // Ensure xmlns is set
+  svgEl.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  svgEl.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+
+  // Get dimensions
+  const bbox = svgEl.getAttribute('viewBox')?.split(/[\s,]+/).map(Number);
+  const width = bbox ? bbox[2] : parseFloat(svgEl.getAttribute('width') || '800');
+  const height = bbox ? bbox[3] : parseFloat(svgEl.getAttribute('height') || '600');
+
+  // Add a background rect to the SVG itself (avoids canvas fill issues)
+  const bgRect = doc.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  bgRect.setAttribute('width', '100%');
+  bgRect.setAttribute('height', '100%');
+  bgRect.setAttribute('fill', '#0f172a');
+  svgEl.insertBefore(bgRect, svgEl.firstChild);
+
+  // Serialize to a data URI (avoids Blob URL CORS/taint issues)
+  const serializer = new XMLSerializer();
+  const svgData = serializer.serializeToString(svgEl);
+  const dataUri = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgData);
+
+  const scale = 2;
+  const canvas = document.createElement('canvas');
+  canvas.width = width * scale;
+  canvas.height = height * scale;
+  const ctx = canvas.getContext('2d')!;
+  ctx.scale(scale, scale);
+
   const img = new Image();
+  img.crossOrigin = 'anonymous';
   img.onload = () => {
-    const canvas = document.createElement('canvas');
-    // 2x resolution for crisp output
-    const scale = 2;
-    canvas.width = img.width * scale;
-    canvas.height = img.height * scale;
-    const ctx = canvas.getContext('2d')!;
-    ctx.scale(scale, scale);
-    // Fill with dark background to match the app
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(0, 0, img.width, img.height);
-    ctx.drawImage(img, 0, 0);
-    canvas.toBlob((blob) => {
-      if (!blob) return;
+    ctx.drawImage(img, 0, 0, width, height);
+    try {
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }, 'image/png');
+    } catch {
+      // Fallback: download as SVG if canvas export fails
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = filename;
+      const svgBlob = new Blob([svgData], { type: 'image/svg+xml' });
+      a.href = URL.createObjectURL(svgBlob);
+      a.download = filename.replace('.png', '.svg');
       a.click();
       URL.revokeObjectURL(a.href);
-    }, 'image/png');
-    URL.revokeObjectURL(url);
+    }
   };
-  img.src = url;
+  img.onerror = () => {
+    // Fallback: download as SVG
+    const a = document.createElement('a');
+    const svgBlob = new Blob([svgData], { type: 'image/svg+xml' });
+    a.href = URL.createObjectURL(svgBlob);
+    a.download = filename.replace('.png', '.svg');
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+  img.src = dataUri;
 }
 
 /** Extract table data to CSV and trigger download */
