@@ -48,11 +48,12 @@ mermaid.initialize({
 
 interface Props {
   code: string;
+  onSvgReady?: (svg: string) => void;
 }
 
 let mermaidIdCounter = 0;
 
-export default function MermaidRenderer({ code }: Props) {
+export default function MermaidRenderer({ code, onSvgReady }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
@@ -67,6 +68,7 @@ export default function MermaidRenderer({ code }: Props) {
         if (!cancelled) {
           setSvg(rendered);
           setError(null);
+          onSvgReady?.(rendered);
         }
       } catch (err) {
         if (!cancelled) {

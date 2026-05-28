@@ -5,6 +5,7 @@ import CodeBlock from './CodeBlock';
 import ChartRenderer from './ChartRenderer';
 import MermaidRenderer from './MermaidRenderer';
 import CollapsibleBlock from './CollapsibleBlock';
+import { MermaidBlock, TableBlock } from './DownloadableBlocks';
 import type { ChartResult } from '../../types/message';
 
 interface Props {
@@ -87,11 +88,7 @@ export default function MessageContent({ content, streaming }: Props) {
           // Mermaid diagram block: ```mermaid ... ```
           if (lang === 'mermaid' && !streaming) {
             const raw = extractText(children).trim();
-            return (
-              <CollapsibleBlock label="Diagram" icon="🔀">
-                <MermaidRenderer code={raw} />
-              </CollapsibleBlock>
-            );
+            return <MermaidBlock code={raw} MermaidRenderer={MermaidRenderer} />;
           }
 
           if (match || isBlock) {
@@ -113,15 +110,9 @@ export default function MessageContent({ content, streaming }: Props) {
         li({ children }) {
           return <li>{processMentions(children)}</li>;
         },
-        // Wrap tables in a collapsible block
+        // Wrap tables in a collapsible block with CSV download
         table({ children }) {
-          return (
-            <CollapsibleBlock label="Table" icon="📋">
-              <div className="table-scroll-wrapper">
-                <table>{children}</table>
-              </div>
-            </CollapsibleBlock>
-          );
+          return <TableBlock>{children}</TableBlock>;
         },
       }}
     >
