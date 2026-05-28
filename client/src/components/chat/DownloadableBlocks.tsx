@@ -32,11 +32,30 @@ function downloadSvgAsPng(svgString: string, filename: string) {
   const width = bbox ? bbox[2] : parseFloat(svgEl.getAttribute('width') || '800');
   const height = bbox ? bbox[3] : parseFloat(svgEl.getAttribute('height') || '600');
 
-  // Add a background rect to the SVG itself (avoids canvas fill issues)
+  // Remap dark-theme colors to light-theme for readable PNG export
+  const colorMap: Record<string, string> = {
+    '#0f172a': '#ffffff',  // dark bg → white
+    '#1e293b': '#f8fafc',  // cluster bg → light gray
+    '#334155': '#cbd5e1',  // cluster border → medium gray
+    '#e2e8f0': '#1e293b',  // light text → dark text
+    '#94a3b8': '#475569',  // light lines → dark lines
+    '#e4e4e7': '#1e293b',  // tooltip text → dark
+    '#a1a1aa': '#475569',  // secondary text → dark gray
+  };
+
+  // Apply color remapping to the SVG for export
+  const svgHtml = svgEl.innerHTML;
+  let remapped = svgHtml;
+  for (const [from, to] of Object.entries(colorMap)) {
+    remapped = remapped.replace(new RegExp(from.replace('#', '\\#'), 'gi'), to);
+  }
+  svgEl.innerHTML = remapped;
+
+  // Add a white background rect
   const bgRect = doc.createElementNS('http://www.w3.org/2000/svg', 'rect');
   bgRect.setAttribute('width', '100%');
   bgRect.setAttribute('height', '100%');
-  bgRect.setAttribute('fill', '#0f172a');
+  bgRect.setAttribute('fill', '#ffffff');
   svgEl.insertBefore(bgRect, svgEl.firstChild);
 
   // Serialize to a data URI (avoids Blob URL CORS/taint issues)
