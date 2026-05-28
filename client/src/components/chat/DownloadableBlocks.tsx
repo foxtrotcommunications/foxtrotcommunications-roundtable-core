@@ -1,6 +1,20 @@
 import { useCallback, useRef, type ReactNode } from 'react';
 import CollapsibleBlock from './CollapsibleBlock';
 
+/** Trigger a file download — works reliably in cross-origin iframes */
+function triggerDownload(url: string, filename: string, revokeUrl = false) {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  // Defer cleanup so the browser has time to start the download
+  setTimeout(() => {
+    document.body.removeChild(a);
+    if (revokeUrl) URL.revokeObjectURL(url);
+  }, 100);
+}
 /** Convert SVG string to PNG and trigger download */
 function downloadSvgAsPng(svgString: string, filename: string) {
   // Parse the SVG and ensure it has proper dimensions and xmlns
@@ -44,30 +58,18 @@ function downloadSvgAsPng(svgString: string, filename: string) {
     try {
       canvas.toBlob((blob) => {
         if (!blob) return;
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = filename;
-        a.click();
-        URL.revokeObjectURL(a.href);
+        triggerDownload(URL.createObjectURL(blob), filename, true);
       }, 'image/png');
     } catch {
       // Fallback: download as SVG if canvas export fails
-      const a = document.createElement('a');
       const svgBlob = new Blob([svgData], { type: 'image/svg+xml' });
-      a.href = URL.createObjectURL(svgBlob);
-      a.download = filename.replace('.png', '.svg');
-      a.click();
-      URL.revokeObjectURL(a.href);
+      triggerDownload(URL.createObjectURL(svgBlob), filename.replace('.png', '.svg'), true);
     }
   };
   img.onerror = () => {
     // Fallback: download as SVG
-    const a = document.createElement('a');
     const svgBlob = new Blob([svgData], { type: 'image/svg+xml' });
-    a.href = URL.createObjectURL(svgBlob);
-    a.download = filename.replace('.png', '.svg');
-    a.click();
-    URL.revokeObjectURL(a.href);
+    triggerDownload(URL.createObjectURL(svgBlob), filename.replace('.png', '.svg'), true);
   };
   img.src = dataUri;
 }
@@ -89,11 +91,7 @@ function downloadTableAsCsv(tableEl: HTMLTableElement | null, filename: string) 
   });
   const csv = csvRows.join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  triggerDownload(URL.createObjectURL(blob), filename, true);
 }
 
 // ─── Mermaid Download Wrapper ───────────────────────
