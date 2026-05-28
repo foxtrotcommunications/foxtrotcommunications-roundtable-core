@@ -32,24 +32,27 @@ function downloadSvgAsPng(svgString: string, filename: string) {
   const width = bbox ? bbox[2] : parseFloat(svgEl.getAttribute('width') || '800');
   const height = bbox ? bbox[3] : parseFloat(svgEl.getAttribute('height') || '600');
 
-  // Remap dark-theme colors to light-theme for readable PNG export
-  const colorMap: Record<string, string> = {
-    '#0f172a': '#ffffff',  // dark bg → white
-    '#1e293b': '#f8fafc',  // cluster bg → light gray
-    '#334155': '#cbd5e1',  // cluster border → medium gray
-    '#e2e8f0': '#1e293b',  // light text → dark text
-    '#94a3b8': '#475569',  // light lines → dark lines
-    '#e4e4e7': '#1e293b',  // tooltip text → dark
-    '#a1a1aa': '#475569',  // secondary text → dark gray
-  };
-
-  // Apply color remapping to the SVG for export
-  const svgHtml = svgEl.innerHTML;
-  let remapped = svgHtml;
-  for (const [from, to] of Object.entries(colorMap)) {
-    remapped = remapped.replace(new RegExp(from.replace('#', '\\#'), 'gi'), to);
-  }
-  svgEl.innerHTML = remapped;
+  // Inject light-theme CSS overrides for readable PNG export.
+  // Targets mermaid CSS classes directly rather than fragile hex remapping.
+  const style = doc.createElementNS('http://www.w3.org/2000/svg', 'style');
+  style.textContent = `
+    /* White background */
+    .mermaid-container, svg { background: #ffffff; }
+    /* All text → dark */
+    text, .label, .edgeLabel span, .edgeLabel p,
+    .nodeLabel, .cluster-label { fill: #1e293b !important; color: #1e293b !important; }
+    /* Edge labels background → white */
+    .edgeLabel rect, .labelBkg { fill: #ffffff !important; stroke: none !important; }
+    /* Lines and arrows → dark */
+    .edgePath .path, .flowchart-link { stroke: #475569 !important; }
+    .arrowheadPath, marker path { fill: #475569 !important; stroke: #475569 !important; }
+    /* Node shapes — keep light purple fills with indigo borders */
+    .node rect, .node polygon, .node circle, .node ellipse,
+    .node .label-container { fill: #e0e7ff !important; stroke: #6366f1 !important; }
+    /* Cluster/subgraph backgrounds */
+    .cluster rect { fill: #f1f5f9 !important; stroke: #cbd5e1 !important; }
+  `;
+  svgEl.insertBefore(style, svgEl.firstChild);
 
   // Add a white background rect
   const bgRect = doc.createElementNS('http://www.w3.org/2000/svg', 'rect');
