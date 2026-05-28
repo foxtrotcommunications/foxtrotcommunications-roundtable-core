@@ -32,47 +32,51 @@ function downloadSvgAsPng(svgString: string, filename: string) {
   const width = bbox ? bbox[2] : parseFloat(svgEl.getAttribute('width') || '800');
   const height = bbox ? bbox[3] : parseFloat(svgEl.getAttribute('height') || '600');
 
-  // Remap dark-theme inline colors to light-theme for readable PNG export.
-  // Walk every element and swap fill/stroke attributes + inline styles.
+  // Remap dark-theme colors to light-theme for readable PNG export.
   const darkToLight: Record<string, string> = {
     '#0f172a': '#ffffff',  // bg → white
-    '#1e293b': '#334155',  // dark slate (used for text AND bg) → medium dark
-    '#334155': '#94a3b8',  // cluster border → lighter
+    '#1e293b': '#334155',  // dark slate (edge label bg) → medium dark
+    '#334155': '#cbd5e1',  // cluster border → lighter
     '#e2e8f0': '#1e293b',  // light text → dark
-    '#94a3b8': '#475569',  // light gray → darker gray
-    '#c7d2fe': '#e0e7ff',  // node fill → lighter
+    '#94a3b8': '#475569',  // light gray lines → darker gray
+    '#c7d2fe': '#ddd6fe',  // node fill → lighter purple
   };
 
+  // 1. Remap colors in SVG internal <style> tags (highest specificity)
+  svgEl.querySelectorAll('style').forEach(styleEl => {
+    let css = styleEl.textContent || '';
+    for (const [from, to] of Object.entries(darkToLight)) {
+      css = css.replace(new RegExp(from.replace('#', '\\#'), 'gi'), to);
+    }
+    styleEl.textContent = css;
+  });
+
+  // 2. Walk every element and swap fill/stroke attributes + inline styles
   function remapColor(c: string | null): string | null {
     if (!c) return null;
-    const lower = c.toLowerCase();
-    return darkToLight[lower] || null;
+    return darkToLight[c.toLowerCase()] || null;
   }
 
-  const allEls = svgEl.querySelectorAll('*');
-  allEls.forEach(el => {
-    // Remap fill attribute
+  svgEl.querySelectorAll('*').forEach(el => {
     const fill = el.getAttribute('fill');
     const newFill = remapColor(fill);
     if (newFill) el.setAttribute('fill', newFill);
 
-    // Remap stroke attribute
     const stroke = el.getAttribute('stroke');
     const newStroke = remapColor(stroke);
     if (newStroke) el.setAttribute('stroke', newStroke);
 
-    // Remap inline style fill/stroke
     const style = el.getAttribute('style');
     if (style) {
-      let newStyle = style;
+      let s = style;
       for (const [from, to] of Object.entries(darkToLight)) {
-        newStyle = newStyle.replace(new RegExp(from.replace('#', '\\#'), 'gi'), to);
+        s = s.replace(new RegExp(from.replace('#', '\\#'), 'gi'), to);
       }
-      if (newStyle !== style) el.setAttribute('style', newStyle);
+      if (s !== style) el.setAttribute('style', s);
     }
   });
 
-  // Force all text elements to be dark
+  // 3. Force all text elements to be dark
   svgEl.querySelectorAll('text, tspan').forEach(el => {
     el.setAttribute('fill', '#1e293b');
     const s = el.getAttribute('style');
