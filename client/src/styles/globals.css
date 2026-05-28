@@ -837,6 +837,19 @@ select:focus { border-color: var(--accent-primary); }
   flex: 1;
   text-align: left;
 }
+.collapsible-download {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.collapsible-download:hover {
+  background: rgba(99, 102, 241, 0.3);
+}
 .collapsible-chevron {
   font-size: 10px;
   transition: transform 0.2s ease;
