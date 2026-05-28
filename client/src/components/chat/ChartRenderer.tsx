@@ -116,7 +116,10 @@ function ChartRenderer({ config, onToggleTable }: Props) {
     const a = document.createElement('a');
     a.href = url;
     a.download = `${config.title.replace(/\s+/g, '_').toLowerCase()}.png`;
+    a.style.display = 'none';
+    document.body.appendChild(a);
     a.click();
+    setTimeout(() => document.body.removeChild(a), 100);
   };
 
   const ChartComponent = {
