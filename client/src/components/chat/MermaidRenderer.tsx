@@ -37,13 +37,13 @@ mermaid.initialize({
     fontFamily: '"Inter", system-ui, sans-serif',
   },
   flowchart: {
-    htmlLabels: true,
+    htmlLabels: false,
     curve: 'basis',
     padding: 15,
     nodeSpacing: 30,
     rankSpacing: 50,
   },
-  securityLevel: 'strict',
+  securityLevel: 'sandbox',
 });
 
 interface Props {
