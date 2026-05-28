@@ -6,7 +6,10 @@ import ChartRenderer from './ChartRenderer';
 import MermaidRenderer from './MermaidRenderer';
 import type { ChartResult } from '../../types/message';
 
-interface Props { content: string; }
+interface Props {
+  content: string;
+  streaming?: boolean;
+}
 
 /**
  * Extract text content from React children, which may be strings,
@@ -49,7 +52,7 @@ function processMentions(children: ReactNode): ReactNode {
   return children;
 }
 
-export default function MessageContent({ content }: Props) {
+export default function MessageContent({ content, streaming }: Props) {
   const processed = useMemo(() => content, [content]);
 
   return (
@@ -64,7 +67,7 @@ export default function MessageContent({ content }: Props) {
             ((props as Record<string, unknown>).node as { position?: { start: { line: number }; end: { line: number } } })?.position?.end.line;
 
           // Chart block: ```chart { ...json config... } ```
-          if (lang === 'chart') {
+          if (lang === 'chart' && !streaming) {
             try {
               const raw = extractText(children).trim();
               const config = JSON.parse(raw) as ChartResult;
@@ -77,7 +80,7 @@ export default function MessageContent({ content }: Props) {
           }
 
           // Mermaid diagram block: ```mermaid ... ```
-          if (lang === 'mermaid') {
+          if (lang === 'mermaid' && !streaming) {
             const raw = extractText(children).trim();
             return <MermaidRenderer code={raw} />;
           }
