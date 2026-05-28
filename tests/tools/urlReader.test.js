@@ -7,7 +7,7 @@ describe('url_reader tool', () => {
     expect(result.content).toBeDefined();
     expect(result.url).toBe('https://httpbin.org/html');
     expect(result.length).toBeGreaterThan(0);
-  }, 15000);
+  }, 30000);
 
   it('should strip HTML tags from HTML content', async () => {
     const result = await urlReader.execute({ url: 'https://httpbin.org/html' });
