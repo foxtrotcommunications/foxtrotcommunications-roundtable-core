@@ -44,7 +44,7 @@ Roundtable auto-detects the environment: if no `DATABASE_URL` is set, it uses SQ
 - **Multiplayer AI Chat** — Multiple users in the same AI conversation, streaming in real-time
 - **Concurrent Generation** — Each user has an independent AI generation lifecycle; multiple people can prompt AI simultaneously without blocking each other
 - **Multi-Provider AI** — OpenAI, Anthropic (Claude), Google Gemini (via Vertex AI or API key), and Ollama (local models, OpenAI-compatible)
-- **15 Built-in Tools** — Web search, data warehouse queries, file management, shell execution, and more
+- **20 Built-in Tools** — Web search, data warehouse queries, file management, shell execution, charts, cross-workspace bridges, and more
 - **Model-Aware Tooling** — Tools like web search automatically use the workspace's configured model and endpoint
 - **Configurable Tool Set** — Enable or disable individual tools per workspace via the Settings panel
 - **Configurable Agent** — Set the AI provider, model, and system prompt per workspace — no redeploy needed
@@ -59,6 +59,15 @@ Roundtable auto-detects the environment: if no `DATABASE_URL` is set, it uses SQ
 - **Embeddable** — Embed in other apps via iframe with `EMBED_MODE=true`
 - 🎨 **Theme system** — Light, dark, and system (OS preference) color schemes
 - **React + TypeScript** — Modern frontend with Vite, hot-reload dev server
+- **AI Request Queue** — One AI request at a time per workspace; concurrent requests are queued with position tracking
+- **Monthly Token Credit Pool** — Configurable hard/soft caps per workspace
+- **Mermaid Diagram Rendering** — Interactive SVG diagrams from mermaid code blocks
+- **Collapsible Output Blocks** — Charts, tables, and diagrams are collapsible with download buttons
+- **Downloadable Outputs** — PNG export for charts/diagrams, CSV export for tables
+- **@Mention Autocomplete** — User mentions with pill styling
+- **Schema Auto-Injection** — YAML schema files from `workspace/uploads/` injected into AI context
+- **Documentation Auto-Injection** — Markdown docs from `workspace/docs/` injected into AI context
+- **First-Visit Onboarding** — Tooltip guides new users on how to interact with the AI
 
 ## Deployment
 
@@ -199,8 +208,10 @@ Enable or disable individual tools per workspace. Disabled tools are removed fro
 - **Web**: `web_search`, `read_url`
 - **Code**: `run_code`, `shell_exec`, `calculator`
 - **Files**: `read_file`, `write_file`, `list_files`, `find_file`
-- **Git**: `git_clone`, `git_commit`
-- **Data**: `query_bigquery`, `query_snowflake`, `query_databricks`
+- **Git**: `git_clone`, `git_commit`, `git_pull`
+- **Data**: `query_bigquery`, `query_snowflake`, `query_databricks`, `download_query_results`
+- **Visualization**: `render_chart`
+- **Workspace**: `describe_workspace`, `bridge_workspace`, `verify_workspace`, `trigger_synthea_pipeline`
 
 > **Tip**: For workspaces focused on data analysis, disable `shell_exec`, `git_clone`, and `git_commit` to reduce the AI's tool surface and improve response focus.
 
@@ -234,7 +245,7 @@ Set `DEMO_MODE=true` to enable the `/api/auth/demo` endpoint, which creates auto
 
 ## Built-in Tools
 
-All 15 tools are enabled by default. Individual tools can be toggled per workspace via the Settings panel.
+All 20 tools are enabled by default. Individual tools can be toggled per workspace via the Settings panel.
 
 | Tool | Description |
 |------|-------------|
@@ -252,6 +263,12 @@ All 15 tools are enabled by default. Individual tools can be toggled per workspa
 | **find_file** | Search for files by name |
 | **git_clone** | Clone a git repository into the workspace |
 | **git_commit** | Stage and commit changes |
+| **git_pull** | Pull latest changes from a remote Git repository into the workspace |
+| **describe_workspace** | Self-discovery meta-tool that helps the AI understand what tools and data sources are available in the workspace (always enabled) |
+| **bridge_workspace** | Cross-workspace AI communication — delegates queries to other Roundtable workspaces via `@ai-{workspace}` mentions |
+| **render_chart** | Generate interactive charts (bar, line, pie, doughnut, area, scatter) inline in chat from query results |
+| **download_query_results** | Export query results as downloadable CSV/JSON files |
+| **trigger_synthea_pipeline** | Trigger synthetic FHIR/OMOP patient data generation via Synthea |
 | **verify_workspace** | Run health checks on tools and data sources |
 
 Data warehouse tools enforce **read-only access** — INSERT, UPDATE, DELETE, DROP, and other write operations are blocked at the tool level.
