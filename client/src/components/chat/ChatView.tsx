@@ -318,7 +318,7 @@ export default function ChatView({
               </div>
               <div className="message-content">
                 {streamingContent && (
-                  <MessageContent content={streamingContent} />
+                  <MessageContent content={streamingContent} streaming />
                 )}
                 <div className="streaming-indicator">
                   <span className="streaming-dot" />
