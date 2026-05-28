@@ -1,7 +1,7 @@
 // server/routes/bridgeReceive.js — Receives bridged messages/tasks from the control plane
 //
 // POST /api/bridge/receive
-// Auth: HMAC signature verification using SESSION_SECRET
+// Auth: HMAC signature verification using BRIDGE_HMAC_SECRET (falls back to SESSION_SECRET)
 //
 // When a bridged message arrives:
 // 1. Verify HMAC signature
@@ -21,7 +21,7 @@ router.post('/receive', async (req, res) => {
     const { taskId, bridgeId, action, content, sourceWorkspace, timestamp, signature } = req.body;
 
     // Verify HMAC signature
-    const secret = config.sessionSecret;
+    const secret = config.bridgeHmacSecret;
     const expectedSig = crypto
       .createHmac('sha256', secret)
       .update(`${taskId}:${timestamp}`)

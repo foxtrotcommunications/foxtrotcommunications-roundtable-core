@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { getAdapter } = require('../db/adapter');
 const { requireAuth } = require('../middleware/auth');
+const config = require('../config');
 
 
 const router = express.Router();
@@ -114,14 +115,14 @@ router.get('/me', requireAuth, async (req, res) => {
  * and redirects to the workspace root.
  *
  * JWT payload: { sub, email, name, workspace_id, workspace_role, org_id, exp }
- * Signature: HMAC-SHA256 using SESSION_SECRET
+ * Signature: HMAC-SHA256 using SSO_JWT_SECRET (falls back to SESSION_SECRET)
  */
 router.get('/sso', async (req, res) => {
   try {
     const { token, redirect = '/' } = req.query;
     if (!token) return res.status(400).json({ error: 'Missing token' });
 
-    const secret = process.env.SESSION_SECRET;
+    const secret = config.ssoJwtSecret;
     if (!secret) return res.status(500).json({ error: 'SSO not configured' });
 
     // Decode the JWT (header.payload.signature — all base64url)
