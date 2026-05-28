@@ -43,6 +43,7 @@ const cspDirectives = {
   fontSrc: ["'self'", "https://fonts.gstatic.com"],
   connectSrc: ["'self'", "ws:", "wss:"],
   imgSrc: ["'self'", "data:", "https:"],
+  frameSrc: ["'self'", "blob:", "data:"],
   upgradeInsecureRequests: null,  // disable — not all deployments have TLS
 };
 if (config.embedMode) {
