@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import CodeBlock from './CodeBlock';
 import ChartRenderer from './ChartRenderer';
+import MermaidRenderer from './MermaidRenderer';
 import type { ChartResult } from '../../types/message';
 
 interface Props { content: string; }
@@ -73,6 +74,12 @@ export default function MessageContent({ content }: Props) {
             } catch {
               // Fall through to code block if JSON is invalid
             }
+          }
+
+          // Mermaid diagram block: ```mermaid ... ```
+          if (lang === 'mermaid') {
+            const raw = extractText(children).trim();
+            return <MermaidRenderer code={raw} />;
           }
 
           if (match || isBlock) {
