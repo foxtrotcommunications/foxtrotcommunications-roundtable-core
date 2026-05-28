@@ -740,6 +740,25 @@ select:focus { border-color: var(--accent-primary); }
   max-width: 100%;
   height: auto;
 }
+/* Force edge/path labels to be light text on dark background */
+.mermaid-container .edgeLabel,
+.mermaid-container .edgeLabel p,
+.mermaid-container .edgeLabel span,
+.mermaid-container .edgeLabel foreignObject div,
+.mermaid-container .edgePath .label,
+.mermaid-container .label {
+  color: #e2e8f0 !important;
+  fill: #e2e8f0 !important;
+}
+.mermaid-container .edgeLabel .label-container {
+  background-color: #1e293b !important;
+}
+/* Keep node text dark on light backgrounds */
+.mermaid-container .node .label,
+.mermaid-container .node .label p {
+  color: #1e293b !important;
+  fill: #1e293b !important;
+}
 .mermaid-loading {
   display: flex;
   align-items: center;
