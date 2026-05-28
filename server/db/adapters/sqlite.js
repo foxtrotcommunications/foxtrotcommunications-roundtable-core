@@ -83,6 +83,8 @@ class SQLiteAdapter {
         username TEXT UNIQUE NOT NULL,
         display_name TEXT NOT NULL,
         password_hash TEXT NOT NULL,
+        email TEXT,
+        sso_id TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
@@ -113,6 +115,8 @@ class SQLiteAdapter {
         content TEXT NOT NULL,
         tool_name TEXT,
         tool_call_id TEXT,
+        guest_username TEXT,
+        guest_display_name TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
@@ -175,6 +179,41 @@ class SQLiteAdapter {
 
   async getUserByUsername(username) {
     return this._queryOne('SELECT * FROM users WHERE username = ?', [username]);
+  }
+
+  async getUserByEmail(email) {
+    return this._queryOne('SELECT * FROM users WHERE email = ?', [email]);
+  }
+
+  /**
+   * Upsert a user from an SSO token. Creates the user if they don't exist,
+   * or updates display_name/email if they do. Returns the user row.
+   */
+  async upsertUserBySsoId(ssoId, email, displayName) {
+    // Try to find by sso_id first (most stable)
+    let user = this._queryOne('SELECT * FROM users WHERE sso_id = ?', [ssoId]);
+    if (user) {
+      this._run('UPDATE users SET display_name = ?, email = ? WHERE sso_id = ?', [displayName, email, ssoId]);
+      return this._queryOne('SELECT id, username, display_name, email, sso_id FROM users WHERE sso_id = ?', [ssoId]);
+    }
+    // Try by email (covers re-connections before sso_id was stored)
+    user = this._queryOne('SELECT * FROM users WHERE email = ?', [email]);
+    if (user) {
+      this._run('UPDATE users SET sso_id = ?, display_name = ? WHERE email = ?', [ssoId, displayName, email]);
+      return this._queryOne('SELECT id, username, display_name, email, sso_id FROM users WHERE email = ?', [email]);
+    }
+    // New SSO user — generate a unique username from email prefix
+    const base = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20) || 'user';
+    let username = base;
+    let attempt = 0;
+    while (this._queryOne('SELECT id FROM users WHERE username = ?', [username])) {
+      username = `${base}${++attempt}`;
+    }
+    const result = this._run(
+      'INSERT INTO users (username, display_name, password_hash, email, sso_id) VALUES (?, ?, ?, ?, ?)',
+      [username, displayName, '', email, ssoId]
+    );
+    return this._queryOne('SELECT id, username, display_name, email, sso_id FROM users WHERE id = ?', [result.lastInsertRowid]);
   }
 
   // ─── Workspaces ─────────────────────────────────
@@ -354,6 +393,15 @@ class SQLiteAdapter {
     const row = await this._queryOne(
       `SELECT COALESCE(SUM(total_tokens), 0) AS tokens FROM workspace_usage
        WHERE workspace_id = ? AND created_at >= date('now')`,
+      [workspaceId]
+    );
+    return parseInt(row?.tokens || '0', 10);
+  }
+
+  async getMonthlyTokens(workspaceId) {
+    const row = this._queryOne(
+      `SELECT COALESCE(SUM(total_tokens), 0) AS tokens FROM workspace_usage
+       WHERE workspace_id = ? AND created_at >= datetime('now', 'start of month')`,
       [workspaceId]
     );
     return parseInt(row?.tokens || '0', 10);

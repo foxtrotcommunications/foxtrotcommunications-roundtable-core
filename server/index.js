@@ -315,7 +315,7 @@ app.post('/api/webhook/message', express.json(), async (req, res) => {
     if (!sourceWorkspaceId || !content) return res.status(400).json({ error: 'sourceWorkspaceId and content required' });
 
     // Verify HMAC signature
-    const secret = config.sessionSecret;
+    const secret = config.bridgeHmacSecret;
     if (!signature || !timestamp) {
       return res.status(401).json({ error: 'Missing webhook signature' });
     }

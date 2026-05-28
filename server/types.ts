@@ -157,6 +157,8 @@ export interface Insight {
 export interface AppConfig {
   port: number;
   sessionSecret: string;
+  ssoJwtSecret: string;
+  bridgeHmacSecret: string;
   databaseUrl: string;
   workspaceId: string;
   workspaceName: string;

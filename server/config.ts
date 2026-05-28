@@ -4,9 +4,13 @@ import type { AppConfig } from './types';
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
 
+const sessionSecret = process.env.SESSION_SECRET || 'roundtable-dev-secret-change-me';
+
 const config: AppConfig = {
   port: parseInt(process.env.PORT as string, 10) || 3000,
-  sessionSecret: process.env.SESSION_SECRET || 'roundtable-dev-secret-change-me',
+  sessionSecret,
+  ssoJwtSecret: process.env.SSO_JWT_SECRET || sessionSecret,
+  bridgeHmacSecret: process.env.BRIDGE_HMAC_SECRET || sessionSecret,
 
   // Database (PostgreSQL required)
   databaseUrl: process.env.DATABASE_URL || '',
