@@ -43,7 +43,7 @@ mermaid.initialize({
     nodeSpacing: 30,
     rankSpacing: 50,
   },
-  securityLevel: 'sandbox',
+  securityLevel: 'strict',
 });
 
 interface Props {
