@@ -187,6 +187,19 @@ export function useChat(socket: Socket | null) {
     socket.on('ai-complete', onAiComplete);
     socket.on('ai-usage', onAiUsage);
 
+    // Queue notification — show user their position
+    const onAiQueued = (data: { position: number; message: string }) => {
+      setMessages(prev => [...prev, {
+        id: Date.now(),
+        workspace_id: '',
+        user_id: null,
+        role: 'assistant' as const,
+        content: `⏳ ${data.message}`,
+        created_at: new Date().toISOString(),
+      }]);
+    };
+    socket.on('ai-queued', onAiQueued);
+
     // Bridge processing events
     const onBridgeStart = (data: { sourceWorkspace: string }) => {
       setBridgeProcessing(true);
@@ -218,6 +231,7 @@ export function useChat(socket: Socket | null) {
       socket.off('ai-error', onAiError);
       socket.off('ai-complete', onAiComplete);
       socket.off('ai-usage', onAiUsage);
+      socket.off('ai-queued', onAiQueued);
       socket.off('bridge-processing-start', onBridgeStart);
       socket.off('bridge-ai-chunk', onBridgeChunk);
       socket.off('bridge-processing-complete', onBridgeComplete);
