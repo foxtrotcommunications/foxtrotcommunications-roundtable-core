@@ -1,5 +1,4 @@
 import { useCallback, useRef, type ReactNode } from 'react';
-import mermaid from 'mermaid';
 import CollapsibleBlock from './CollapsibleBlock';
 
 /** Trigger a file download — works reliably in cross-origin iframes */
@@ -10,80 +9,89 @@ function triggerDownload(url: string, filename: string, revokeUrl = false) {
   a.style.display = 'none';
   document.body.appendChild(a);
   a.click();
-  // Defer cleanup so the browser has time to start the download
   setTimeout(() => {
     document.body.removeChild(a);
     if (revokeUrl) URL.revokeObjectURL(url);
   }, 100);
 }
 
-/** Re-render mermaid code with a light theme and return the SVG string */
-async function renderLightThemeSvg(code: string): Promise<string> {
-  // Use a unique ID to avoid collisions with the displayed diagram
-  const exportId = `mermaid-export-${Date.now()}`;
+/**
+ * Clone a live DOM SVG and inline all computed styles so the exported
+ * file is fully self-contained (no dependency on page stylesheets).
+ */
+function cloneAndInlineStyles(liveSvg: SVGSVGElement): SVGSVGElement {
+  const clone = liveSvg.cloneNode(true) as SVGSVGElement;
 
-  // Save current config, render with light theme, then we don't need to restore
-  // because mermaid.render() uses the current config at call time
-  const prevConfig = mermaid.mermaidAPI.getConfig();
+  // Get all elements from both live and cloned trees
+  const liveEls = liveSvg.querySelectorAll('*');
+  const cloneEls = clone.querySelectorAll('*');
 
-  mermaid.initialize({
-    startOnLoad: false,
-    theme: 'base',
-    themeVariables: {
-      primaryColor: '#dbeafe',
-      primaryTextColor: '#1e293b',
-      primaryBorderColor: '#3b82f6',
-      secondaryColor: '#fef3c7',
-      secondaryTextColor: '#1e293b',
-      secondaryBorderColor: '#d97706',
-      tertiaryColor: '#dcfce7',
-      tertiaryTextColor: '#1e293b',
-      tertiaryBorderColor: '#16a34a',
-      lineColor: '#475569',
-      textColor: '#1e293b',
-      background: '#ffffff',
-      mainBkg: '#dbeafe',
-      nodeBorder: '#3b82f6',
-      clusterBkg: '#f1f5f9',
-      clusterBorder: '#cbd5e1',
-      titleColor: '#1e293b',
-      edgeLabelBackground: '#ffffff',
-      nodeTextColor: '#1e293b',
-      actorTextColor: '#1e293b',
-      signalTextColor: '#1e293b',
-      labelTextColor: '#475569',
-      fontSize: '14px',
-      fontFamily: '"Inter", system-ui, sans-serif',
-    },
-    flowchart: {
-      htmlLabels: false,
-      curve: 'basis',
-      padding: 15,
-      nodeSpacing: 30,
-      rankSpacing: 50,
-    },
-    securityLevel: 'strict',
+  // CSS properties relevant to SVG rendering
+  const svgProps = [
+    'fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'stroke-linecap',
+    'stroke-linejoin', 'opacity', 'fill-opacity', 'stroke-opacity',
+    'font-family', 'font-size', 'font-weight', 'font-style',
+    'text-anchor', 'dominant-baseline', 'visibility', 'display',
+    'color', 'transform',
+  ];
+
+  liveEls.forEach((liveEl, i) => {
+    const cloneEl = cloneEls[i];
+    if (!cloneEl) return;
+
+    const computed = window.getComputedStyle(liveEl);
+    const inlineStyles: string[] = [];
+
+    for (const prop of svgProps) {
+      const val = computed.getPropertyValue(prop);
+      if (val && val !== '' && val !== 'none' && val !== 'normal') {
+        inlineStyles.push(`${prop}: ${val}`);
+      }
+    }
+
+    if (inlineStyles.length > 0) {
+      cloneEl.setAttribute('style', inlineStyles.join('; '));
+    }
   });
 
-  try {
-    const { svg } = await mermaid.render(exportId, code.trim());
-    return svg;
-  } finally {
-    // Restore the dark theme config for on-screen rendering
-    mermaid.initialize({
-      startOnLoad: false,
-      theme: prevConfig.theme,
-      themeVariables: prevConfig.themeVariables,
-      flowchart: prevConfig.flowchart,
-      securityLevel: prevConfig.securityLevel,
-    });
+  // Remove internal <style> tags — all styles are now inlined
+  clone.querySelectorAll('style').forEach(s => s.remove());
 
-    // Clean up any temporary element mermaid may have inserted
-    const tempEl = document.getElementById(`d${exportId}`);
-    if (tempEl) tempEl.remove();
-  }
+  return clone;
 }
 
+/** Dark-to-light color mapping for export */
+const DARK_TO_LIGHT: [RegExp, string][] = [
+  [/#0f172a/gi, '#ffffff'],   // dark bg → white
+  [/#1e293b/gi, '#1e293b'],   // keep dark text dark
+  [/#334155/gi, '#e2e8f0'],   // cluster border → light
+  [/#e2e8f0/gi, '#334155'],   // light text → dark
+  [/#94a3b8/gi, '#64748b'],   // light gray → darker
+  [/#c7d2fe/gi, '#dbeafe'],   // node fill → light blue
+  [/#6366f1/gi, '#3b82f6'],   // indigo border → blue
+  [/#fde68a/gi, '#fef3c7'],   // secondary → lighter
+  [/#d97706/gi, '#b45309'],   // secondary border
+  [/#bbf7d0/gi, '#dcfce7'],   // tertiary → lighter
+  [/#16a34a/gi, '#15803d'],   // tertiary border
+];
+
+function remapToLightTheme(svgString: string): string {
+  // Use unique placeholders to avoid cascading replacements
+  let result = svgString;
+  const placeholders: [string, string][] = [];
+
+  DARK_TO_LIGHT.forEach(([regex, replacement], i) => {
+    const placeholder = `__PLACEHOLDER_${i}__`;
+    result = result.replace(regex, placeholder);
+    placeholders.push([placeholder, replacement]);
+  });
+
+  for (const [placeholder, replacement] of placeholders) {
+    result = result.replace(new RegExp(placeholder, 'g'), replacement);
+  }
+
+  return result;
+}
 
 /** Extract table data to CSV and trigger download */
 function downloadTableAsCsv(tableEl: HTMLTableElement | null, filename: string) {
@@ -94,7 +102,6 @@ function downloadTableAsCsv(tableEl: HTMLTableElement | null, filename: string) 
     const cells = row.querySelectorAll('th, td');
     const rowData: string[] = [];
     cells.forEach(cell => {
-      // Escape quotes and wrap in quotes
       const text = (cell.textContent || '').replace(/"/g, '""');
       rowData.push(`"${text}"`);
     });
@@ -113,36 +120,41 @@ interface MermaidBlockProps {
 }
 
 export function MermaidBlock({ code, MermaidRenderer }: MermaidBlockProps) {
-  const handleDownload = useCallback(async () => {
-    try {
-      // Re-render with light theme specifically for export
-      const lightSvg = await renderLightThemeSvg(code);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-      // Parse and add white background
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(lightSvg, 'image/svg+xml');
-      const svgEl = doc.querySelector('svg');
-      if (!svgEl) return;
+  const handleDownload = useCallback(() => {
+    // Grab the live SVG from the DOM — this has all nodes rendered correctly
+    const liveSvg = containerRef.current?.querySelector('svg') as SVGSVGElement | null;
+    if (!liveSvg) return;
 
-      svgEl.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-      const bgRect = doc.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      bgRect.setAttribute('width', '100%');
-      bgRect.setAttribute('height', '100%');
-      bgRect.setAttribute('fill', '#ffffff');
-      svgEl.insertBefore(bgRect, svgEl.firstChild);
+    // Clone and inline all computed styles
+    const clone = cloneAndInlineStyles(liveSvg);
 
-      const serializer = new XMLSerializer();
-      const svgData = serializer.serializeToString(svgEl);
-      const blob = new Blob([svgData], { type: 'image/svg+xml' });
-      triggerDownload(URL.createObjectURL(blob), `diagram-${Date.now()}.svg`, true);
-    } catch (err) {
-      console.error('Failed to render light-theme diagram for export:', err);
-    }
-  }, [code]);
+    // Ensure xmlns
+    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+
+    // Add white background
+    const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    bgRect.setAttribute('width', '100%');
+    bgRect.setAttribute('height', '100%');
+    bgRect.setAttribute('fill', '#ffffff');
+    clone.insertBefore(bgRect, clone.firstChild);
+
+    // Serialize and remap dark colors to light
+    const serializer = new XMLSerializer();
+    let svgData = serializer.serializeToString(clone);
+    svgData = remapToLightTheme(svgData);
+
+    const blob = new Blob([svgData], { type: 'image/svg+xml' });
+    triggerDownload(URL.createObjectURL(blob), `diagram-${Date.now()}.svg`, true);
+  }, []);
 
   return (
     <CollapsibleBlock label="Diagram" icon="🔀" onDownload={handleDownload} downloadLabel="SVG">
-      <MermaidRenderer code={code} />
+      <div ref={containerRef}>
+        <MermaidRenderer code={code} />
+      </div>
     </CollapsibleBlock>
   );
 }
