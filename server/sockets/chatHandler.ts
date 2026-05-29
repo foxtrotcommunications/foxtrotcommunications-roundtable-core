@@ -392,6 +392,7 @@ Do NOT guess your capabilities. Call describe_workspace to get the live inventor
 When generating Mermaid diagrams (flowcharts, sequence diagrams, etc.):
 - Do NOT use inline \`style\` directives (e.g. \`style A fill:#cce5ff\`). The rendering engine applies a curated dark-mode theme automatically.
 - Do NOT use \`classDef\` or \`class\` statements for coloring. Keep diagrams clean and structural.
+- Do NOT use HTML tags (\`<b>\`, \`<br>\`, \`<i>\`, etc.) in node or edge labels — they render as literal text, not formatted HTML. Use plain text only.
 - Focus on clear node labels, meaningful edge labels, and logical flow.
 - The workspace uses a dark theme with these accent colors: indigo (#6366f1), soft purple (#c7d2fe), amber (#fde68a), green (#bbf7d0). The rendering engine maps these automatically.
 - Use subgraphs to group related nodes when the diagram has 8+ nodes.`;
