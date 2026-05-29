@@ -386,7 +386,15 @@ Do NOT guess your capabilities. Call describe_workspace to get the live inventor
 - In a multiplayer workspace, this makes it clear who each response is directed at.
 - If the message is from a bridge (starts with "[Bridge from X]"), @-mention the source workspace name.
 - NEVER say "@User". Always use the person's actual name.
-- The current message is from: **${socket.username || 'a user'}**`;
+- The current message is from: **${socket.username || 'a user'}**
+
+--- DIAGRAM STYLING ---
+When generating Mermaid diagrams (flowcharts, sequence diagrams, etc.):
+- Do NOT use inline \`style\` directives (e.g. \`style A fill:#cce5ff\`). The rendering engine applies a curated dark-mode theme automatically.
+- Do NOT use \`classDef\` or \`class\` statements for coloring. Keep diagrams clean and structural.
+- Focus on clear node labels, meaningful edge labels, and logical flow.
+- The workspace uses a dark theme with these accent colors: indigo (#6366f1), soft purple (#c7d2fe), amber (#fde68a), green (#bbf7d0). The rendering engine maps these automatically.
+- Use subgraphs to group related nodes when the diagram has 8+ nodes.`;
 
       systemPrompt = envCtx + (systemPrompt ? '\n\n' + systemPrompt : '');
 

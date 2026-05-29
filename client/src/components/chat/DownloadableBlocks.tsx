@@ -15,24 +15,45 @@ function triggerDownload(url: string, filename: string, revokeUrl = false) {
   }, 100);
 }
 
+/** Dark→light color map for export (placeholder-based to avoid cascading) */
+const DARK_TO_LIGHT: [string, string][] = [
+  ['#0f172a', '#ffffff'],   // dark bg → white
+  ['#0a0b0f', '#ffffff'],   // app bg → white
+  ['#12131a', '#f8fafc'],   // secondary bg → near-white
+  ['#1a1b25', '#f1f5f9'],   // tertiary bg → light gray
+  ['#1e2030', '#f1f5f9'],   // elevated bg → light gray
+  ['#1e293b', '#f8fafc'],   // cluster/edge bg → near-white
+  ['#334155', '#e2e8f0'],   // cluster border → light
+  ['#e2e8f0', '#334155'],   // light text → dark
+  ['#e2e4f0', '#1e293b'],   // text primary → dark
+  ['#8b8fa8', '#64748b'],   // text secondary
+  ['#94a3b8', '#64748b'],   // light gray → darker
+  ['#c7d2fe', '#dbeafe'],   // node fill → light blue
+  ['#6366f1', '#3b82f6'],   // indigo border → blue
+  ['#818cf8', '#6366f1'],   // accent secondary
+  ['#fde68a', '#fef3c7'],   // secondary node → lighter
+  ['#d97706', '#b45309'],   // secondary border
+  ['#bbf7d0', '#dcfce7'],   // tertiary node → lighter
+  ['#16a34a', '#15803d'],   // tertiary border
+];
+
 /**
- * Clone a live DOM SVG and inline all computed styles so the exported
- * file is fully self-contained (no dependency on page stylesheets).
+ * Clone a live DOM SVG, inline all computed styles, and remap to light theme.
+ * Returns a fully self-contained SVG string ready for canvas rendering.
  */
-function cloneAndInlineStyles(liveSvg: SVGSVGElement): SVGSVGElement {
+function cloneForLightExport(liveSvg: SVGSVGElement): string {
   const clone = liveSvg.cloneNode(true) as SVGSVGElement;
 
-  // Get all elements from both live and cloned trees
+  // Inline computed styles from the live DOM
   const liveEls = liveSvg.querySelectorAll('*');
   const cloneEls = clone.querySelectorAll('*');
 
-  // CSS properties relevant to SVG rendering
   const svgProps = [
-    'fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'stroke-linecap',
-    'stroke-linejoin', 'opacity', 'fill-opacity', 'stroke-opacity',
-    'font-family', 'font-size', 'font-weight', 'font-style',
-    'text-anchor', 'dominant-baseline', 'visibility', 'display',
-    'color', 'transform',
+    'fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'stroke-dashoffset',
+    'stroke-linecap', 'stroke-linejoin', 'opacity', 'fill-opacity',
+    'stroke-opacity', 'font-family', 'font-size', 'font-weight',
+    'font-style', 'text-anchor', 'dominant-baseline', 'visibility',
+    'display', 'color', 'transform',
   ];
 
   liveEls.forEach((liveEl, i) => {
@@ -40,57 +61,90 @@ function cloneAndInlineStyles(liveSvg: SVGSVGElement): SVGSVGElement {
     if (!cloneEl) return;
 
     const computed = window.getComputedStyle(liveEl);
-    const inlineStyles: string[] = [];
+    const styles: string[] = [];
 
     for (const prop of svgProps) {
       const val = computed.getPropertyValue(prop);
-      if (val && val !== '' && val !== 'none' && val !== 'normal') {
-        inlineStyles.push(`${prop}: ${val}`);
+      if (val && val !== '' && val !== 'none' && val !== 'normal' && val !== '0') {
+        styles.push(`${prop}: ${val}`);
       }
     }
 
-    if (inlineStyles.length > 0) {
-      cloneEl.setAttribute('style', inlineStyles.join('; '));
+    if (styles.length > 0) {
+      cloneEl.setAttribute('style', styles.join('; '));
     }
   });
 
-  // Remove internal <style> tags — all styles are now inlined
+  // Remove <style> tags — all styles are now inlined
   clone.querySelectorAll('style').forEach(s => s.remove());
 
-  return clone;
-}
+  // Ensure xmlns
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
 
-/** Dark-to-light color mapping for export */
-const DARK_TO_LIGHT: [RegExp, string][] = [
-  [/#0f172a/gi, '#ffffff'],   // dark bg → white
-  [/#1e293b/gi, '#1e293b'],   // keep dark text dark
-  [/#334155/gi, '#e2e8f0'],   // cluster border → light
-  [/#e2e8f0/gi, '#334155'],   // light text → dark
-  [/#94a3b8/gi, '#64748b'],   // light gray → darker
-  [/#c7d2fe/gi, '#dbeafe'],   // node fill → light blue
-  [/#6366f1/gi, '#3b82f6'],   // indigo border → blue
-  [/#fde68a/gi, '#fef3c7'],   // secondary → lighter
-  [/#d97706/gi, '#b45309'],   // secondary border
-  [/#bbf7d0/gi, '#dcfce7'],   // tertiary → lighter
-  [/#16a34a/gi, '#15803d'],   // tertiary border
-];
+  // Add white background
+  const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  bgRect.setAttribute('width', '100%');
+  bgRect.setAttribute('height', '100%');
+  bgRect.setAttribute('fill', '#ffffff');
+  clone.insertBefore(bgRect, clone.firstChild);
 
-function remapToLightTheme(svgString: string): string {
-  // Use unique placeholders to avoid cascading replacements
-  let result = svgString;
-  const placeholders: [string, string][] = [];
+  // Serialize
+  const serializer = new XMLSerializer();
+  let svgData = serializer.serializeToString(clone);
 
-  DARK_TO_LIGHT.forEach(([regex, replacement], i) => {
-    const placeholder = `__PLACEHOLDER_${i}__`;
-    result = result.replace(regex, placeholder);
-    placeholders.push([placeholder, replacement]);
+  // Remap dark colors to light using placeholders (avoids cascading)
+  DARK_TO_LIGHT.forEach(([dark, _], i) => {
+    svgData = svgData.replace(new RegExp(dark.replace('#', '\\#'), 'gi'), `__PH${i}__`);
+  });
+  DARK_TO_LIGHT.forEach(([_, light], i) => {
+    svgData = svgData.replace(new RegExp(`__PH${i}__`, 'g'), light);
   });
 
-  for (const [placeholder, replacement] of placeholders) {
-    result = result.replace(new RegExp(placeholder, 'g'), replacement);
-  }
+  return svgData;
+}
 
-  return result;
+/** Export light-mode SVG as PNG via canvas */
+function exportAsPng(svgData: string, filename: string) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(svgData, 'image/svg+xml');
+  const svgEl = doc.querySelector('svg');
+  if (!svgEl) return;
+
+  const bbox = svgEl.getAttribute('viewBox')?.split(/[\s,]+/).map(Number);
+  const width = bbox ? bbox[2] : parseFloat(svgEl.getAttribute('width') || '800');
+  const height = bbox ? bbox[3] : parseFloat(svgEl.getAttribute('height') || '600');
+
+  const dataUri = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgData);
+
+  const scale = 2;
+  const canvas = document.createElement('canvas');
+  canvas.width = width * scale;
+  canvas.height = height * scale;
+  const ctx = canvas.getContext('2d')!;
+  ctx.scale(scale, scale);
+
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    ctx.drawImage(img, 0, 0, width, height);
+    try {
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        triggerDownload(URL.createObjectURL(blob), filename, true);
+      }, 'image/png');
+    } catch {
+      // Fallback: download as SVG if canvas fails
+      const svgBlob = new Blob([svgData], { type: 'image/svg+xml' });
+      triggerDownload(URL.createObjectURL(svgBlob), filename.replace('.png', '.svg'), true);
+    }
+  };
+  img.onerror = () => {
+    // Fallback: download as SVG
+    const svgBlob = new Blob([svgData], { type: 'image/svg+xml' });
+    triggerDownload(URL.createObjectURL(svgBlob), filename.replace('.png', '.svg'), true);
+  };
+  img.src = dataUri;
 }
 
 /** Extract table data to CSV and trigger download */
@@ -123,35 +177,18 @@ export function MermaidBlock({ code, MermaidRenderer }: MermaidBlockProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const handleDownload = useCallback(() => {
-    // Grab the live SVG from the DOM — this has all nodes rendered correctly
     const liveSvg = containerRef.current?.querySelector('svg') as SVGSVGElement | null;
     if (!liveSvg) return;
 
-    // Clone and inline all computed styles
-    const clone = cloneAndInlineStyles(liveSvg);
+    // Clone live SVG, inline styles, remap to light theme
+    const svgData = cloneForLightExport(liveSvg);
 
-    // Ensure xmlns
-    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-    clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
-
-    // Add white background
-    const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    bgRect.setAttribute('width', '100%');
-    bgRect.setAttribute('height', '100%');
-    bgRect.setAttribute('fill', '#ffffff');
-    clone.insertBefore(bgRect, clone.firstChild);
-
-    // Serialize and remap dark colors to light
-    const serializer = new XMLSerializer();
-    let svgData = serializer.serializeToString(clone);
-    svgData = remapToLightTheme(svgData);
-
-    const blob = new Blob([svgData], { type: 'image/svg+xml' });
-    triggerDownload(URL.createObjectURL(blob), `diagram-${Date.now()}.svg`, true);
+    // Export as PNG
+    exportAsPng(svgData, `diagram-${Date.now()}.png`);
   }, []);
 
   return (
-    <CollapsibleBlock label="Diagram" icon="🔀" onDownload={handleDownload} downloadLabel="SVG">
+    <CollapsibleBlock label="Diagram" icon="🔀" onDownload={handleDownload} downloadLabel="PNG">
       <div ref={containerRef}>
         <MermaidRenderer code={code} />
       </div>

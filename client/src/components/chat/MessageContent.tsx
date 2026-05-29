@@ -87,7 +87,9 @@ export default function MessageContent({ content, streaming }: Props) {
 
           // Mermaid diagram block: ```mermaid ... ```
           if (lang === 'mermaid' && !streaming) {
-            const raw = extractText(children).trim();
+            let raw = extractText(children).trim();
+            // Strip inline style/classDef/class directives — let the theme engine handle colors
+            raw = raw.replace(/^\s*(style\s+\S+|classDef\s+|class\s+\S+\s+).*$/gm, '');
             return <MermaidBlock code={raw} MermaidRenderer={MermaidRenderer} />;
           }
 
