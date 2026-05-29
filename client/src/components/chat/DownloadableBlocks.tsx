@@ -72,10 +72,10 @@ async function renderLightThemeSvg(code: string): Promise<string> {
     // Restore the dark theme config for on-screen rendering
     mermaid.initialize({
       startOnLoad: false,
-      theme: prevConfig.theme as string,
+      theme: prevConfig.theme,
       themeVariables: prevConfig.themeVariables,
       flowchart: prevConfig.flowchart,
-      securityLevel: prevConfig.securityLevel as string,
+      securityLevel: prevConfig.securityLevel,
     });
 
     // Clean up any temporary element mermaid may have inserted
