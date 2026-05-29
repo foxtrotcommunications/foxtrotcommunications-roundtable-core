@@ -170,14 +170,31 @@ export function MermaidBlock({ code, MermaidRenderer }: MermaidBlockProps) {
     try {
       // Re-render with light theme specifically for export
       const lightSvg = await renderLightThemeSvg(code);
-      svgToPng(lightSvg, `diagram-${Date.now()}.png`);
+
+      // Parse and add white background
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(lightSvg, 'image/svg+xml');
+      const svgEl = doc.querySelector('svg');
+      if (!svgEl) return;
+
+      svgEl.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      const bgRect = doc.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      bgRect.setAttribute('width', '100%');
+      bgRect.setAttribute('height', '100%');
+      bgRect.setAttribute('fill', '#ffffff');
+      svgEl.insertBefore(bgRect, svgEl.firstChild);
+
+      const serializer = new XMLSerializer();
+      const svgData = serializer.serializeToString(svgEl);
+      const blob = new Blob([svgData], { type: 'image/svg+xml' });
+      triggerDownload(URL.createObjectURL(blob), `diagram-${Date.now()}.svg`, true);
     } catch (err) {
       console.error('Failed to render light-theme diagram for export:', err);
     }
   }, [code]);
 
   return (
-    <CollapsibleBlock label="Diagram" icon="🔀" onDownload={handleDownload} downloadLabel="PNG">
+    <CollapsibleBlock label="Diagram" icon="🔀" onDownload={handleDownload} downloadLabel="SVG">
       <MermaidRenderer code={code} />
     </CollapsibleBlock>
   );
