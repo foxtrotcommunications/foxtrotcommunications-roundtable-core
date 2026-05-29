@@ -84,59 +84,6 @@ async function renderLightThemeSvg(code: string): Promise<string> {
   }
 }
 
-/** Convert SVG string to PNG and trigger download */
-function svgToPng(svgString: string, filename: string, bgColor = '#ffffff') {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(svgString, 'image/svg+xml');
-  const svgEl = doc.querySelector('svg');
-  if (!svgEl) return;
-
-  svgEl.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-  svgEl.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
-
-  const bbox = svgEl.getAttribute('viewBox')?.split(/[\s,]+/).map(Number);
-  const width = bbox ? bbox[2] : parseFloat(svgEl.getAttribute('width') || '800');
-  const height = bbox ? bbox[3] : parseFloat(svgEl.getAttribute('height') || '600');
-
-  // Add background rect
-  const bgRect = doc.createElementNS('http://www.w3.org/2000/svg', 'rect');
-  bgRect.setAttribute('width', '100%');
-  bgRect.setAttribute('height', '100%');
-  bgRect.setAttribute('fill', bgColor);
-  svgEl.insertBefore(bgRect, svgEl.firstChild);
-
-  const serializer = new XMLSerializer();
-  const svgData = serializer.serializeToString(svgEl);
-  const dataUri = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgData);
-
-  const scale = 2;
-  const canvas = document.createElement('canvas');
-  canvas.width = width * scale;
-  canvas.height = height * scale;
-  const ctx = canvas.getContext('2d')!;
-  ctx.scale(scale, scale);
-
-  const img = new Image();
-  img.crossOrigin = 'anonymous';
-  img.onload = () => {
-    ctx.drawImage(img, 0, 0, width, height);
-    try {
-      canvas.toBlob((blob) => {
-        if (!blob) return;
-        triggerDownload(URL.createObjectURL(blob), filename, true);
-      }, 'image/png');
-    } catch {
-      // Fallback: download as SVG
-      const svgBlob = new Blob([svgData], { type: 'image/svg+xml' });
-      triggerDownload(URL.createObjectURL(svgBlob), filename.replace('.png', '.svg'), true);
-    }
-  };
-  img.onerror = () => {
-    const svgBlob = new Blob([svgData], { type: 'image/svg+xml' });
-    triggerDownload(URL.createObjectURL(svgBlob), filename.replace('.png', '.svg'), true);
-  };
-  img.src = dataUri;
-}
 
 /** Extract table data to CSV and trigger download */
 function downloadTableAsCsv(tableEl: HTMLTableElement | null, filename: string) {
