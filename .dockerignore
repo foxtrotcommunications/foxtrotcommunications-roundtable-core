@@ -9,5 +9,4 @@ client/node_modules
 *.log
 tests
 e2e
-docs
-!workspace/docs
+/docs
