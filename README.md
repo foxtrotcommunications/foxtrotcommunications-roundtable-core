@@ -9,6 +9,7 @@ Roundtable is designed as a **platform for agent orchestration** — connect you
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-98%20passing-brightgreen.svg)](#testing)
 [![CI](https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable-core/actions/workflows/ci.yml/badge.svg)](https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable-core/actions/workflows/ci.yml)
+[![SafeSkill 50/100](https://img.shields.io/badge/SafeSkill-50%2F100_Use%20with%20Caution-orange)](https://safeskill.dev/scan/foxtrotcommunications-foxtrotcommunications-roundtable-core)
 
 ## Quick Start
 
