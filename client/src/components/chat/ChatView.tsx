@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, type KeyboardEvent } from 'react';
+import { useRef, useEffect, useState, useMemo, type KeyboardEvent } from 'react';
 import Message from './Message';
 import ToolCard from './ToolCard';
 import MessageContent from './MessageContent';
@@ -98,6 +98,24 @@ export default function ChatView({
     setInputValue('');
     if (inputRef.current) inputRef.current.style.height = 'auto';
   };
+
+  /** Build known mention targets from online users + message history senders */
+  const knownMentions = useMemo(() => {
+    const names = new Set<string>();
+    // Add online users
+    for (const u of onlineUsers) {
+      if (u.username) names.add(u.username);
+      if (u.displayName) names.add(u.displayName);
+    }
+    // Add senders from message history (covers offline users who were mentioned)
+    for (const msg of messages) {
+      if (msg.username) names.add(msg.username);
+      if (msg.display_name) names.add(msg.display_name);
+    }
+    // Always include 'ai'
+    names.add('ai');
+    return Array.from(names);
+  }, [onlineUsers, messages]);
 
   /** Build the filtered mention items list (same logic as MentionDropdown) */
   const getMentionItems = (): MentionItem[] => {
@@ -299,7 +317,7 @@ export default function ChatView({
           const isMentioned = currentUsername && msg.content
             ? new RegExp(`@${currentUsername}\\b`, 'i').test(msg.content)
             : false;
-          return <Message key={msg.id} message={msg} highlighted={isMentioned} />;
+          return <Message key={msg.id} message={msg} highlighted={isMentioned} knownMentions={knownMentions} />;
         })}
 
         {/* Live tool calls during streaming */}
@@ -318,7 +336,7 @@ export default function ChatView({
               </div>
               <div className="message-content">
                 {streamingContent && (
-                  <MessageContent content={streamingContent} streaming />
+                  <MessageContent content={streamingContent} streaming knownMentions={knownMentions} />
                 )}
                 <div className="streaming-indicator">
                   <span className="streaming-dot" />
@@ -347,7 +365,7 @@ export default function ChatView({
               </div>
               <div className="message-content">
                 {bridgeStreamingContent && (
-                  <MessageContent content={bridgeStreamingContent} />
+                  <MessageContent content={bridgeStreamingContent} knownMentions={knownMentions} />
                 )}
                 <div className="streaming-indicator">
                   <span className="streaming-dot" />
