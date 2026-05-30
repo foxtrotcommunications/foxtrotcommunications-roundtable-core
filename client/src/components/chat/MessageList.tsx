@@ -51,4 +51,42 @@ function MessageList({ messages, currentUsername, knownMentions, streaming, tool
   );
 }
 
-export default memo(MessageList);
+/**
+ * Custom comparator — hooks often return new array/Map references with
+ * identical content, defeating default shallow memo. Compare by content
+ * so the list only re-renders when messages actually change.
+ */
+function areEqual(prev: Props, next: Props): boolean {
+  // Fast path: if references are the same, skip
+  if (prev.messages === next.messages &&
+      prev.toolCalls === next.toolCalls &&
+      prev.knownMentions === next.knownMentions &&
+      prev.streaming === next.streaming &&
+      prev.currentUsername === next.currentUsername) {
+    return true;
+  }
+
+  // Messages: compare by count + last message id + last message content length
+  if (prev.messages.length !== next.messages.length) return false;
+  if (prev.messages.length > 0) {
+    const pLast = prev.messages[prev.messages.length - 1];
+    const nLast = next.messages[next.messages.length - 1];
+    if (pLast.id !== nLast.id || pLast.content?.length !== nLast.content?.length) return false;
+  }
+
+  // Scalars
+  if (prev.streaming !== next.streaming) return false;
+  if (prev.currentUsername !== next.currentUsername) return false;
+
+  // Tool calls: compare by size (new tool calls = re-render)
+  if (prev.toolCalls.size !== next.toolCalls.size) return false;
+
+  // Known mentions: compare by joined string (cheap content check)
+  if (prev.knownMentions.length !== next.knownMentions.length) return false;
+  if (prev.knownMentions.join(',') !== next.knownMentions.join(',')) return false;
+
+  return true;
+}
+
+export default memo(MessageList, areEqual);
+
