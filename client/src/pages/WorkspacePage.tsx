@@ -25,14 +25,14 @@ export default function WorkspacePage({ user, onLogout }: Props) {
   );
   const [bridgePanelOpen, setBridgePanelOpen] = useState(false);
   const [insightsPanelOpen, setInsightsPanelOpen] = useState(false);
-  const [hasBridges, setHasBridges] = useState(false);
+  const [bridges, setBridges] = useState<{ bridgeId: string; targetWsId: string; targetName: string; permissions: string[] }[]>([]);
   const [activeRepo, setActiveRepo] = useState<string | null>(null);
   const { toasts, addToast, removeToast } = useToast();
 
   useEffect(() => {
     api.getWorkspaceInfo().then(setWorkspace).catch(() => {});
     api.getMessages().then(chat.setMessages).catch(() => {});
-    api.getBridges().then(b => setHasBridges(b.length > 0)).catch(() => {});
+    api.getBridges().then(setBridges).catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Forward workspace-changed socket events to the CodePanel via a custom window event
@@ -104,7 +104,7 @@ export default function WorkspacePage({ user, onLogout }: Props) {
               <PresenceBar users={presence.users} />
               <button className="btn btn-ghost btn-sm" onClick={() => setSettingsOpen(true)} title="Settings">⚙️</button>
               <BridgeButton
-                hasBridges={hasBridges}
+                hasBridges={bridges.length > 0}
                 isOpen={bridgePanelOpen}
                 onClick={() => setBridgePanelOpen(!bridgePanelOpen)}
               />
@@ -139,6 +139,7 @@ export default function WorkspacePage({ user, onLogout }: Props) {
             onlineUsers={presence.users}
             currentUsername={user.username}
             workspaceName={workspace?.name}
+            bridges={bridges}
             bridgeProcessing={chat.bridgeProcessing}
             bridgeStreamingContent={chat.bridgeStreamingContent}
             bridgeSourceName={chat.bridgeSourceName}

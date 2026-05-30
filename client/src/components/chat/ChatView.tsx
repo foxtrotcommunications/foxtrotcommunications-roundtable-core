@@ -3,7 +3,7 @@ import MessageList from './MessageList';
 import MessageContent from './MessageContent';
 import MentionDropdown from './MentionDropdown';
 import OnboardingTooltip from './OnboardingTooltip';
-import type { MentionItem } from './MentionDropdown';
+import type { MentionItem, BridgeInfo } from './MentionDropdown';
 import type { ChatMessage, ToolCall, ToolResult } from '../../types/message';
 import type { PresenceUser } from '../../types/workspace';
 import type { TokenUsage } from '../../hooks/useSocket';
@@ -21,6 +21,7 @@ interface Props {
   onlineUsers: PresenceUser[];
   currentUsername?: string;
   workspaceName?: string;
+  bridges?: BridgeInfo[];
   bridgeProcessing?: boolean;
   bridgeStreamingContent?: string;
   bridgeSourceName?: string;
@@ -35,7 +36,7 @@ function formatTokenCount(n: number): string {
 export default function ChatView({
   messages, streaming, streamingContent, toolCalls, lastUsage,
   onSendMessage, onStopGeneration, onTyping, typingUsers, onlineUsers, currentUsername,
-  workspaceName, bridgeProcessing, bridgeStreamingContent, bridgeSourceName,
+  workspaceName, bridges, bridgeProcessing, bridgeStreamingContent, bridgeSourceName,
 }: Props) {
   const messagesRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -121,8 +122,15 @@ export default function ChatView({
     // Always include 'ai' and workspace alias
     names.add('ai');
     if (wsAlias && wsAlias.length >= 2) names.add(wsAlias);
+    // Add bridge targets (e.g. ai-executive, ai-pharmacy)
+    if (bridges) {
+      for (const b of bridges) {
+        const bridgeUsername = `ai-${b.targetName.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')}`;
+        names.add(bridgeUsername);
+      }
+    }
     return Array.from(names);
-  }, [onlineUsers, messages, wsAlias]);
+  }, [onlineUsers, messages, wsAlias, bridges]);
 
   /** Build the filtered mention items list (same logic as MentionDropdown) */
   const getMentionItems = (): MentionItem[] => {
@@ -423,6 +431,7 @@ export default function ChatView({
               <MentionDropdown
                 query={mentionQuery}
                 users={onlineUsers}
+                bridges={bridges}
                 selectedIndex={mentionIndex}
                 onSelect={handleMentionSelect}
               />
