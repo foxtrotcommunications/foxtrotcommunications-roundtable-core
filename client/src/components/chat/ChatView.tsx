@@ -179,7 +179,7 @@ export default function ChatView({
   /** Extract @mention query from cursor position */
   const detectMention = (value: string, cursorPos: number): string | null => {
     const before = value.substring(0, cursorPos);
-    const match = before.match(/@(\w*)$/);
+    const match = before.match(/@([\w-]*)$/);
     return match ? match[1] : null;
   };
 
@@ -211,7 +211,7 @@ export default function ChatView({
     const before = inputValue.substring(0, cursor);
     const after = inputValue.substring(cursor);
     // Replace @query with @username
-    const replaced = before.replace(/@\w*$/, `@${item.username} `);
+    const replaced = before.replace(/@[\w-]*$/, `@${item.username} `);
     const newValue = replaced + after;
     setInputValue(newValue);
     setShowMention(false);
