@@ -11,6 +11,8 @@ import type { ChartResult } from '../../types/message';
 interface Props {
   content: string;
   streaming?: boolean;
+  /** Known mention targets — display names and usernames that should be highlighted */
+  knownMentions?: string[];
 }
 
 /**
@@ -29,35 +31,63 @@ function extractText(node: unknown): string {
   return '';
 }
 
-/** Replace @mentions in a text string with styled span elements */
-function renderMentions(text: string): ReactNode[] {
-  // Match @word (single-word like @ai) or @Capitalized Word(s) for display names
-  // e.g. @ai, @Brady, @Brady Bastian, @AI Assistant
-  const parts = text.split(/(@[A-Za-z][\w-]*(?:\s+[A-Z][\w-]*)*)/g);
-  return parts.map((part, i) => {
-    const mentionMatch = part.match(/^@([A-Za-z][\w-]*(?:\s+[A-Z][\w-]*)*)$/);
-    if (mentionMatch) {
-      const username = mentionMatch[1];
-      const isAi = username.toLowerCase() === 'ai';
-      return (
-        <span key={i} className={`mention${isAi ? ' mention-ai' : ''}`}>
-          {part}
-        </span>
-      );
+/**
+ * Replace @mentions in a text string with styled span elements.
+ * Matches against actual known usernames/display names rather than regex guessing.
+ */
+function renderMentions(text: string, knownMentions: string[]): ReactNode[] {
+  if (knownMentions.length === 0) return [text];
+
+  // Build a regex that matches @<known_name> for each known mention target.
+  // Sort by length descending so "Brady Bastian" matches before "Brady".
+  const sorted = [...knownMentions].sort((a, b) => b.length - a.length);
+  const escaped = sorted.map(m => m.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const pattern = new RegExp(`(@(?:${escaped.join('|')}))(?=\\b|[^\\w]|$)`, 'gi');
+
+  const result: ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    // Add any text before this match
+    if (match.index > lastIndex) {
+      result.push(text.slice(lastIndex, match.index));
     }
-    return part;
-  });
+    const mentionText = match[1];
+    const isAi = mentionText.toLowerCase() === '@ai';
+    result.push(
+      <span key={match.index} className={`mention${isAi ? ' mention-ai' : ''}`}>
+        {mentionText}
+      </span>
+    );
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Add remaining text after last match
+  if (lastIndex < text.length) {
+    result.push(text.slice(lastIndex));
+  }
+
+  return result.length > 0 ? result : [text];
 }
 
 /** Recursively process React children to add mention styling */
-function processMentions(children: ReactNode): ReactNode {
-  if (typeof children === 'string') return renderMentions(children);
-  if (Array.isArray(children)) return children.map((c, i) => <span key={i}>{processMentions(c)}</span>);
+function processMentions(children: ReactNode, knownMentions: string[]): ReactNode {
+  if (typeof children === 'string') return renderMentions(children, knownMentions);
+  if (Array.isArray(children)) return children.map((c, i) => <span key={i}>{processMentions(c, knownMentions)}</span>);
   return children;
 }
 
-export default function MessageContent({ content, streaming }: Props) {
+export default function MessageContent({ content, streaming, knownMentions = [] }: Props) {
   const processed = useMemo(() => content, [content]);
+
+  // Always include 'ai' as a known mention
+  const mentions = useMemo(() => {
+    const set = new Set(knownMentions.map(m => m.toLowerCase()));
+    set.add('ai');
+    // Deduplicate and return
+    return Array.from(new Set([...knownMentions, 'ai']));
+  }, [knownMentions]);
 
   return (
     <ReactMarkdown
@@ -109,10 +139,10 @@ export default function MessageContent({ content, streaming }: Props) {
         },
         // Render @mentions as styled pills in paragraphs and list items
         p({ children }) {
-          return <p>{processMentions(children)}</p>;
+          return <p>{processMentions(children, mentions)}</p>;
         },
         li({ children }) {
-          return <li>{processMentions(children)}</li>;
+          return <li>{processMentions(children, mentions)}</li>;
         },
         // Wrap tables in a collapsible block with CSV download
         table({ children }) {

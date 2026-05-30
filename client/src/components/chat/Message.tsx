@@ -4,7 +4,7 @@ import { getUserColor, formatTime } from './utils';
 import PinButton from '../insights/PinButton';
 import type { ChatMessage } from '../../types/message';
 
-interface Props { message: ChatMessage; highlighted?: boolean; }
+interface Props { message: ChatMessage; highlighted?: boolean; knownMentions?: string[]; }
 
 /**
  * Parse bridge attribution from message content.
@@ -16,7 +16,7 @@ function parseBridgeSource(content: string): { source: string; cleanContent: str
   return { source: match[1], cleanContent: content.slice(match[0].length) };
 }
 
-function Message({ message, highlighted }: Props) {
+function Message({ message, highlighted, knownMentions }: Props) {
   const isAssistant = message.role === 'assistant';
   const bridgeInfo = !isAssistant ? parseBridgeSource(message.content) : null;
   const isBridged = !!bridgeInfo;
@@ -47,7 +47,7 @@ function Message({ message, highlighted }: Props) {
           <span className="message-time">{formatTime(message.created_at)}</span>
         </div>
         <div className="message-content">
-          <MessageContent content={displayContent} />
+          <MessageContent content={displayContent} knownMentions={knownMentions} />
         </div>
         {isAssistant && <PinButton messageId={message.id} content={message.content} />}
       </div>
