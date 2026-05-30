@@ -138,6 +138,7 @@ export default function WorkspacePage({ user, onLogout }: Props) {
             typingUsers={presence.users.filter(u => u.activity === 'composing')}
             onlineUsers={presence.users}
             currentUsername={user.username}
+            workspaceName={workspace?.name}
             bridgeProcessing={chat.bridgeProcessing}
             bridgeStreamingContent={chat.bridgeStreamingContent}
             bridgeSourceName={chat.bridgeSourceName}

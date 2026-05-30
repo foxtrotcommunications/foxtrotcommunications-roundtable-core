@@ -21,6 +21,7 @@ interface Props {
   typingUsers: PresenceUser[];
   onlineUsers: PresenceUser[];
   currentUsername?: string;
+  workspaceName?: string;
   bridgeProcessing?: boolean;
   bridgeStreamingContent?: string;
   bridgeSourceName?: string;
@@ -35,7 +36,7 @@ function formatTokenCount(n: number): string {
 export default function ChatView({
   messages, streaming, streamingContent, toolCalls, lastUsage,
   onSendMessage, onStopGeneration, onTyping, typingUsers, onlineUsers, currentUsername,
-  bridgeProcessing, bridgeStreamingContent, bridgeSourceName,
+  workspaceName, bridgeProcessing, bridgeStreamingContent, bridgeSourceName,
 }: Props) {
   const messagesRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -100,6 +101,12 @@ export default function ChatView({
   };
 
   /** Build known mention targets from online users + message history senders */
+  // Derive workspace alias: "ICU — Critical Care" → "icu"
+  const wsAlias = useMemo(() => {
+    if (!workspaceName) return '';
+    return workspaceName.split(/[\s\u2014\u2013\-]/)[0].trim().toLowerCase();
+  }, [workspaceName]);
+
   const knownMentions = useMemo(() => {
     const names = new Set<string>();
     // Add online users
@@ -112,10 +119,11 @@ export default function ChatView({
       if (msg.username) names.add(msg.username);
       if (msg.display_name) names.add(msg.display_name);
     }
-    // Always include 'ai'
+    // Always include 'ai' and workspace alias
     names.add('ai');
+    if (wsAlias && wsAlias.length >= 2) names.add(wsAlias);
     return Array.from(names);
-  }, [onlineUsers, messages]);
+  }, [onlineUsers, messages, wsAlias]);
 
   /** Build the filtered mention items list (same logic as MentionDropdown) */
   const getMentionItems = (): MentionItem[] => {
@@ -123,6 +131,10 @@ export default function ChatView({
     const items: MentionItem[] = [
       { type: 'ai', username: 'ai', displayName: 'AI Assistant' },
     ];
+    // Add workspace alias as an AI trigger
+    if (wsAlias && wsAlias.length >= 2) {
+      items.push({ type: 'ai', username: wsAlias, displayName: workspaceName || wsAlias });
+    }
     for (const u of onlineUsers) {
       if (u.username.toLowerCase() === 'ai') continue;
       items.push({ type: 'user', username: u.username, displayName: u.displayName || u.username });
@@ -440,7 +452,7 @@ export default function ChatView({
             <textarea
               ref={inputRef}
               className="chat-input"
-              placeholder="Message the workspace… Use @ai to invoke AI"
+              placeholder={wsAlias ? `Message the workspace… Use @ai or @${wsAlias} to invoke AI` : 'Message the workspace… Use @ai to invoke AI'}
               rows={1}
               value={inputValue}
               onChange={e => handleInput(e.target.value)}
