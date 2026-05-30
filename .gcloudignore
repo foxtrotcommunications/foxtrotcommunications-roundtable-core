@@ -1,0 +1,17 @@
+# Cloud Build ignore — mirrors .dockerignore
+# Note: gcloud builds submit uses this instead of .gitignore for upload filtering
+node_modules
+client/node_modules
+.git
+.github
+.DS_Store
+.env
+.env.*
+!.env.example
+*.log
+tests
+e2e
+# Exclude workspace runtime data but keep docs
+workspace/*
+!workspace/docs
+!workspace/docs/**
