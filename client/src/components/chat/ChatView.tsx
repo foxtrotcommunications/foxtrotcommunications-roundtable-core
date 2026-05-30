@@ -142,6 +142,13 @@ export default function ChatView({
     if (wsAlias && wsAlias.length >= 2) {
       items.push({ type: 'ai', username: wsAlias, displayName: workspaceName || wsAlias });
     }
+    // Add bridge targets (must match MentionDropdown order: AI → bridges → users)
+    if (bridges) {
+      for (const b of bridges) {
+        const bridgeUsername = `ai-${b.targetName.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')}`;
+        items.push({ type: 'bridge', username: bridgeUsername, displayName: b.targetName });
+      }
+    }
     for (const u of onlineUsers) {
       if (u.username.toLowerCase() === 'ai') continue;
       items.push({ type: 'user', username: u.username, displayName: u.displayName || u.username });
