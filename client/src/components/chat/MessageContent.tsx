@@ -31,9 +31,11 @@ function extractText(node: unknown): string {
 
 /** Replace @mentions in a text string with styled span elements */
 function renderMentions(text: string): ReactNode[] {
-  const parts = text.split(/(@\w[\w-]*)/g);
+  // Match @word (single-word like @ai) or @Capitalized Word(s) for display names
+  // e.g. @ai, @Brady, @Brady Bastian, @AI Assistant
+  const parts = text.split(/(@[A-Za-z][\w-]*(?:\s+[A-Z][\w-]*)*)/g);
   return parts.map((part, i) => {
-    const mentionMatch = part.match(/^@(\w[\w-]*)$/);
+    const mentionMatch = part.match(/^@([A-Za-z][\w-]*(?:\s+[A-Z][\w-]*)*)$/);
     if (mentionMatch) {
       const username = mentionMatch[1];
       const isAi = username.toLowerCase() === 'ai';
