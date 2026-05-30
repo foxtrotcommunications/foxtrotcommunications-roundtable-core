@@ -90,10 +90,9 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
         io.to(wsChannel).emit('new-message', userMessage);
       }
 
-      // Invoke AI when the message contains @ai or @{workspace alias} (e.g. @icu, @pharmacy)
       // Also detect @ai-{workspace} for bridge delegation
       const mentionsAI: boolean = aiTriggerPattern.test(content);
-      const bridgeMention: RegExpMatchArray | null = content.match(/@ai-(\S+)/i);
+      const bridgeMention: RegExpMatchArray | null = content.match(/@ai-([\w-]+)/i);
       if (!mentionsAI && !bridgeMention) return;
 
       // ── Rate limiting for AI-triggering messages ──────────────────
@@ -111,7 +110,7 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
       if (bridgeMention) {
         const targetName: string = bridgeMention[1];
         // Strip the @ai-workspace from the content to get the actual message
-        const bridgeContent: string = content.replace(/@ai-\S+\s*/i, '').trim();
+        const bridgeContent: string = content.replace(/@ai-[\w-]+\s*/i, '').trim();
 
         if (!bridgeContent) {
           socket.emit('error-message', { error: `What would you like to ask ${targetName}? e.g. @ai-${targetName} review this query` });
@@ -128,26 +127,29 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
         let bridges: BridgeEntry[];
         try { bridges = JSON.parse(manifest); } catch { bridges = []; }
 
+        // Slugify helper: "Executive — C-Suite" → "executive-c-suite"
+        const slugify = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        const targetSlug: string = slugify(targetName);
+
         const bridge: BridgeEntry | undefined = bridges.find(
-          (b: BridgeEntry) => b.targetName.toLowerCase() === targetName.toLowerCase()
+          (b: BridgeEntry) => slugify(b.targetName) === targetSlug
         );
 
         if (!bridge) {
           // Fuzzy match — suggest close names
           const suggestions: string[] = bridges
             .filter((b: BridgeEntry) => {
-              const t: string = b.targetName.toLowerCase();
-              const q: string = targetName.toLowerCase();
-              return t.startsWith(q) || q.startsWith(t) || t.includes(q) || q.includes(t);
+              const t: string = slugify(b.targetName);
+              return t.startsWith(targetSlug) || targetSlug.startsWith(t) || t.includes(targetSlug) || targetSlug.includes(t);
             })
-            .map((b: BridgeEntry) => `@ai-${b.targetName.toLowerCase()}`);
+            .map((b: BridgeEntry) => `@ai-${slugify(b.targetName)}`);
 
           if (suggestions.length > 0) {
             socket.emit('error-message', {
               error: `No bridge to "${targetName}". Did you mean ${suggestions.join(' or ')}?`,
             });
           } else {
-            const available: string = bridges.map((b: BridgeEntry) => `@ai-${b.targetName.toLowerCase()}`).join(', ');
+            const available: string = bridges.map((b: BridgeEntry) => `@ai-${slugify(b.targetName)}`).join(', ');
             socket.emit('error-message', {
               error: `No bridge to "${targetName}". Available: ${available || 'none'}`,
             });
