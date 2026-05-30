@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, memo, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import CodeBlock from './CodeBlock';
@@ -14,6 +14,9 @@ interface Props {
   /** Known mention targets — display names and usernames that should be highlighted */
   knownMentions?: string[];
 }
+
+/** Stable reference for remarkPlugins to avoid ReactMarkdown re-parses */
+const REMARK_PLUGINS = [remarkGfm];
 
 /**
  * Extract text content from React children, which may be strings,
@@ -78,7 +81,7 @@ function processMentions(children: ReactNode, knownMentions: string[]): ReactNod
   return children;
 }
 
-export default function MessageContent({ content, streaming, knownMentions = [] }: Props) {
+function MessageContent({ content, streaming, knownMentions = [] }: Props) {
   const processed = useMemo(() => content, [content]);
 
   // Always include 'ai' as a known mention
@@ -89,68 +92,73 @@ export default function MessageContent({ content, streaming, knownMentions = [] 
     return Array.from(new Set([...knownMentions, 'ai']));
   }, [knownMentions]);
 
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={{
-        code({ className, children, ...props }) {
-          const match = /language-(\w+)/.exec(className || '');
-          const lang = match?.[1];
-          const isBlock = !!(props as Record<string, unknown>).node &&
-            ((props as Record<string, unknown>).node as { position?: { start: { line: number }; end: { line: number } } })?.position?.start.line !==
-            ((props as Record<string, unknown>).node as { position?: { start: { line: number }; end: { line: number } } })?.position?.end.line;
+  // Memoize the components object so ReactMarkdown doesn't re-mount
+  // charts/mermaid/tables on every parent re-render (e.g. typing)
+  const components = useMemo(() => ({
+    code({ className, children, ...props }: any) {
+      const match = /language-(\w+)/.exec(className || '');
+      const lang = match?.[1];
+      const isBlock = !!props.node &&
+        props.node?.position?.start.line !== props.node?.position?.end.line;
 
-          // Chart block: ```chart { ...json config... } ```
-          if (lang === 'chart' && !streaming) {
-            try {
-              const raw = extractText(children).trim();
-              const config = JSON.parse(raw) as ChartResult;
-              if (config.chartType && config.labels && config.datasets) {
-                return (
-                  <CollapsibleBlock label={config.title || 'Chart'} icon="📊">
-                    <ChartRenderer config={config} />
-                  </CollapsibleBlock>
-                );
-              }
-            } catch {
-              // Fall through to code block if JSON is invalid
-            }
-          }
-
-          // Mermaid diagram block: ```mermaid ... ```
-          if (lang === 'mermaid' && !streaming) {
-            let raw = extractText(children).trim();
-            // Strip inline style/classDef/class directives — let the theme engine handle colors
-            raw = raw.replace(/^\s*(style\s+\S+|classDef\s+|class\s+\S+\s+).*$/gm, '');
-            return <MermaidBlock code={raw} MermaidRenderer={MermaidRenderer} />;
-          }
-
-          if (match || isBlock) {
+      // Chart block: ```chart { ...json config... } ```
+      if (lang === 'chart' && !streaming) {
+        try {
+          const raw = extractText(children).trim();
+          const config = JSON.parse(raw) as ChartResult;
+          if (config.chartType && config.labels && config.datasets) {
             return (
-              <CodeBlock language={lang || 'plaintext'}>
-                {extractText(children)}
-              </CodeBlock>
+              <CollapsibleBlock label={config.title || 'Chart'} icon="📊">
+                <ChartRenderer config={config} />
+              </CollapsibleBlock>
             );
           }
-          return <code className={className} {...props}>{children}</code>;
-        },
-        pre({ children }) {
-          return <>{children}</>;
-        },
-        // Render @mentions as styled pills in paragraphs and list items
-        p({ children }) {
-          return <p>{processMentions(children, mentions)}</p>;
-        },
-        li({ children }) {
-          return <li>{processMentions(children, mentions)}</li>;
-        },
-        // Wrap tables in a collapsible block with CSV download
-        table({ children }) {
-          return <TableBlock>{children}</TableBlock>;
-        },
-      }}
+        } catch {
+          // Fall through to code block if JSON is invalid
+        }
+      }
+
+      // Mermaid diagram block: ```mermaid ... ```
+      if (lang === 'mermaid' && !streaming) {
+        let raw = extractText(children).trim();
+        // Strip inline style/classDef/class directives — let the theme engine handle colors
+        raw = raw.replace(/^\s*(style\s+\S+|classDef\s+|class\s+\S+\s+).*$/gm, '');
+        return <MermaidBlock code={raw} MermaidRenderer={MermaidRenderer} />;
+      }
+
+      if (match || isBlock) {
+        return (
+          <CodeBlock language={lang || 'plaintext'}>
+            {extractText(children)}
+          </CodeBlock>
+        );
+      }
+      return <code className={className} {...props}>{children}</code>;
+    },
+    pre({ children }: any) {
+      return <>{children}</>;
+    },
+    // Render @mentions as styled pills in paragraphs and list items
+    p({ children }: any) {
+      return <p>{processMentions(children, mentions)}</p>;
+    },
+    li({ children }: any) {
+      return <li>{processMentions(children, mentions)}</li>;
+    },
+    // Wrap tables in a collapsible block with CSV download
+    table({ children }: any) {
+      return <TableBlock>{children}</TableBlock>;
+    },
+  }), [streaming, mentions]);
+
+  return (
+    <ReactMarkdown
+      remarkPlugins={REMARK_PLUGINS}
+      components={components}
     >
       {processed}
     </ReactMarkdown>
   );
 }
+
+export default memo(MessageContent);
