@@ -67,6 +67,17 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
   const wsChannel: string = `ws:${config.workspaceId}`;
   const aiMessageTimestamps: number[] = []; // per-socket rate tracker
 
+  // Derive workspace alias(es) for @-mention triggering
+  // e.g., "ICU — Critical Care" → "icu", "Pharmacy" → "pharmacy"
+  const wsAlias: string = (config.workspaceName || '').split(/[\s—–\-]/)[0].trim().toLowerCase();
+  const wsId: string = config.workspaceId.toLowerCase();
+  const aliasParts: string[] = [wsAlias, wsId]
+    .filter(a => a.length >= 2 && a !== 'roundtable')
+    .map(a => a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const aiTriggerPattern: RegExp = new RegExp(
+    `@(?:ai${aliasParts.map(a => '|' + a).join('')})\\b`, 'i'
+  );
+
   socket.on('send-message', async ({ content, activeRepo, _fromQueue }: { content: string; activeRepo?: string; _fromQueue?: boolean }) => {
     try {
       // Save and broadcast every message (skip for queued re-processing)
@@ -79,9 +90,9 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
         io.to(wsChannel).emit('new-message', userMessage);
       }
 
-      // Only invoke AI when the message contains @ai (case-insensitive)
+      // Invoke AI when the message contains @ai or @{workspace alias} (e.g. @icu, @pharmacy)
       // Also detect @ai-{workspace} for bridge delegation
-      const mentionsAI: boolean = /@ai\b/i.test(content);
+      const mentionsAI: boolean = aiTriggerPattern.test(content);
       const bridgeMention: RegExpMatchArray | null = content.match(/@ai-(\S+)/i);
       if (!mentionsAI && !bridgeMention) return;
 

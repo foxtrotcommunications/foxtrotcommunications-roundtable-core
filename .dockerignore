@@ -9,7 +9,3 @@ client/node_modules
 *.log
 tests
 e2e
-# Exclude root docs/ but keep workspace/docs/
-docs
-!workspace/docs/
-!workspace/docs/**
