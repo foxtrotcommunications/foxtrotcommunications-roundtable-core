@@ -51,6 +51,7 @@ Roundtable auto-detects the environment: if no `DATABASE_URL` is set, it uses SQ
 - **Data Warehouse Queries** — AI can query BigQuery, Snowflake, and Databricks in real-time
 - **Workspace-per-Container** — Each workspace is an isolated container with its own identity
 - **Workspace Bridges** — Open cross-workspace channels for AI-mediated collaboration between teams
+- **Bridge Contracts** — Governed communication agreements between workspaces; contracts define allowed actions, approval requirements, and escalation paths at each bridge hop
 - **A2A Agent Protocol** — Plug in external agents built in any language via the A2A standard
 - **Multi-Cloud** — Deploy on Cloud Run, GKE, EKS, AKS, or any Kubernetes cluster
 - **BYOK** — Bring Your Own Key; users configure their own API keys, or use server-level defaults
