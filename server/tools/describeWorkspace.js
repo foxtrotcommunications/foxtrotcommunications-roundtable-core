@@ -103,20 +103,33 @@ module.exports = {
       }
     } catch (_) {}
 
-    // ── A2A Agents (future — federation service integration point) ──
-    // When the federation service is implemented, registered A2A agents
-    // will be reported here with their capabilities and endpoints.
+    // ── A2A Agents (configured in workspace data_sources or env) ──
     const agents = [];
+    if (workspaceConfig.a2aAgents && Array.isArray(workspaceConfig.a2aAgents)) {
+      for (const agent of workspaceConfig.a2aAgents) {
+        agents.push({ name: agent.name, url: agent.url, status: 'configured' });
+      }
+    }
 
-    // ── MCP Servers (future — federation service integration point) ──
-    // When MCP server adapters are implemented, connected servers
-    // will be reported here with their tool manifests.
+    // ── MCP Servers (configured in workspace data_sources or env) ──
     const mcpServers = [];
+    if (workspaceConfig.mcpServers && Array.isArray(workspaceConfig.mcpServers)) {
+      for (const server of workspaceConfig.mcpServers) {
+        mcpServers.push({ name: server.name, url: server.url, status: 'configured' });
+      }
+    }
 
-    // ── Workspace Bridges (future) ──────────────────────────
-    // When workspace bridges are implemented, active and available
-    // bridge targets will be reported here.
+    // ── Workspace Bridges (from RT_BRIDGES env) ──────────────────
     const bridges = [];
+    try {
+      const manifest = process.env.RT_BRIDGES;
+      if (manifest) {
+        const parsed = JSON.parse(manifest);
+        for (const b of parsed) {
+          bridges.push({ targetName: b.targetName, targetWsId: b.targetWsId, permissions: b.permissions });
+        }
+      }
+    } catch (_) {}
 
     // ── Usage Stats (current period) ─────────────────────────
     let usage = null;

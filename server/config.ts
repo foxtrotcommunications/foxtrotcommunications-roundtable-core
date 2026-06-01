@@ -71,6 +71,12 @@ const config: AppConfig = {
     catalog: process.env.DATABRICKS_CATALOG || '',
     schema: process.env.DATABRICKS_SCHEMA || '',
   },
+
+  // Protocol integrations
+  mcpServerEnabled: process.env.MCP_SERVER_ENABLED === 'true',
+  a2aServerEnabled: process.env.A2A_SERVER_ENABLED === 'true',
+  mcpApiKey: process.env.MCP_API_KEY || '',
+  a2aApiKey: process.env.A2A_API_KEY || '',
 };
 
 module.exports = config;
