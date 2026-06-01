@@ -70,6 +70,18 @@ export default function SettingsModal({ onClose, onSaved, addToast }: Props) {
   // Data sources state
   const [ds, setDs] = useState<DataSources>({});
 
+  // MCP Servers state
+  const [mcpServers, setMcpServers] = useState<Array<{ name: string; url: string; apiKey?: string }>>([]);
+  const [newMcpName, setNewMcpName] = useState('');
+  const [newMcpUrl, setNewMcpUrl] = useState('');
+  const [newMcpKey, setNewMcpKey] = useState('');
+
+  // A2A Agents state
+  const [a2aAgents, setA2aAgents] = useState<Array<{ name: string; url: string; apiKey?: string }>>([]);
+  const [newA2aName, setNewA2aName] = useState('');
+  const [newA2aUrl, setNewA2aUrl] = useState('');
+  const [newA2aKey, setNewA2aKey] = useState('');
+
   // Keys state
   const [keys, setKeys] = useState<ApiKeyInfo[]>([]);
   const [keyProvider, setKeyProvider] = useState('openai');
@@ -103,6 +115,9 @@ export default function SettingsModal({ onClose, onSaved, addToast }: Props) {
         try {
           const parsed = typeof workspace.data_sources === 'string' ? JSON.parse(workspace.data_sources) : workspace.data_sources;
           setDs(parsed);
+          // Load MCP servers and A2A agents from data_sources
+          if (parsed.mcp_servers && Array.isArray(parsed.mcp_servers)) setMcpServers(parsed.mcp_servers);
+          if (parsed.a2a_agents && Array.isArray(parsed.a2a_agents)) setA2aAgents(parsed.a2a_agents);
         } catch { /* empty */ }
       }
     });
@@ -141,6 +156,42 @@ export default function SettingsModal({ onClose, onSaved, addToast }: Props) {
     } catch (err: unknown) { addToast(err instanceof Error ? err.message : 'Failed to save', 'error'); }
   };
 
+  const saveMcpServers = async () => {
+    try {
+      const updated = { ...ds, mcp_servers: mcpServers };
+      await api.updateWorkspaceInfo({ dataSources: updated });
+      setDs(updated);
+      addToast(`Saved ${mcpServers.length} MCP server(s)`, 'success');
+      onSaved();
+    } catch (err: unknown) { addToast(err instanceof Error ? err.message : 'Failed to save', 'error'); }
+  };
+
+  const addMcpServer = () => {
+    if (!newMcpName.trim() || !newMcpUrl.trim()) return;
+    setMcpServers(prev => [...prev, { name: newMcpName.trim(), url: newMcpUrl.trim(), ...(newMcpKey ? { apiKey: newMcpKey } : {}) }]);
+    setNewMcpName(''); setNewMcpUrl(''); setNewMcpKey('');
+  };
+
+  const removeMcpServer = (idx: number) => setMcpServers(prev => prev.filter((_, i) => i !== idx));
+
+  const saveA2aAgents = async () => {
+    try {
+      const updated = { ...ds, a2a_agents: a2aAgents };
+      await api.updateWorkspaceInfo({ dataSources: updated });
+      setDs(updated);
+      addToast(`Saved ${a2aAgents.length} A2A agent(s)`, 'success');
+      onSaved();
+    } catch (err: unknown) { addToast(err instanceof Error ? err.message : 'Failed to save', 'error'); }
+  };
+
+  const addA2aAgent = () => {
+    if (!newA2aName.trim() || !newA2aUrl.trim()) return;
+    setA2aAgents(prev => [...prev, { name: newA2aName.trim(), url: newA2aUrl.trim(), ...(newA2aKey ? { apiKey: newA2aKey } : {}) }]);
+    setNewA2aName(''); setNewA2aUrl(''); setNewA2aKey('');
+  };
+
+  const removeA2aAgent = (idx: number) => setA2aAgents(prev => prev.filter((_, i) => i !== idx));
+
   const saveKey = async () => {
     if (!keyValue) return;
     try {
@@ -172,6 +223,8 @@ export default function SettingsModal({ onClose, onSaved, addToast }: Props) {
     { id: 'agent', label: 'AI Agent' },
     { id: 'tools', label: 'Tools' },
     { id: 'data', label: 'Data Sources' },
+    { id: 'mcp', label: 'MCP Servers' },
+    { id: 'a2a', label: 'A2A Agents' },
     { id: 'keys', label: 'API Keys' },
   ];
 
@@ -378,6 +431,96 @@ export default function SettingsModal({ onClose, onSaved, addToast }: Props) {
                   <button className="btn btn-ghost btn-sm" style={{ color: 'var(--error)' }} onClick={() => deleteKey(k.id)}>✕</button>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* MCP Servers Tab */}
+        {tab === 'mcp' && (
+          <div className="settings-tab-panel active">
+            <p className="settings-desc">
+              Connect to external MCP (Model Context Protocol) servers to give your AI access to additional tools.
+              Tools from connected servers appear automatically in your workspace.
+            </p>
+
+            {mcpServers.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                {mcpServers.map((s, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', marginBottom: 6, background: 'var(--bg-secondary)', borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
+                    <span style={{ fontSize: 16 }}>🔌</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>{s.name}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{s.url}</div>
+                    </div>
+                    {s.apiKey && <span style={{ fontSize: 10, color: 'var(--text-muted)', background: 'var(--bg-tertiary)', padding: '2px 6px', borderRadius: 4 }}>🔑 key</span>}
+                    <button className="btn btn-ghost btn-sm" style={{ color: 'var(--error)' }} onClick={() => removeMcpServer(i)}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 8, marginBottom: 8 }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label>Server Name</label>
+                <input value={newMcpName} onChange={e => setNewMcpName(e.target.value)} placeholder="my-tools" />
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label>Server URL</label>
+                <input value={newMcpUrl} onChange={e => setNewMcpUrl(e.target.value)} placeholder="https://mcp.example.com/mcp" />
+              </div>
+            </div>
+            <div className="form-group" style={{ marginBottom: 12 }}>
+              <label>API Key <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
+              <input type="password" value={newMcpKey} onChange={e => setNewMcpKey(e.target.value)} placeholder="Bearer token for auth" />
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-secondary btn-sm" onClick={addMcpServer} disabled={!newMcpName.trim() || !newMcpUrl.trim()}>+ Add Server</button>
+              <button className="btn btn-primary btn-sm" onClick={saveMcpServers}>Save MCP Servers</button>
+            </div>
+          </div>
+        )}
+
+        {/* A2A Agents Tab */}
+        {tab === 'a2a' && (
+          <div className="settings-tab-panel active">
+            <p className="settings-desc">
+              Register external A2A (Agent-to-Agent) agents that your workspace AI can delegate tasks to.
+              Use the <code style={{ fontSize: 12, padding: '1px 4px', background: 'var(--bg-tertiary)', borderRadius: 3 }}>call_agent</code> tool to communicate with them.
+            </p>
+
+            {a2aAgents.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                {a2aAgents.map((a, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', marginBottom: 6, background: 'var(--bg-secondary)', borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
+                    <span style={{ fontSize: 16 }}>🤖</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>{a.name}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{a.url}</div>
+                    </div>
+                    {a.apiKey && <span style={{ fontSize: 10, color: 'var(--text-muted)', background: 'var(--bg-tertiary)', padding: '2px 6px', borderRadius: 4 }}>🔑 key</span>}
+                    <button className="btn btn-ghost btn-sm" style={{ color: 'var(--error)' }} onClick={() => removeA2aAgent(i)}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 8, marginBottom: 8 }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label>Agent Name</label>
+                <input value={newA2aName} onChange={e => setNewA2aName(e.target.value)} placeholder="research-agent" />
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label>Agent URL</label>
+                <input value={newA2aUrl} onChange={e => setNewA2aUrl(e.target.value)} placeholder="https://agent.example.com" />
+              </div>
+            </div>
+            <div className="form-group" style={{ marginBottom: 12 }}>
+              <label>API Key <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
+              <input type="password" value={newA2aKey} onChange={e => setNewA2aKey(e.target.value)} placeholder="x-api-key value" />
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-secondary btn-sm" onClick={addA2aAgent} disabled={!newA2aName.trim() || !newA2aUrl.trim()}>+ Add Agent</button>
+              <button className="btn btn-primary btn-sm" onClick={saveA2aAgents}>Save A2A Agents</button>
             </div>
           </div>
         )}

@@ -320,6 +320,39 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
         } catch (_) {}
       }
 
+      // ── MCP Tool Discovery ──────────────────────────────────────
+      // If workspace has configured MCP servers, discover their tools
+      // and register them dynamically so the AI can use them.
+      if (dataSources && (dataSources as Record<string, unknown>).mcp_servers) {
+        try {
+          const mcpServers = (dataSources as Record<string, unknown>).mcp_servers;
+          if (Array.isArray(mcpServers) && mcpServers.length > 0) {
+            const { createMcpToolsForWorkspace } = require('../mcp/client') as {
+              createMcpToolsForWorkspace: (servers: Array<{ name: string; url: string; apiKey?: string }>) => Promise<Array<{ name: string; description: string; parameters: Record<string, unknown>; execute: Function }>>;
+            };
+            const { registerDynamicTools } = require('../tools/index');
+            const mcpTools = await createMcpToolsForWorkspace(mcpServers);
+            if (mcpTools.length > 0) {
+              registerDynamicTools(mcpTools);
+              console.log(`[MCP] Registered ${mcpTools.length} tools from ${mcpServers.length} server(s)`);
+            }
+            workspaceConfig.mcpServers = mcpServers;
+          }
+        } catch (err) {
+          console.warn('[MCP] Tool discovery failed:', (err as Error).message);
+        }
+      }
+
+      // Pass A2A agent config to workspaceConfig for describeWorkspace
+      if (dataSources && (dataSources as Record<string, unknown>).a2a_agents) {
+        try {
+          const a2aAgents = (dataSources as Record<string, unknown>).a2a_agents;
+          if (Array.isArray(a2aAgents)) {
+            workspaceConfig.a2aAgents = a2aAgents;
+          }
+        } catch (_) {}
+      }
+
       // Vertex AI uses ADC, Ollama uses no auth — skip API key for both
       let apiKey: string = '';
       if (aiProvider === 'vertexai') {
