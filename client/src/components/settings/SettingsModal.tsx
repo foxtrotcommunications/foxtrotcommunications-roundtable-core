@@ -61,6 +61,7 @@ export default function SettingsModal({ onClose, onSaved, addToast }: Props) {
   const [systemPrompt, setSystemPrompt] = useState('');
   const [ollamaHost, setOllamaHost] = useState('');
   const [ollamaModels, setOllamaModels] = useState<{ value: string; label: string }[]>([]);
+  const [allowedProviders, setAllowedProviders] = useState<string[] | null>(null);
 
   // Tools state
   const allTools = TOOL_CATALOG.flatMap(g => g.tools);
@@ -80,6 +81,14 @@ export default function SettingsModal({ onClose, onSaved, addToast }: Props) {
       setModel(workspace.ai_model || '');
       setSystemPrompt(workspace.system_prompt || '');
       setOllamaHost(workspace.ollama_host || '');
+
+      // Parse allowed providers restriction
+      if (workspace.allowed_providers) {
+        try {
+          const parsed = JSON.parse(workspace.allowed_providers);
+          if (Array.isArray(parsed) && parsed.length > 0) setAllowedProviders(parsed);
+        } catch { /* unrestricted */ }
+      }
 
       // Parse enabled tools
       if (workspace.enabled_tools) {
@@ -197,13 +206,32 @@ export default function SettingsModal({ onClose, onSaved, addToast }: Props) {
             <p className="settings-desc">Configure the AI provider, model, and system prompt for this workspace.</p>
             <div className="form-group">
               <label>Provider</label>
-              <select value={provider} onChange={e => setProvider(e.target.value)}>
-                <option value="vertexai">Vertex AI (Google Cloud)</option>
-                <option value="google">Google AI Studio</option>
-                <option value="openai">OpenAI</option>
-                <option value="anthropic">Anthropic</option>
-                <option value="ollama">Ollama (OpenAI-compatible)</option>
-              </select>
+              {(() => {
+                const allProviderList = [
+                  { value: 'vertexai', label: 'Vertex AI (Google Cloud)' },
+                  { value: 'google', label: 'Google AI Studio' },
+                  { value: 'openai', label: 'OpenAI' },
+                  { value: 'anthropic', label: 'Anthropic' },
+                  { value: 'ollama', label: 'Ollama (OpenAI-compatible)' },
+                ];
+                const providers = allowedProviders
+                  ? allProviderList.filter(p => allowedProviders.includes(p.value))
+                  : allProviderList;
+                return (
+                  <>
+                    <select value={provider} onChange={e => setProvider(e.target.value)}>
+                      {providers.map(p => (
+                        <option key={p.value} value={p.value}>{p.label}</option>
+                      ))}
+                    </select>
+                    {allowedProviders && (
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
+                        🔒 Provider restricted by workspace administrator
+                      </span>
+                    )}
+                  </>
+                );
+              })()}
             </div>
             {provider === 'ollama' && (
               <div className="form-group">

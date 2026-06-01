@@ -70,6 +70,20 @@ function setupSockets(httpServer, sessionMiddleware) {
     });
   });
 
+  // Re-validate sessions every 5 minutes for long-lived sockets
+  const SESSION_RECHECK_MS = 5 * 60 * 1000;
+  setInterval(() => {
+    for (const [, socket] of io.sockets.sockets) {
+      if (!socket.request.session) { socket.disconnect(true); continue; }
+      socket.request.session.reload((err) => {
+        if (err || !socket.request.session.userId) {
+          socket.emit('session-expired', { message: 'Your session has expired. Please log in again.' });
+          socket.disconnect(true);
+        }
+      });
+    }
+  }, SESSION_RECHECK_MS);
+
   return io;
 }
 

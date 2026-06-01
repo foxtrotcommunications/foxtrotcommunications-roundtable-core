@@ -47,10 +47,18 @@ router.post('/login', async (req, res) => {
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
     const valid = await bcrypt.compare(password, user.password_hash);
-    if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+    if (!valid) {
+      // Audit: failed login
+      db.audit(config.workspaceId, null, username.toLowerCase(), 'auth_failure', 'login', {
+        reason: 'invalid_password',
+      }, req.ip).catch(() => {});
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
 
     req.session.userId = user.id;
     req.session.username = user.username;
+    // Audit: successful login
+    db.audit(config.workspaceId, user.id, user.username, 'auth_login', 'login', {}, req.ip).catch(() => {});
     res.json({ id: user.id, username: user.username, displayName: user.display_name });
   } catch (err) {
     console.error('[Auth] Login error:', err);

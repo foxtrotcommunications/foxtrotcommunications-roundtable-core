@@ -75,6 +75,11 @@ if (isProd && (!config.sessionSecret || config.sessionSecret === 'roundtable-dev
   console.error('[FATAL] SESSION_SECRET must be set to a secure value in production');
   process.exit(1);
 }
+if (isProd && !process.env.API_KEY_ENCRYPTION_KEY) {
+  console.error('[FATAL] API_KEY_ENCRYPTION_KEY must be set in production (64-char hex string)');
+  console.error('  Generate one: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
+  process.exit(1);
+}
 
 // Session store: PostgreSQL when DATABASE_URL is set, in-memory for local dev
 let sessionStore;
@@ -86,20 +91,22 @@ if (isPostgres()) {
     pool: sessionPool,
     tableName: 'user_sessions',
     createTableIfMissing: true,
-    ttl: 7 * 24 * 60 * 60,       // 7 days in seconds
+    ttl: config.sessionIdleMinutes * 60,  // match cookie idle timeout
     pruneSessionInterval: 60 * 60, // prune expired rows every hour
   });
 } else {
   console.log('[Session] Using in-memory session store (dev mode — sessions lost on restart)');
 }
 
+const sessionIdleMs = config.sessionIdleMinutes * 60 * 1000;
 const sessionMiddleware = session({
   store: sessionStore,              // undefined = express-session MemoryStore
   secret: config.sessionSecret,
   resave: false,
   saveUninitialized: false,
+  rolling: true,                    // Reset maxAge on every request (idle timeout)
   cookie: {
-    maxAge: 7 * 24 * 60 * 60 * 1000,
+    maxAge: sessionIdleMs,          // idle timeout (default 30 min)
     httpOnly: true,
     sameSite: config.embedMode ? 'none' : 'lax',
     secure: config.embedMode || (isProd && process.env.SECURE_COOKIES !== 'false'),
@@ -259,8 +266,40 @@ app.get('/api/workspace/bridges', requireAuth, (req, res) => {
 app.patch('/api/workspace/info', requireAuth, async (req, res) => {
   try {
     const db = getAdapter();
+    // Validate provider against allowed_providers restriction
+    if (req.body.aiProvider) {
+      const ws = await db.getWorkspace(config.workspaceId);
+      if (ws?.allowed_providers) {
+        try {
+          const allowed = JSON.parse(ws.allowed_providers);
+          if (Array.isArray(allowed) && allowed.length > 0 && !allowed.includes(req.body.aiProvider)) {
+            return res.status(403).json({ error: `Provider "${req.body.aiProvider}" is restricted. Allowed: ${allowed.join(', ')}` });
+          }
+        } catch (_) { /* invalid JSON = unrestricted */ }
+      }
+    }
     const updated = await db.updateWorkspace(config.workspaceId, req.body);
+    // Audit settings changes
+    db.audit(config.workspaceId, req.session.userId, req.session.username, 'settings_change', 'workspace_update', {
+      fields: Object.keys(req.body),
+    }, req.ip).catch(() => {});
     res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Audit Log API ────────────────────────────────────────
+
+app.get('/api/workspace/audit', requireAuth, async (req, res) => {
+  try {
+    const db = getAdapter();
+    const result = await db.getAuditLog(config.workspaceId, {
+      limit: parseInt(req.query.limit, 10) || 100,
+      eventType: req.query.eventType || undefined,
+      before: parseInt(req.query.before, 10) || undefined,
+    });
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -384,6 +423,12 @@ async function start() {
   // Register this workspace in the shared DB
   const db = getAdapter();
   await db.registerWorkspace(config.workspaceId, config.workspaceName, config.workspaceUrl, null);
+
+  // Apply infra-level provider restriction from env
+  if (config.allowedProviders) {
+    await db.updateWorkspace(config.workspaceId, { allowedProviders: config.allowedProviders });
+    console.log(`[Security] Provider restriction applied: ${config.allowedProviders}`);
+  }
 
   const io = setupSockets(server, sessionMiddleware);
   global._io = io; // For webhook broadcasting
