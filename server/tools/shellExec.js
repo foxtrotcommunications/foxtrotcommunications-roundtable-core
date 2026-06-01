@@ -6,16 +6,16 @@ const fs = require('fs');
 const WORKSPACE_DIR = path.resolve(__dirname, '..', '..', 'workspace');
 
 // Allowed base commands — only these can be executed
+// SECURITY: Interpreters (python3, node) and network tools (curl, wget) are
+// intentionally excluded — they enable full sandbox escape via subprocess/eval.
 const ALLOWED_COMMANDS = new Set([
-  'node', 'npm', 'npx', 'git',
+  'npm', 'npx', 'git',
   'cat', 'head', 'tail', 'grep', 'find', 'ls', 'wc',
   'diff', 'echo', 'pwd', 'which', 'env', 'printenv',
-  'python3', 'python', 'pip', 'pip3',
   'make', 'test', 'true', 'false',
   'sort', 'uniq', 'tr', 'cut', 'sed', 'awk',
   'mkdir', 'cp', 'mv', 'touch', 'rm',
   'tar', 'gzip', 'gunzip',
-  'curl', 'wget',
 ]);
 
 // Shell metacharacters that enable chaining / escapes
@@ -56,7 +56,7 @@ function extractBaseCommand(command) {
 
 module.exports = {
   name: 'shell_exec',
-  description: 'Execute a shell command in the workspace directory. Allowed commands include: node, npm, git, python3, grep, find, ls, cat, diff, curl, and common unix utilities. Returns stdout and stderr.',
+  description: 'Execute a shell command in the workspace directory. Allowed commands include: npm, npx, git, grep, find, ls, cat, diff, sed, awk, and common unix utilities. Returns stdout and stderr.',
   parameters: {
     type: 'object',
     properties: {

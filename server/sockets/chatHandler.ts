@@ -80,6 +80,17 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
 
   socket.on('send-message', async ({ content, activeRepo, _fromQueue }: { content: string; activeRepo?: string; _fromQueue?: boolean }) => {
     try {
+      // ── Input validation: reject oversized messages ──────────────
+      const MAX_MESSAGE_LENGTH = 50_000; // 50KB — generous for any chat message
+      if (!content || typeof content !== 'string') {
+        socket.emit('error-message', { error: 'Message content is required' });
+        return;
+      }
+      if (content.length > MAX_MESSAGE_LENGTH) {
+        socket.emit('error-message', { error: `Message too long (${content.length.toLocaleString()} chars). Maximum is ${MAX_MESSAGE_LENGTH.toLocaleString()} characters.` });
+        return;
+      }
+
       // Save and broadcast every message (skip for queued re-processing)
       if (!_fromQueue) {
         // For embed guests (null userId), persist socket username as guest fields
