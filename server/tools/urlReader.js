@@ -32,23 +32,34 @@ module.exports = {
         return { error: 'Only http:// and https:// URLs are allowed' };
       }
 
-      // Block cloud metadata endpoints and private IPs by hostname
+      // Block cloud metadata endpoints, localhost, and private hostnames
       const blockedHosts = ['169.254.169.254', 'metadata.google.internal', 'metadata.internal'];
       if (blockedHosts.includes(parsed.hostname)) {
         return { error: 'Access to cloud metadata endpoints is blocked' };
       }
 
+      // Block localhost variants by hostname (catches both IPv4 and IPv6 resolution)
+      const localhostPatterns = ['localhost', '127.0.0.1', '[::1]', '0.0.0.0'];
+      if (localhostPatterns.includes(parsed.hostname)) {
+        return { error: 'Access to private/internal network addresses is blocked' };
+      }
+
       // Resolve hostname and check for private/reserved IP ranges
       try {
         const { address } = await lookup(parsed.hostname);
+        // Handle IPv6 loopback and link-local
+        if (address === '::1' || address === '0:0:0:0:0:0:0:1' || address.startsWith('fe80:') || address.startsWith('fc00:') || address.startsWith('fd')) {
+          return { error: 'Access to private/internal network addresses is blocked' };
+        }
         const parts = address.split('.').map(Number);
-        const isPrivate =
+        const isPrivate = parts.length === 4 && (
           parts[0] === 10 ||                                          // 10.0.0.0/8
           (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||  // 172.16.0.0/12
           (parts[0] === 192 && parts[1] === 168) ||                  // 192.168.0.0/16
           parts[0] === 127 ||                                        // 127.0.0.0/8
           (parts[0] === 169 && parts[1] === 254) ||                  // 169.254.0.0/16 (link-local)
-          parts[0] === 0;                                             // 0.0.0.0/8
+          parts[0] === 0                                              // 0.0.0.0/8
+        );
         if (isPrivate) {
           return { error: 'Access to private/internal network addresses is blocked' };
         }
