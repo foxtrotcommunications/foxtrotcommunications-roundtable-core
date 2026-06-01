@@ -75,7 +75,7 @@ if (isProd && (!config.sessionSecret || config.sessionSecret === 'roundtable-dev
   console.error('[FATAL] SESSION_SECRET must be set to a secure value in production');
   process.exit(1);
 }
-if (isProd && !process.env.API_KEY_ENCRYPTION_KEY) {
+if (isProd && !config.demoMode && !process.env.API_KEY_ENCRYPTION_KEY) {
   console.error('[FATAL] API_KEY_ENCRYPTION_KEY must be set in production (64-char hex string)');
   console.error('  Generate one: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
   process.exit(1);
