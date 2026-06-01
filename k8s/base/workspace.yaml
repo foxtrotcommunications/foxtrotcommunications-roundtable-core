@@ -38,9 +38,17 @@ spec:
         workspace: ${WORKSPACE_ID}
     spec:
       serviceAccountName: rt-${WORKSPACE_ID}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
       containers:
         - name: roundtable
           image: ${ROUNDTABLE_IMAGE}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           ports:
             - containerPort: 3000
               name: http

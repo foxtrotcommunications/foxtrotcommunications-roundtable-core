@@ -102,7 +102,7 @@ const sessionMiddleware = session({
     maxAge: 7 * 24 * 60 * 60 * 1000,
     httpOnly: true,
     sameSite: config.embedMode ? 'none' : 'lax',
-    secure: config.embedMode || (isProd && process.env.SECURE_COOKIES === 'true'),
+    secure: config.embedMode || (isProd && process.env.SECURE_COOKIES !== 'false'),
   },
 });
 app.use(sessionMiddleware);

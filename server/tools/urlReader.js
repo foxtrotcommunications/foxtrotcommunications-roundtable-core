@@ -16,6 +16,46 @@ module.exports = {
   },
   async execute({ url }) {
     try {
+      // ── SSRF Protection: block internal/private network access ──
+      const { URL } = require('url');
+      const dns = require('dns');
+      const { promisify } = require('util');
+      const lookup = promisify(dns.lookup);
+
+      let parsed;
+      try { parsed = new URL(url); } catch {
+        return { error: 'Invalid URL' };
+      }
+
+      // Block non-HTTP(S) schemes
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        return { error: 'Only http:// and https:// URLs are allowed' };
+      }
+
+      // Block cloud metadata endpoints and private IPs by hostname
+      const blockedHosts = ['169.254.169.254', 'metadata.google.internal', 'metadata.internal'];
+      if (blockedHosts.includes(parsed.hostname)) {
+        return { error: 'Access to cloud metadata endpoints is blocked' };
+      }
+
+      // Resolve hostname and check for private/reserved IP ranges
+      try {
+        const { address } = await lookup(parsed.hostname);
+        const parts = address.split('.').map(Number);
+        const isPrivate =
+          parts[0] === 10 ||                                          // 10.0.0.0/8
+          (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||  // 172.16.0.0/12
+          (parts[0] === 192 && parts[1] === 168) ||                  // 192.168.0.0/16
+          parts[0] === 127 ||                                        // 127.0.0.0/8
+          (parts[0] === 169 && parts[1] === 254) ||                  // 169.254.0.0/16 (link-local)
+          parts[0] === 0;                                             // 0.0.0.0/8
+        if (isPrivate) {
+          return { error: 'Access to private/internal network addresses is blocked' };
+        }
+      } catch (dnsErr) {
+        return { error: `DNS resolution failed for ${parsed.hostname}: ${dnsErr.message}` };
+      }
+
       const response = await fetch(url, {
         timeout: 15000,
         headers: {
