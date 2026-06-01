@@ -85,6 +85,20 @@ export interface WorkspaceConfig {
   dataSources?: DataSources;
   ollamaHost?: string;
   model?: string;
+  mcpServers?: McpServerConfig[];
+  a2aAgents?: A2aAgentConfig[];
+}
+
+export interface McpServerConfig {
+  name: string;
+  url: string;
+  apiKey?: string;
+}
+
+export interface A2aAgentConfig {
+  name: string;
+  url: string;
+  apiKey?: string;
 }
 
 export interface Workspace {
@@ -198,6 +212,10 @@ export interface AppConfig {
     catalog: string;
     schema: string;
   };
+  mcpServerEnabled: boolean;
+  a2aServerEnabled: boolean;
+  mcpApiKey: string;
+  a2aApiKey: string;
 }
 
 // ─── Database Adapter Interface ────────────────────────────

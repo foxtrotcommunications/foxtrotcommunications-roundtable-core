@@ -25,6 +25,9 @@ const describeWorkspace = require('./describeWorkspace');
 const verifyWorkspace = require('./verifyWorkspace');
 const bridgeWorkspace = require('./bridgeWorkspace');
 
+// Protocol integration tools
+const callAgent = require('./callAgent');
+
 const tools = {
   // Meta-tools — always available, cannot be disabled
   describe_workspace: describeWorkspace,
@@ -52,27 +55,72 @@ const tools = {
   download_query_results: downloadQueryResults,
   // Workspace bridge tool — communicate with other workspaces
   bridge_workspace: bridgeWorkspace,
+  // Protocol integration tools
+  call_agent: callAgent,
 };
+
+// ─── Dynamic Tool Registry (MCP servers inject tools here) ─────────
+// Dynamic tools are stored separately and merged at resolve-time.
+// Key: tool name (e.g. 'mcp_myserver_search'), Value: Tool object
+const dynamicTools = {};
+
+/**
+ * Register dynamically discovered tools (e.g. from MCP servers).
+ * @param {object[]} toolsArray — array of Tool objects with name, description, parameters, execute
+ */
+function registerDynamicTools(toolsArray) {
+  for (const tool of toolsArray) {
+    dynamicTools[tool.name] = tool;
+  }
+}
+
+/**
+ * Clear dynamic tools by prefix (e.g. 'mcp_myserver_' when a server disconnects).
+ * @param {string} prefix
+ */
+function clearDynamicTools(prefix) {
+  for (const name of Object.keys(dynamicTools)) {
+    if (name.startsWith(prefix)) {
+      delete dynamicTools[name];
+    }
+  }
+}
+
+/**
+ * Get all dynamic tools.
+ */
+function getDynamicTools() {
+  return { ...dynamicTools };
+}
 
 /**
  * Resolve the active tool set. If enabledNames is a non-empty array, only
  * those tools are included. Null/undefined/empty means all tools.
+ * Dynamic tools (from MCP servers) are always included.
  */
 function resolveTools(enabledNames) {
+  const allTools = { ...tools, ...dynamicTools };
+
   if (!enabledNames || !Array.isArray(enabledNames) || enabledNames.length === 0) {
-    return tools;
+    return allTools;
   }
   const filtered = {};
 
   // Always include meta-tools (alwaysEnabled flag)
-  for (const [name, tool] of Object.entries(tools)) {
+  for (const [name, tool] of Object.entries(allTools)) {
     if (tool.alwaysEnabled) filtered[name] = tool;
   }
 
   // Include workspace-enabled tools
   for (const name of enabledNames) {
-    if (tools[name]) filtered[name] = tools[name];
+    if (allTools[name]) filtered[name] = allTools[name];
   }
+
+  // Always include dynamic tools (MCP-sourced) — they have their own governance
+  for (const [name, tool] of Object.entries(dynamicTools)) {
+    filtered[name] = tool;
+  }
+
   return filtered;
 }
 
@@ -81,7 +129,8 @@ function resolveTools(enabledNames) {
  * Each tool: { name, description, parameters (JSON Schema), execute(args) }
  */
 function getAvailableTools() {
-  return Object.values(tools).map((t) => ({
+  const allTools = { ...tools, ...dynamicTools };
+  return Object.values(allTools).map((t) => ({
     name: t.name,
     description: t.description,
     parameters: t.parameters,
@@ -139,13 +188,14 @@ function toGoogleTools(enabledNames) {
 }
 
 /**
- * Execute a tool by name
+ * Execute a tool by name (supports both static and dynamic tools)
  * @param {string} name
  * @param {object} args — tool arguments from the AI
  * @param {object} [workspaceConfig] — per-workspace config (data_sources, etc.)
  */
 async function executeTool(name, args, workspaceConfig = {}) {
-  const tool = tools[name];
+  const allTools = { ...tools, ...dynamicTools };
+  const tool = allTools[name];
   if (!tool) {
     throw new Error(`Unknown tool: ${name}`);
   }
@@ -160,4 +210,7 @@ module.exports = {
   toAnthropicTools,
   toGoogleTools,
   executeTool,
+  registerDynamicTools,
+  clearDynamicTools,
+  getDynamicTools,
 };

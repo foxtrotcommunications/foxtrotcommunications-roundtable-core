@@ -228,6 +228,18 @@ app.use('/api/bridge', bridgeReceive);  // HMAC-authed, no user session needed
 app.use('/api', requireAuth, fileRoutes);
 app.use('/api/insights', requireAuth, insightRoutes);
 
+// ─── Protocol Integrations (MCP + A2A) ─────────────────────
+if (config.mcpServerEnabled) {
+  const mcpRoutes = require('./routes/mcp');
+  app.use('/api/mcp', mcpRoutes);
+  console.log('[MCP] Server enabled — POST /api/mcp, GET /api/mcp/info');
+}
+if (config.a2aServerEnabled) {
+  const a2aRoutes = require('./routes/a2a');
+  app.use('/', a2aRoutes);  // Mounts /.well-known/agent.json and /a2a
+  console.log('[A2A] Server enabled — GET /.well-known/agent.json, POST /a2a');
+}
+
 // Download endpoint — serves in-memory files from download_query_results tool
 // No auth required: download IDs are unguessable UUIDs with 30-min TTL
 const { _downloads } = require('./tools/downloadQueryResults');
