@@ -281,6 +281,25 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
       const aiModel: string = (workspace && workspace.ai_model) || 'gemini-2.5-flash';
       const toolsEnabled: boolean = workspace ? (workspace.tools_enabled ?? true) : true;
 
+      // Enforce provider restriction if set
+      if (workspace?.allowed_providers) {
+        try {
+          const allowed: unknown = JSON.parse(workspace.allowed_providers);
+          if (Array.isArray(allowed) && allowed.length > 0 && !allowed.includes(aiProvider)) {
+            io.to(wsChannel).emit('ai-error', {
+              error: `Provider "${aiProvider}" is not allowed for this workspace. Allowed: ${(allowed as string[]).join(', ')}. Change in Settings.`
+            });
+            return;
+          }
+        } catch (_) {}
+      }
+
+      // Audit: AI request
+      { const { getAdapter: _ga } = require('../db/adapter') as { getAdapter: () => DatabaseAdapter };
+        _ga().audit(config.workspaceId, socket.userId, socket.username, 'ai_request', aiProvider, {
+          model: aiModel, contentLength: content.length,
+        }, socket.handshake?.address).catch(() => {}); }
+
       // Parse per-workspace data source config
       let dataSources: DataSources = {};
       if (workspace?.data_sources) {
@@ -511,11 +530,24 @@ When generating Mermaid diagrams (flowcharts, sequence diagrams, etc.):
               io.to(wsChannel).emit('tool-call', { name: event.name, args: event.args, callId: event.callId });
               toolCallCount++;
               if (!toolNamesUsed.includes(event.name)) toolNamesUsed.push(event.name);
+              // Audit: tool call
+              { const { getAdapter: _ga } = require('../db/adapter') as { getAdapter: () => DatabaseAdapter };
+                _ga().audit(config.workspaceId, socket.userId, socket.username, 'tool_call', event.name, {
+                  args: JSON.stringify(event.args).substring(0, 500),
+                }, socket.handshake?.address).catch(() => {}); }
               break;
             case 'tool-result':
               console.log(`[Tool] Result from ${event.name}:`, JSON.stringify(event.result).substring(0, 200));
               await workspaceService.saveMessage(null, 'tool', JSON.stringify(event.result), event.name, event.callId);
               io.to(wsChannel).emit('tool-result', { name: event.name, callId: event.callId, result: event.result });
+              // Audit: tool result (data_query for warehouse tools, tool_result for others)
+              {
+                const auditType = ['query_bigquery', 'query_snowflake', 'query_databricks'].includes(event.name) ? 'data_query' : 'tool_result';
+                const { getAdapter: _ga } = require('../db/adapter') as { getAdapter: () => DatabaseAdapter };
+                _ga().audit(config.workspaceId, socket.userId, socket.username, auditType, event.name, {
+                  resultPreview: JSON.stringify(event.result).substring(0, 200),
+                }, socket.handshake?.address).catch(() => {});
+              }
               // Notify code panel when workspace files change
               if (['write_file', 'git_clone', 'git_commit', 'shell_exec'].includes(event.name)) {
                 io.to(wsChannel).emit('workspace-changed', { tool: event.name });

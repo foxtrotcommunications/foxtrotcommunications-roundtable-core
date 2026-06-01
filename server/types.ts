@@ -98,6 +98,7 @@ export interface Workspace {
   enabled_tools?: string;
   data_sources?: string | DataSources;
   ollama_host?: string;
+  allowed_providers?: string;
   repos?: string;
   status?: string;
   created_by?: number;
@@ -166,6 +167,8 @@ export interface AppConfig {
   platformOrg: string;
   embedMode: boolean;
   demoMode: boolean;
+  sessionIdleMinutes: number;
+  allowedProviders: string | null;
   ai: {
     openai: string;
     anthropic: string;
@@ -214,6 +217,8 @@ export interface DatabaseAdapter {
   getInsights(workspaceId: string): Promise<Insight[]>;
   addInsight(workspaceId: string, userId: number, title: string, content: string, sourceMessageId: number | null, category: string): Promise<Insight>;
   deleteInsight(insightId: number, workspaceId: string): Promise<void>;
+  audit(workspaceId: string, userId: number | null, username: string, eventType: string, eventName: string, eventDetail: Record<string, unknown>, ipAddress?: string | null): Promise<void>;
+  getAuditLog(workspaceId: string, options?: { limit?: number; eventType?: string; before?: number }): Promise<{ entries: unknown[]; hasMore: boolean }>;
 }
 
 // ─── OpenAI/Anthropic/Google Stream Types ──────────────────

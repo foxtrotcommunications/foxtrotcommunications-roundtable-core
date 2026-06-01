@@ -87,6 +87,41 @@ class PostgreSQLAdapter {
     );
   }
 
+  // ─── Audit Log ──────────────────────────────────
+
+  async audit(workspaceId, userId, username, eventType, eventName, eventDetail, ipAddress) {
+    try {
+      await this.pool.query(
+        `INSERT INTO audit_log (workspace_id, user_id, username, event_type, event_name, event_detail, ip_address)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [workspaceId, userId, username, eventType, eventName, JSON.stringify(eventDetail || {}), ipAddress || null]
+      );
+    } catch (err) {
+      console.warn('[Audit] Failed to write audit entry:', err.message);
+    }
+  }
+
+  async getAuditLog(workspaceId, options = {}) {
+    const limit = Math.min(options.limit || 100, 500);
+    const conditions = ['workspace_id = $1'];
+    const params = [workspaceId];
+    let idx = 2;
+    if (options.eventType) {
+      conditions.push(`event_type = $${idx++}`);
+      params.push(options.eventType);
+    }
+    if (options.before) {
+      conditions.push(`id < $${idx++}`);
+      params.push(options.before);
+    }
+    params.push(limit);
+    const rows = await this._queryAll(
+      `SELECT * FROM audit_log WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC LIMIT $${idx}`,
+      params
+    );
+    return { entries: rows, hasMore: rows.length === limit };
+  }
+
   async close() {
     if (this.pool) { await this.pool.end(); this.pool = null; }
   }
@@ -209,6 +244,26 @@ class PostgreSQLAdapter {
     // Guest username columns on messages — for embed/demo users without a user_id
     await this.pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS guest_username TEXT DEFAULT NULL;`);
     await this.pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS guest_display_name TEXT DEFAULT NULL;`);
+
+    // Audit log table
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS audit_log (
+        id SERIAL PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        user_id INTEGER REFERENCES users(id),
+        username TEXT,
+        event_type TEXT NOT NULL,
+        event_name TEXT,
+        event_detail JSONB DEFAULT '{}',
+        ip_address TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_audit_workspace ON audit_log(workspace_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_audit_event ON audit_log(event_type, created_at DESC);
+    `);
+
+    // Provider restriction column
+    await this.pool.query(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS allowed_providers TEXT DEFAULT NULL;`);
   }
 
   // ─── Users ──────────────────────────────────────
@@ -325,6 +380,10 @@ class PostgreSQLAdapter {
     if (fields.ollamaHost !== undefined) {
       updates.push(`ollama_host = $${idx++}`);
       values.push(fields.ollamaHost || null);
+    }
+    if (fields.allowedProviders !== undefined) {
+      updates.push(`allowed_providers = $${idx++}`);
+      values.push(fields.allowedProviders || null);
     }
     if (updates.length === 0) return this.getWorkspace(id);
     values.push(id);

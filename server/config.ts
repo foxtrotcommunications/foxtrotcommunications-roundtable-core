@@ -26,6 +26,12 @@ const config: AppConfig = {
   embedMode: process.env.EMBED_MODE === 'true',
   demoMode: process.env.DEMO_MODE === 'true',
 
+  // Session idle timeout (minutes). Default 30 for compliance; set higher for development.
+  sessionIdleMinutes: parseInt(process.env.SESSION_IDLE_MINUTES || '30', 10),
+
+  // Restrict AI providers (JSON array, e.g. '["vertexai"]'). Null = all allowed.
+  allowedProviders: process.env.ALLOWED_PROVIDERS || null,
+
   // Server-level AI keys (fallback if user hasn't configured their own)
   ai: {
     openai: process.env.OPENAI_API_KEY || '',
