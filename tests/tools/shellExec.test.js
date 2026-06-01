@@ -88,10 +88,19 @@ describe('shell_exec tool', () => {
   });
 
   describe('safe commands', () => {
-    it('should execute node --version', async () => {
+    it('should block node (removed from allowlist for security)', async () => {
       const result = await shellExec.execute({ command: 'node --version' });
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toMatch(/^v\d+/);
+      expect(result.error).toContain('not in the allowlist');
+    });
+
+    it('should block python3 (removed from allowlist for security)', async () => {
+      const result = await shellExec.execute({ command: 'python3 --version' });
+      expect(result.error).toContain('not in the allowlist');
+    });
+
+    it('should block curl (removed from allowlist for security)', async () => {
+      const result = await shellExec.execute({ command: 'curl --version' });
+      expect(result.error).toContain('not in the allowlist');
     });
 
     it('should execute git --version', async () => {
@@ -101,15 +110,16 @@ describe('shell_exec tool', () => {
     });
 
     it('should handle commands with env var prefixes', async () => {
-      const result = await shellExec.execute({ command: 'NODE_ENV=test node -e "console.log(process.env.NODE_ENV)"' });
+      const result = await shellExec.execute({ command: 'FOO=bar echo hello' });
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('test');
+      expect(result.stdout).toContain('hello');
     });
   });
 
   describe('output limits', () => {
     it('should cap stdout at 10000 characters', async () => {
-      const result = await shellExec.execute({ command: 'node -e "console.log(\'x\'.repeat(20000))"' });
+      // Generate 20000+ chars using head + tr (node is no longer in the allowlist)
+      const result = await shellExec.execute({ command: 'head -c 20000 /dev/zero | tr "\\0" "x"' });
       expect(result.stdout.length).toBeLessThanOrEqual(10000);
     });
   });
