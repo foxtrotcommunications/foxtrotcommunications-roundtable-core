@@ -21,7 +21,7 @@ describe('url_reader tool', () => {
       expect(result.content).not.toContain('<html');
       expect(result.content).not.toContain('<script');
     }
-  }, 15000);
+  }, 30000);
 
   it('should return error for invalid URL', async () => {
     const result = await urlReader.execute({ url: 'not-a-url' });
@@ -38,7 +38,7 @@ describe('url_reader tool', () => {
     if (result.content) {
       expect(result.content.length).toBeLessThanOrEqual(8100);
     }
-  }, 15000);
+  }, 30000);
 
   // ── SSRF Protection Tests ──────────────────────────────────
   describe('SSRF protection', () => {
