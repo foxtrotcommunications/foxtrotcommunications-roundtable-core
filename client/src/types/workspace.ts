@@ -12,6 +12,7 @@ export interface Workspace {
   repos: string;
   data_sources: DataSources | string | null;
   ollama_host?: string | null;
+  allowed_providers?: string | null;
   status: string;
   created_at: string;
   last_active: string;
