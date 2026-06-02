@@ -131,6 +131,26 @@ module.exports = {
       }
     } catch (_) {}
 
+    // ── Governance Contracts (from RT_CONTRACTS env) ─────────
+    const contracts = [];
+    try {
+      const contractManifest = process.env.RT_CONTRACTS;
+      if (contractManifest) {
+        const parsed = JSON.parse(contractManifest);
+        for (const c of parsed) {
+          contracts.push({
+            contractId: c.contractId,
+            type: c.type,
+            direction: c.direction,  // 'inbound' or 'outbound'
+            counterparty: c.counterparty?.name || 'Unknown',
+            counterpartyWsId: c.counterparty?.wsId,
+            allowedActions: c.allowedActions || [],
+            escalationTarget: c.escalationTarget || null,
+          });
+        }
+      }
+    } catch (_) {}
+
     // ── Usage Stats (current period) ─────────────────────────
     let usage = null;
     try {
@@ -172,6 +192,8 @@ module.exports = {
       agents,
       mcpServers,
       bridges,
+      contracts,
+      contractCount: contracts.length,
 
       capabilities: {
         multiplayer: true,
@@ -184,6 +206,7 @@ module.exports = {
         dataWarehouseQuery: dataWarehouses.length > 0,
         webAccess: tools.some(t => t.name === 'web_search'),
         codeExecution: tools.some(t => t.name === 'run_code'),
+        governanceContracts: contracts.length > 0,
       },
     };
   },

@@ -488,7 +488,42 @@ When generating Mermaid diagrams (flowcharts, sequence diagrams, etc.):
 - The workspace uses a dark theme with these accent colors: indigo (#6366f1), soft purple (#c7d2fe), amber (#fde68a), green (#bbf7d0). The rendering engine maps these automatically.
 - Use subgraphs to group related nodes when the diagram has 8+ nodes.`;
 
-      systemPrompt = envCtx + (systemPrompt ? '\n\n' + systemPrompt : '');
+      // ── Governance Contract Context ──────────────────────────
+      // Inject active contract info so the AI knows its governance relationships
+      let contractCtx: string = '';
+      try {
+        const contractManifest: string | undefined = process.env.RT_CONTRACTS;
+        if (contractManifest) {
+          interface ContractEntry {
+            contractId: string;
+            type: string;
+            direction: 'inbound' | 'outbound';
+            counterparty?: { name: string; wsId: string };
+            allowedActions?: string[];
+            escalationTarget?: string;
+          }
+          const contracts: ContractEntry[] = JSON.parse(contractManifest);
+          if (contracts.length > 0) {
+            contractCtx = '\n\n--- GOVERNANCE CONTRACTS ---\n';
+            contractCtx += `You have ${contracts.length} active governance contract(s) governing your communication with other workspaces:\n`;
+            for (const c of contracts) {
+              const dir = c.direction === 'outbound'
+                ? `You → ${c.counterparty?.name || 'Unknown'}`
+                : `${c.counterparty?.name || 'Unknown'} → You`;
+              contractCtx += `\n• **${c.type}** contract (${dir})`;
+              if (c.allowedActions && c.allowedActions.length > 0) {
+                contractCtx += `\n  Allowed actions: ${c.allowedActions.join(', ')}`;
+              }
+              if (c.escalationTarget) {
+                contractCtx += `\n  Escalation target: ${c.escalationTarget}`;
+              }
+            }
+            contractCtx += '\n\nWhen asked about contracts or governance, describe these relationships. Use the bridge_workspace tool to communicate with counterparties per contract terms.\n';
+          }
+        }
+      } catch (_) { /* ignore contract parse errors */ }
+
+      systemPrompt = envCtx + contractCtx + (systemPrompt ? '\n\n' + systemPrompt : '');
 
       // Auto-inject schema YAML files from workspace/uploads/ into the system prompt
       try {
