@@ -119,7 +119,7 @@ const bridgeWorkspace = {
 
       if (contract && process.env.ORG_MASTER_SECRET) {
         // Contract-based HKDF auth — cryptographic proof of valid contract
-        const { deriveContractKey, signRequest } = require('../utils/contractAuth');
+        const { deriveContractKey, signRequest, encryptPayload } = require('../utils/contractAuth');
         const timestamp = Date.now().toString();
         const contractKey = await deriveContractKey(
           process.env.ORG_MASTER_SECRET,
@@ -131,14 +131,43 @@ const bridgeWorkspace = {
         headers['X-Contract-Id'] = contract.contractId;
         headers['X-Contract-Signature'] = signature;
         headers['X-Contract-Timestamp'] = timestamp;
-      } else if (bridge.a2aApiKey) {
-        // Fallback: API key auth
-        headers['x-api-key'] = bridge.a2aApiKey;
+
+        // E2E encrypt the message payload — only the target workspace can decrypt
+        const encrypted = encryptPayload(contractKey, { text: messageText });
+        headers['X-Contract-Encrypted'] = 'aes-256-gcm';
+
+        const response = await fetch(a2aEndpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: taskId,
+            method: 'message/send',
+            params: {
+              message: {
+                role: 'user',
+                parts: [{
+                  type: 'text',
+                  text: '__ENCRYPTED__',
+                  encrypted: {
+                    iv: encrypted.iv,
+                    ciphertext: encrypted.ciphertext,
+                    authTag: encrypted.authTag,
+                  },
+                }],
+              },
+            },
+          }),
+          signal: AbortSignal.timeout(action === 'delegate' ? 120000 : 30000),
+        });
+
+        return await this._handleA2aResponse(response, bridge, action, content, taskId);
       }
 
-      const messageText = action === 'delegate'
-        ? `[Delegated from ${sourceName}] ${content}`
-        : `[Message from ${sourceName}] ${content}`;
+      if (bridge.a2aApiKey) {
+        // Fallback: API key auth (no E2E encryption — TLS only)
+        headers['x-api-key'] = bridge.a2aApiKey;
+      }
 
       const response = await fetch(a2aEndpoint, {
         method: 'POST',
@@ -157,57 +186,7 @@ const bridgeWorkspace = {
         signal: AbortSignal.timeout(action === 'delegate' ? 120000 : 30000),
       });
 
-      if (!response.ok) {
-        const body = await response.text();
-        // If A2A endpoint unavailable, try legacy relay
-        if (response.status === 404 || response.status === 502 || response.status === 503) {
-          console.warn(`[Bridge] A2A endpoint unavailable (${response.status}), falling back to relay`);
-          return await this._legacyRelay(bridge, action, content);
-        }
-        return { error: `Bridge communication failed: ${response.status} ${body.slice(0, 200)}` };
-      }
-
-      const result = await response.json();
-
-      // Extract response text from A2A task result
-      let responseText = '';
-      if (result?.result) {
-        const task = result.result;
-        if (task.artifacts && task.artifacts.length > 0) {
-          for (const artifact of task.artifacts) {
-            for (const part of (artifact.parts || [])) {
-              if (part.type === 'text') responseText += part.text;
-            }
-          }
-        }
-        // Fallback: check status message
-        if (!responseText && task.status?.message?.parts) {
-          for (const part of task.status.message.parts) {
-            if (part.type === 'text') responseText += part.text;
-          }
-        }
-      }
-
-      if (action === 'message') {
-        return {
-          success: true,
-          message: `Message delivered to ${bridge.targetName} via A2A`,
-          taskId,
-          protocol: 'a2a',
-        };
-      }
-
-      if (action === 'delegate') {
-        return {
-          success: true,
-          message: `Task completed by ${bridge.targetName}`,
-          taskId,
-          response: responseText || 'Task completed (no text response)',
-          protocol: 'a2a',
-        };
-      }
-
-      return result;
+      return await this._handleA2aResponse(response, bridge, action, content, taskId);
     } catch (err) {
       // Network error — try legacy relay as fallback
       if (err.name === 'AbortError') {
@@ -216,6 +195,61 @@ const bridgeWorkspace = {
       console.warn(`[Bridge] A2A direct failed (${err.message}), falling back to relay`);
       return await this._legacyRelay(bridge, action, content);
     }
+  },
+
+  /**
+   * Handle A2A response — shared by encrypted and unencrypted paths.
+   */
+  async _handleA2aResponse(response, bridge, action, content, taskId) {
+    if (!response.ok) {
+      const body = await response.text();
+      if (response.status === 404 || response.status === 502 || response.status === 503) {
+        console.warn(`[Bridge] A2A endpoint unavailable (${response.status}), falling back to relay`);
+        return await this._legacyRelay(bridge, action, content);
+      }
+      return { error: `Bridge communication failed: ${response.status} ${body.slice(0, 200)}` };
+    }
+
+    const result = await response.json();
+
+    // Extract response text from A2A task result
+    let responseText = '';
+    if (result?.result) {
+      const task = result.result;
+      if (task.artifacts && task.artifacts.length > 0) {
+        for (const artifact of task.artifacts) {
+          for (const part of (artifact.parts || [])) {
+            if (part.type === 'text') responseText += part.text;
+          }
+        }
+      }
+      if (!responseText && task.status?.message?.parts) {
+        for (const part of task.status.message.parts) {
+          if (part.type === 'text') responseText += part.text;
+        }
+      }
+    }
+
+    if (action === 'message') {
+      return {
+        success: true,
+        message: `Message delivered to ${bridge.targetName} via A2A`,
+        taskId,
+        protocol: 'a2a',
+      };
+    }
+
+    if (action === 'delegate') {
+      return {
+        success: true,
+        message: `Task completed by ${bridge.targetName}`,
+        taskId,
+        response: responseText || 'Task completed (no text response)',
+        protocol: 'a2a',
+      };
+    }
+
+    return result;
   },
 
   /**

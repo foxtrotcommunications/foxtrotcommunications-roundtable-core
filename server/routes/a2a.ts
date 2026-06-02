@@ -164,6 +164,58 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
           );
         }
 
+        // ── E2E Decryption ────────────────────────────────
+        // If the request has X-Contract-Encrypted header, the message parts
+        // are AES-256-GCM encrypted. Decrypt before processing.
+        let message = params.message;
+        const isEncrypted = req.headers['x-contract-encrypted'] === 'aes-256-gcm';
+        if (isEncrypted && (req as any).contract) {
+          const contractId = req.headers['x-contract-id'] as string;
+          const masterSecret = process.env.ORG_MASTER_SECRET;
+          const contract = (req as any).contract;
+
+          if (!masterSecret) {
+            return res.json(
+              jsonRpcError(id, -32000, 'Cannot decrypt: no master secret configured')
+            );
+          }
+
+          try {
+            const { deriveContractKey, decryptPayload } = require('../utils/contractAuth');
+            const contractKey = await deriveContractKey(masterSecret, contractId, contract.version || 1);
+
+            // Decrypt each encrypted part
+            const decryptedParts = [];
+            for (const part of (message.parts || [])) {
+              if (part.encrypted) {
+                const { data, error } = decryptPayload(
+                  contractKey,
+                  part.encrypted.iv,
+                  part.encrypted.ciphertext,
+                  part.encrypted.authTag
+                );
+                if (error) {
+                  return res.json(
+                    jsonRpcError(id, -32000, `Decryption failed: ${error}`)
+                  );
+                }
+                // data is { text: "the original message" }
+                decryptedParts.push({ type: 'text', text: data.text || data });
+              } else {
+                decryptedParts.push(part);
+              }
+            }
+
+            message = { ...message, parts: decryptedParts };
+            console.log(`[A2A] Decrypted E2E message via contract ${contractId}`);
+          } catch (err: unknown) {
+            const error = err as Error;
+            return res.json(
+              jsonRpcError(id, -32000, `Decryption error: ${error.message}`)
+            );
+          }
+        }
+
         // Resolve workspace for AI config
         const db = getAdapter();
         const workspace = await db.getWorkspace(config.workspaceId);
@@ -206,7 +258,7 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
         }
 
         const task = await processMessage({
-          message: params.message,
+          message,
           provider,
           model,
           apiKey,
