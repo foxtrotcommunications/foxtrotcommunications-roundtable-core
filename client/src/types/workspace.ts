@@ -14,6 +14,7 @@ export interface Workspace {
   ollama_host?: string | null;
   allowed_providers?: string | null;
   status: string;
+  version?: string;
   created_at: string;
   last_active: string;
 }
