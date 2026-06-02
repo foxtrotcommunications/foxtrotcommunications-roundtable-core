@@ -1,9 +1,10 @@
 // server/tools/bridgeWorkspace.js — Bridge tool: communicate with connected workspaces
 //
 // Enables the AI to send messages or delegate tasks to other workspaces
-// via the control plane relay. Async — returns a task ID for polling.
+// via the A2A (Agent-to-Agent) protocol. Direct workspace-to-workspace.
 //
-// Auth: HMAC signature using SESSION_SECRET (same key as the control plane).
+// Transport: A2A JSON-RPC (message/send) → target workspace's /a2a endpoint.
+// The wake proxy handles sleeping workspaces automatically.
 
 const config = require('../config');
 const crypto = require('crypto');
@@ -11,11 +12,10 @@ const crypto = require('crypto');
 const bridgeWorkspace = {
   name: 'bridge_workspace',
   description:
-    'Send a message or delegate a task to a connected workspace via a bridge. ' +
-    'Bridges are bidirectional connections between workspaces — like VPC peering for AI. ' +
+    'Send a message or delegate a task to a connected workspace via its bridge. ' +
+    'Bridges are governed connections between workspaces — every request follows your organization\'s contracts. ' +
     'Use "message" to post a chat message to the other workspace. ' +
-    'Use "delegate" to ask the other workspace\'s AI to perform a task and return the result. ' +
-    'Delegation is async — you will receive a task ID. The result will appear when the target workspace completes it.',
+    'Use "delegate" to ask the other workspace\'s AI to perform a task and return the result.',
   parameters: {
     type: 'object',
     properties: {
@@ -82,13 +82,119 @@ const bridgeWorkspace = {
       };
     }
 
-    // Relay via control plane with HMAC auth
+    // Resolve target workspace URL for direct A2A communication
+    const targetUrl = bridge.targetUrl;
+    if (!targetUrl) {
+      // Fallback: legacy relay via control plane (backward compat)
+      return await this._legacyRelay(bridge, action, content);
+    }
+
+    // ── A2A Direct Communication ──────────────────────────────
+    // Send directly to target workspace's A2A endpoint via the wake proxy.
+    // The wake proxy auto-wakes sleeping workspaces on HTTP requests.
+    const taskId = crypto.randomUUID();
+    const sourceName = config.workspaceName || config.workspaceId;
+
+    try {
+      const a2aEndpoint = `${targetUrl.replace(/\/$/, '')}/a2a`;
+      const headers = { 'Content-Type': 'application/json' };
+
+      // Auth: use the bridge API key if available
+      if (bridge.a2aApiKey) {
+        headers['x-api-key'] = bridge.a2aApiKey;
+      }
+
+      const messageText = action === 'delegate'
+        ? `[Delegated from ${sourceName}] ${content}`
+        : `[Message from ${sourceName}] ${content}`;
+
+      const response = await fetch(a2aEndpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: taskId,
+          method: 'message/send',
+          params: {
+            message: {
+              role: 'user',
+              parts: [{ type: 'text', text: messageText }],
+            },
+          },
+        }),
+        signal: AbortSignal.timeout(action === 'delegate' ? 120000 : 30000),
+      });
+
+      if (!response.ok) {
+        const body = await response.text();
+        // If A2A endpoint unavailable, try legacy relay
+        if (response.status === 404 || response.status === 502 || response.status === 503) {
+          console.warn(`[Bridge] A2A endpoint unavailable (${response.status}), falling back to relay`);
+          return await this._legacyRelay(bridge, action, content);
+        }
+        return { error: `Bridge communication failed: ${response.status} ${body.slice(0, 200)}` };
+      }
+
+      const result = await response.json();
+
+      // Extract response text from A2A task result
+      let responseText = '';
+      if (result?.result) {
+        const task = result.result;
+        if (task.artifacts && task.artifacts.length > 0) {
+          for (const artifact of task.artifacts) {
+            for (const part of (artifact.parts || [])) {
+              if (part.type === 'text') responseText += part.text;
+            }
+          }
+        }
+        // Fallback: check status message
+        if (!responseText && task.status?.message?.parts) {
+          for (const part of task.status.message.parts) {
+            if (part.type === 'text') responseText += part.text;
+          }
+        }
+      }
+
+      if (action === 'message') {
+        return {
+          success: true,
+          message: `Message delivered to ${bridge.targetName} via A2A`,
+          taskId,
+          protocol: 'a2a',
+        };
+      }
+
+      if (action === 'delegate') {
+        return {
+          success: true,
+          message: `Task completed by ${bridge.targetName}`,
+          taskId,
+          response: responseText || 'Task completed (no text response)',
+          protocol: 'a2a',
+        };
+      }
+
+      return result;
+    } catch (err) {
+      // Network error — try legacy relay as fallback
+      if (err.name === 'AbortError') {
+        return { error: `Bridge communication timed out after ${action === 'delegate' ? '120' : '30'} seconds` };
+      }
+      console.warn(`[Bridge] A2A direct failed (${err.message}), falling back to relay`);
+      return await this._legacyRelay(bridge, action, content);
+    }
+  },
+
+  /**
+   * Legacy relay via control plane — backward compatibility for workspaces
+   * that don't have A2A enabled yet.
+   */
+  async _legacyRelay(bridge, action, content) {
     const controlPlaneUrl = process.env.CONTROL_PLANE_URL || 'https://roundtable.foxtrotcommunications.net';
     const wsId = config.workspaceId;
-    const orgSlug = process.env.ORG_SLUG || '';
     const secret = config.sessionSecret || '';
 
-    // HMAC signature: HMAC-SHA256(SESSION_SECRET, wsId:timestamp)
     const timestamp = Date.now().toString();
     const signature = crypto.createHmac('sha256', secret).update(`${wsId}:${timestamp}`).digest('hex');
 
@@ -123,15 +229,17 @@ const bridgeWorkspace = {
           success: true,
           message: `Message sent to ${bridge.targetName}`,
           taskId: result.taskId,
+          protocol: 'legacy-relay',
         };
       }
 
       if (action === 'delegate') {
         return {
           success: true,
-          message: `Task delegated to ${bridge.targetName}. Task ID: ${result.taskId}. The target workspace's AI is processing your request.`,
+          message: `Task delegated to ${bridge.targetName}. Task ID: ${result.taskId}.`,
           taskId: result.taskId,
           status: 'pending',
+          protocol: 'legacy-relay',
         };
       }
 
