@@ -138,7 +138,16 @@ app.get('/api/health', async (req, res) => {
   try {
     const db = getAdapter();
     const version = require('../package.json').version || '1.0.0';
-    res.json({ status: 'ok', workspace: config.workspaceId, version, uptime: Math.floor(process.uptime()) });
+    // Include live provider/model so the dashboard can show actual state
+    const ws = await db.getWorkspace(config.workspaceId);
+    res.json({
+      status: 'ok',
+      workspace: config.workspaceId,
+      version,
+      provider: ws?.ai_provider || undefined,
+      model: ws?.ai_model || undefined,
+      uptime: Math.floor(process.uptime()),
+    });
   } catch (err) {
     res.status(503).json({ status: 'error', error: err.message });
   }
