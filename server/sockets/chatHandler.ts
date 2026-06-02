@@ -321,36 +321,51 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
       }
 
       // ── MCP Tool Discovery ──────────────────────────────────────
-      // If workspace has configured MCP servers, discover their tools
-      // and register them dynamically so the AI can use them.
+      // Sources: data_sources.mcp_servers (per-workspace settings) OR
+      //          RT_MCP_SERVERS env var (injected by SaaS provisioner)
+      let mcpServerList: Array<{ name: string; url: string; apiKey?: string }> | null = null;
       if (dataSources && (dataSources as Record<string, unknown>).mcp_servers) {
+        const servers = (dataSources as Record<string, unknown>).mcp_servers;
+        if (Array.isArray(servers) && servers.length > 0) mcpServerList = servers;
+      }
+      if (!mcpServerList && process.env.RT_MCP_SERVERS) {
         try {
-          const mcpServers = (dataSources as Record<string, unknown>).mcp_servers;
-          if (Array.isArray(mcpServers) && mcpServers.length > 0) {
-            const { createMcpToolsForWorkspace } = require('../mcp/client') as {
-              createMcpToolsForWorkspace: (servers: Array<{ name: string; url: string; apiKey?: string }>) => Promise<Array<{ name: string; description: string; parameters: Record<string, unknown>; execute: Function }>>;
-            };
-            const { registerDynamicTools } = require('../tools/index');
-            const mcpTools = await createMcpToolsForWorkspace(mcpServers);
-            if (mcpTools.length > 0) {
-              registerDynamicTools(mcpTools);
-              console.log(`[MCP] Registered ${mcpTools.length} tools from ${mcpServers.length} server(s)`);
-            }
-            workspaceConfig.mcpServers = mcpServers;
+          const parsed = JSON.parse(process.env.RT_MCP_SERVERS);
+          if (Array.isArray(parsed) && parsed.length > 0) mcpServerList = parsed;
+        } catch (_) {}
+      }
+      if (mcpServerList) {
+        try {
+          const { createMcpToolsForWorkspace } = require('../mcp/client') as {
+            createMcpToolsForWorkspace: (servers: Array<{ name: string; url: string; apiKey?: string }>) => Promise<Array<{ name: string; description: string; parameters: Record<string, unknown>; execute: Function }>>;
+          };
+          const { registerDynamicTools } = require('../tools/index');
+          const mcpTools = await createMcpToolsForWorkspace(mcpServerList);
+          if (mcpTools.length > 0) {
+            registerDynamicTools(mcpTools);
+            console.log(`[MCP] Registered ${mcpTools.length} tools from ${mcpServerList.length} server(s)`);
           }
+          workspaceConfig.mcpServers = mcpServerList;
         } catch (err) {
           console.warn('[MCP] Tool discovery failed:', (err as Error).message);
         }
       }
 
-      // Pass A2A agent config to workspaceConfig for describeWorkspace
+      // ── A2A Agent Config ────────────────────────────────────────
+      // Sources: data_sources.a2a_agents OR RT_A2A_AGENTS env var
+      let a2aAgentList: Array<{ name: string; url: string; apiKey?: string }> | null = null;
       if (dataSources && (dataSources as Record<string, unknown>).a2a_agents) {
+        const agents = (dataSources as Record<string, unknown>).a2a_agents;
+        if (Array.isArray(agents) && agents.length > 0) a2aAgentList = agents;
+      }
+      if (!a2aAgentList && process.env.RT_A2A_AGENTS) {
         try {
-          const a2aAgents = (dataSources as Record<string, unknown>).a2a_agents;
-          if (Array.isArray(a2aAgents)) {
-            workspaceConfig.a2aAgents = a2aAgents;
-          }
+          const parsed = JSON.parse(process.env.RT_A2A_AGENTS);
+          if (Array.isArray(parsed) && parsed.length > 0) a2aAgentList = parsed;
         } catch (_) {}
+      }
+      if (a2aAgentList) {
+        workspaceConfig.a2aAgents = a2aAgentList;
       }
 
       // Vertex AI uses ADC, Ollama uses no auth — skip API key for both
