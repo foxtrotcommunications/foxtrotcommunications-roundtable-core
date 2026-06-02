@@ -53,27 +53,93 @@ router.get('/.well-known/agent.json', async (_req: Request, res: Response) => {
   }
 });
 
-// ─── API Key Auth Middleware ───────────────────────────────
+// ─── Auth Middleware (API Key or Contract) ─────────────────
 
+/**
+ * A2A auth middleware — accepts either:
+ * 1. x-api-key header (simple API key auth)
+ * 2. Contract-based auth (X-Contract-Id + X-Contract-Signature + X-Contract-Timestamp headers)
+ */
 function requireA2aAuth(req: Request, res: Response, next: () => void): void {
+  // Option 1: API key auth (existing behavior)
   const apiKey = req.headers['x-api-key'] as string | undefined;
+  if (apiKey && config.a2aApiKey && apiKey === config.a2aApiKey) {
+    return next();
+  }
 
+  // Option 2: Contract-based HKDF auth
+  const contractId = req.headers['x-contract-id'] as string | undefined;
+  const contractSig = req.headers['x-contract-signature'] as string | undefined;
+  const contractTs = req.headers['x-contract-timestamp'] as string | undefined;
+
+  if (contractId && contractSig && contractTs) {
+    try {
+      const { deriveContractKey, verifyRequest, findAndValidateContract } = require('../utils/contractAuth');
+
+      // Load contract manifest from env
+      const contracts = process.env.RT_CONTRACTS ? JSON.parse(process.env.RT_CONTRACTS) : [];
+      const masterSecret = process.env.ORG_MASTER_SECRET;
+
+      if (!masterSecret) {
+        res.status(403).json(
+          jsonRpcError(req.body?.id || null, -32000, 'Contract auth not available (no master secret configured)')
+        );
+        return;
+      }
+
+      // Find and validate the contract
+      const { contract, error: contractError } = findAndValidateContract(contracts, contractId, 'message_send');
+      if (contractError) {
+        res.status(403).json(
+          jsonRpcError(req.body?.id || null, -32000, `Contract rejected: ${contractError}`)
+        );
+        return;
+      }
+
+      // Derive key and verify signature
+      deriveContractKey(masterSecret, contractId, contract.version || 1)
+        .then((contractKey: Buffer) => {
+          const { valid, error: sigError } = verifyRequest(
+            contractKey, contractId, contractTs, 'message_send', contractSig
+          );
+
+          if (!valid) {
+            res.status(401).json(
+              jsonRpcError(req.body?.id || null, -32000, `Contract signature invalid: ${sigError}`)
+            );
+            return;
+          }
+
+          // Attach contract info to request for downstream use
+          (req as any).contract = contract;
+          next();
+        })
+        .catch((err: Error) => {
+          res.status(500).json(
+            jsonRpcError(req.body?.id || null, -32000, `Contract auth error: ${err.message}`)
+          );
+        });
+      return; // async — don't fall through
+    } catch (err: unknown) {
+      const error = err as Error;
+      res.status(500).json(
+        jsonRpcError(req.body?.id || null, -32000, `Contract auth error: ${error.message}`)
+      );
+      return;
+    }
+  }
+
+  // Neither auth method provided
   if (!config.a2aApiKey) {
-    // If no A2A API key is configured, reject all requests
     res.status(403).json(
       jsonRpcError(req.body?.id || null, -32000, 'A2A server is not configured (no API key set)')
     );
     return;
   }
 
-  if (!apiKey || apiKey !== config.a2aApiKey) {
-    res.status(401).json(
-      jsonRpcError(req.body?.id || null, -32000, 'Unauthorized: invalid or missing x-api-key')
-    );
-    return;
-  }
-
-  next();
+  res.status(401).json(
+    jsonRpcError(req.body?.id || null, -32000, 'Unauthorized: provide x-api-key or contract headers (X-Contract-Id, X-Contract-Signature, X-Contract-Timestamp)')
+  );
 }
 
 // ─── JSON-RPC Endpoint (Authenticated) ─────────────────────
