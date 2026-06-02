@@ -1,0 +1,135 @@
+// server/utils/contractAuth.js — HKDF-based contract key derivation and verification
+//
+// Each organization has ONE master secret. Contract keys are derived mathematically
+// using HKDF-SHA256: contractKey = HKDF(masterSecret, "contract:{contractId}:{version}")
+//
+// No per-contract secrets. No Secret Manager calls. Just math.
+
+const crypto = require('crypto');
+
+/**
+ * Derive a contract-specific key from the org master secret.
+ * Uses HKDF-SHA256 with the contract ID and version as info.
+ *
+ * @param {string} masterSecret - Organization master secret
+ * @param {string} contractId - Unique contract identifier
+ * @param {number} version - Contract key version (bump to invalidate old keys)
+ * @returns {Promise<Buffer>} 32-byte derived key
+ */
+async function deriveContractKey(masterSecret, contractId, version = 1) {
+  return new Promise((resolve, reject) => {
+    crypto.hkdf(
+      'sha256',
+      Buffer.from(masterSecret, 'utf8'),
+      Buffer.alloc(0), // no salt (master secret is already high-entropy)
+      `contract:${contractId}:${version}`,
+      32,
+      (err, derivedKey) => {
+        if (err) reject(err);
+        else resolve(Buffer.from(derivedKey));
+      }
+    );
+  });
+}
+
+/**
+ * Sign a contract request for A2A communication.
+ *
+ * @param {Buffer} contractKey - Derived contract key
+ * @param {string} contractId - Contract identifier
+ * @param {string} timestamp - ISO timestamp or epoch string
+ * @param {string} action - Action being performed (message, delegate, etc.)
+ * @returns {string} HMAC-SHA256 hex signature
+ */
+function signRequest(contractKey, contractId, timestamp, action) {
+  return crypto
+    .createHmac('sha256', contractKey)
+    .update(`${contractId}:${timestamp}:${action}`)
+    .digest('hex');
+}
+
+/**
+ * Verify a contract request signature.
+ *
+ * @param {Buffer} contractKey - Derived contract key
+ * @param {string} contractId - Contract identifier
+ * @param {string} timestamp - Timestamp from request
+ * @param {string} action - Action from request
+ * @param {string} signature - Signature to verify
+ * @param {number} maxAgeMs - Maximum signature age in milliseconds (default: 5 min)
+ * @returns {{ valid: boolean, error?: string }}
+ */
+function verifyRequest(contractKey, contractId, timestamp, action, signature, maxAgeMs = 5 * 60 * 1000) {
+  // Check timestamp freshness
+  const ts = typeof timestamp === 'string' && timestamp.includes('T')
+    ? new Date(timestamp).getTime()
+    : parseInt(timestamp, 10);
+
+  if (isNaN(ts)) {
+    return { valid: false, error: 'Invalid timestamp' };
+  }
+
+  if (Math.abs(Date.now() - ts) > maxAgeMs) {
+    return { valid: false, error: 'Contract signature expired' };
+  }
+
+  // Verify HMAC
+  const expected = signRequest(contractKey, contractId, timestamp, action);
+
+  try {
+    const sigBuf = Buffer.from(signature, 'hex');
+    const expBuf = Buffer.from(expected, 'hex');
+    if (sigBuf.length !== expBuf.length) {
+      return { valid: false, error: 'Invalid signature' };
+    }
+    if (!crypto.timingSafeEqual(sigBuf, expBuf)) {
+      return { valid: false, error: 'Invalid signature' };
+    }
+  } catch {
+    return { valid: false, error: 'Invalid signature format' };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Find the matching contract for an inbound request.
+ *
+ * @param {Array} contracts - Contract manifest (from RT_CONTRACTS)
+ * @param {string} contractId - Contract ID from request headers
+ * @param {string} action - Action being attempted
+ * @returns {{ contract?: object, error?: string }}
+ */
+function findAndValidateContract(contracts, contractId, action) {
+  if (!contracts || !Array.isArray(contracts)) {
+    return { error: 'No contracts configured' };
+  }
+
+  const contract = contracts.find(c => c.contractId === contractId);
+  if (!contract) {
+    return { error: `Unknown contract: ${contractId}` };
+  }
+
+  if (contract.status !== 'active') {
+    return { error: `Contract ${contractId} is not active (status: ${contract.status})` };
+  }
+
+  // Check allowedActions — map transport actions to contract actions
+  // Bridge actions (message, delegate) are always allowed if ANY action is permitted
+  const transportActions = ['message', 'delegate', 'message_send', 'tasks_get', 'tasks_cancel'];
+  if (!transportActions.includes(action)) {
+    // Domain-specific action — must be in allowedActions
+    if (!contract.allowedActions.includes(action)) {
+      return { error: `Action "${action}" not permitted by contract ${contractId}. Allowed: ${contract.allowedActions.join(', ')}` };
+    }
+  }
+
+  return { contract };
+}
+
+module.exports = {
+  deriveContractKey,
+  signRequest,
+  verifyRequest,
+  findAndValidateContract,
+};

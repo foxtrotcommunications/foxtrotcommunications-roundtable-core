@@ -89,6 +89,24 @@ const bridgeWorkspace = {
       return await this._legacyRelay(bridge, action, content);
     }
 
+    // ── Contract Lookup ───────────────────────────────────────
+    // Check if there's an active governance contract for this bridge.
+    // If so, use HKDF-derived contract key for authentication.
+    let contract = null;
+    const contractsManifest = process.env.RT_CONTRACTS;
+    if (contractsManifest) {
+      try {
+        const contracts = JSON.parse(contractsManifest);
+        // Find outbound contract to this target
+        contract = contracts.find(
+          (c) =>
+            c.direction === 'outbound' &&
+            c.counterparty.wsId === bridge.targetWsId &&
+            c.status === 'active'
+        );
+      } catch (_) {}
+    }
+
     // ── A2A Direct Communication ──────────────────────────────
     // Send directly to target workspace's A2A endpoint via the wake proxy.
     // The wake proxy auto-wakes sleeping workspaces on HTTP requests.
@@ -99,8 +117,22 @@ const bridgeWorkspace = {
       const a2aEndpoint = `${targetUrl.replace(/\/$/, '')}/a2a`;
       const headers = { 'Content-Type': 'application/json' };
 
-      // Auth: use the bridge API key if available
-      if (bridge.a2aApiKey) {
+      if (contract && process.env.ORG_MASTER_SECRET) {
+        // Contract-based HKDF auth — cryptographic proof of valid contract
+        const { deriveContractKey, signRequest } = require('../utils/contractAuth');
+        const timestamp = Date.now().toString();
+        const contractKey = await deriveContractKey(
+          process.env.ORG_MASTER_SECRET,
+          contract.contractId,
+          contract.version || 1
+        );
+        const signature = signRequest(contractKey, contract.contractId, timestamp, action);
+
+        headers['X-Contract-Id'] = contract.contractId;
+        headers['X-Contract-Signature'] = signature;
+        headers['X-Contract-Timestamp'] = timestamp;
+      } else if (bridge.a2aApiKey) {
+        // Fallback: API key auth
         headers['x-api-key'] = bridge.a2aApiKey;
       }
 
