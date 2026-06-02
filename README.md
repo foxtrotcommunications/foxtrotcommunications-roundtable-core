@@ -7,7 +7,7 @@ Multiple users collaborate on AI conversations in real-time — with built-in to
 Roundtable is designed as a **platform for agent orchestration** — connect your own A2A agents, MCP servers, or custom tools and let the AI route between them. Build agents in any language, deploy them anywhere, and plug them into a shared workspace where your whole team works together.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-98%20passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-106%20passing-brightgreen.svg)](#testing)
 [![CI](https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable-core/actions/workflows/ci.yml/badge.svg)](https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable-core/actions/workflows/ci.yml)
 
 ## Quick Start
@@ -52,7 +52,10 @@ Roundtable auto-detects the environment: if no `DATABASE_URL` is set, it uses SQ
 - **Workspace-per-Container** — Each workspace is an isolated container with its own identity
 - **Workspace Bridges** — Open cross-workspace channels for AI-mediated collaboration between teams
 - **Bridge Contracts** — Governed communication agreements between workspaces; contracts define allowed actions, approval requirements, and escalation paths at each bridge hop
-- **A2A Agent Protocol** — Plug in external agents built in any language via the A2A standard
+- **A2A Agent Protocol** — Plug in external agents built in any language via the A2A standard (JSON-RPC 2.0 over HTTP)
+- **Governance Contracts** — Typed, approved agreements between workspaces that define allowed actions, approval chains, and escalation paths; enforced cryptographically at runtime
+- **E2E Encrypted Communication** — Cross-workspace A2A messages are encrypted with AES-256-GCM using HKDF-derived per-contract keys; only the two workspaces in an active contract can decrypt
+- **MCP Server Support** — Connect external Model Context Protocol servers to extend workspace tool capabilities
 - **Multi-Cloud** — Deploy on Cloud Run, GKE, EKS, AKS, or any Kubernetes cluster
 - **BYOK** — Bring Your Own Key; users configure their own API keys, or use server-level defaults
 - **Presence** — See who's online in each workspace
@@ -156,6 +159,12 @@ See [`k8s/overlays/tls/`](k8s/overlays/tls/) for HTTPS setup with cert-manager +
 | `PLATFORM_ORG` | - | Organization name shown in system prompt and describe_workspace |
 | `SECURE_COOKIES` | `false` | Force secure cookies in production (`true`/`false`) |
 | `SHELL_EXEC_ENABLED` | `false` | Allow the shell_exec tool (`true`/`false`) |
+| `A2A_SERVER_ENABLED` | `false` | Enable the A2A agent protocol server (`true`/`false`) |
+| `ORG_MASTER_SECRET` | - | HKDF master secret for contract key derivation (injected by provisioner) |
+| `RT_CONTRACTS` | - | JSON manifest of active governance contracts (injected by provisioner) |
+| `RT_BRIDGES` | - | JSON manifest of workspace bridges (injected by provisioner) |
+| `RT_MCP_SERVERS` | - | JSON manifest of MCP server connections (injected by provisioner) |
+| `RT_A2A_AGENTS` | - | JSON manifest of A2A agent connections (injected by provisioner) |
 
 ### AI Providers
 
@@ -323,7 +332,7 @@ Deployment model (workspace-per-container):
 npm test
 ```
 
-98 tests across 8 suites:
+106 tests across 8 suites:
 
 | Suite | Tests | Coverage |
 |-------|-------|----------|
@@ -370,12 +379,15 @@ Security policies and compliance documentation are maintained in [`docs/security
 - [**Acceptable Use Policy**](docs/security/acceptable-use-policy.md) — Permitted and prohibited platform usage
 - [**Shared Responsibility Model**](docs/security/shared-responsibility-model.md) — GCP control ownership mapping for SOC 2 auditors
 
-Infrastructure security controls include:
+Infrastructure and application security controls include:
 
 - **Workspace Isolation** — Each workspace runs as its own K8s pod with a dedicated database and per-pod NetworkPolicy (ingress restricted to ingress controller only)
 - **Workload Identity** — No static service account keys; pods authenticate via GKE Workload Identity
-- **Encryption** — TLS in transit (Let's Encrypt), AES-256 at rest (Cloud SQL, Firestore)
-- **Audit Logging** — Cloud Audit Logs exported to immutable storage (`gs://roundtable-audit-logs`)
+- **Encryption in Transit** — TLS 1.2+ for all external communication (HTTPS, WSS)
+- **End-to-End Encryption** — Cross-workspace A2A messages are encrypted with AES-256-GCM using HKDF-derived per-contract keys. The wake proxy, ingress controller, and log pipeline cannot inspect message payloads
+- **Contract-Based Authentication** — HKDF key derivation from a single org master secret with HMAC-SHA256 request signing. Each governance contract gets its own derived key; revoking a contract instantly invalidates its key
+- **Encryption at Rest** — AES-256 at rest via Cloud SQL and Firestore; API keys and credentials encrypted before database storage
+- **Audit Logging** — Cloud Audit Logs exported to immutable storage (`gs://roundtable-audit-logs`); governance engine flags ungoverned bridges and policy violations
 - **Container Scanning** — Artifact Registry vulnerability scanning enabled on all images
 - **Branch Protection** — PRs require at least one approving review before merge
 
