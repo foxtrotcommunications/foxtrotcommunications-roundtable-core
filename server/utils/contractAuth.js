@@ -127,9 +127,86 @@ function findAndValidateContract(contracts, contractId, action) {
   return { contract };
 }
 
+// ─── End-to-End Encryption ─────────────────────────────────
+// AES-256-GCM using the HKDF-derived contract key.
+// Same key derivation as signing — no additional secrets needed.
+//
+// Properties:
+//   Authentication  — HMAC on headers (who sent it)
+//   Confidentiality — AES-GCM on payload (encrypted content)
+//   Integrity       — GCM auth tag (tamper-proof)
+//
+// Only the two workspaces holding an active contract can decrypt.
+// The wake proxy, ingress controller, log pipeline — none can read the payload.
+
+/**
+ * Encrypt a message payload using AES-256-GCM with the contract key.
+ *
+ * @param {Buffer} contractKey - 32-byte HKDF-derived contract key
+ * @param {object|string} payload - The data to encrypt (will be JSON.stringified if object)
+ * @returns {{ iv: string, ciphertext: string, authTag: string }} Base64-encoded components
+ */
+function encryptPayload(contractKey, payload) {
+  const plaintext = typeof payload === 'string' ? payload : JSON.stringify(payload);
+
+  // 12-byte random IV (NIST recommended for GCM)
+  const iv = crypto.randomBytes(12);
+
+  const cipher = crypto.createCipheriv('aes-256-gcm', contractKey, iv);
+  const encrypted = Buffer.concat([
+    cipher.update(plaintext, 'utf8'),
+    cipher.final(),
+  ]);
+  const authTag = cipher.getAuthTag();
+
+  return {
+    iv: iv.toString('base64'),
+    ciphertext: encrypted.toString('base64'),
+    authTag: authTag.toString('base64'),
+  };
+}
+
+/**
+ * Decrypt a message payload using AES-256-GCM with the contract key.
+ *
+ * @param {Buffer} contractKey - 32-byte HKDF-derived contract key
+ * @param {string} iv - Base64-encoded initialization vector
+ * @param {string} ciphertext - Base64-encoded ciphertext
+ * @param {string} authTag - Base64-encoded GCM authentication tag
+ * @returns {{ data: object|string, error?: string }}
+ */
+function decryptPayload(contractKey, iv, ciphertext, authTag) {
+  try {
+    const decipher = crypto.createDecipheriv(
+      'aes-256-gcm',
+      contractKey,
+      Buffer.from(iv, 'base64')
+    );
+    decipher.setAuthTag(Buffer.from(authTag, 'base64'));
+
+    const decrypted = Buffer.concat([
+      decipher.update(Buffer.from(ciphertext, 'base64')),
+      decipher.final(),
+    ]);
+
+    const text = decrypted.toString('utf8');
+
+    // Try to parse as JSON, fall back to raw string
+    try {
+      return { data: JSON.parse(text) };
+    } catch {
+      return { data: text };
+    }
+  } catch (err) {
+    return { data: null, error: `Decryption failed: ${err.message}` };
+  }
+}
+
 module.exports = {
   deriveContractKey,
   signRequest,
   verifyRequest,
   findAndValidateContract,
+  encryptPayload,
+  decryptPayload,
 };
