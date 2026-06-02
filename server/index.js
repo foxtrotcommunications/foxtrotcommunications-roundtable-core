@@ -137,7 +137,8 @@ if (config.embedMode) {
 app.get('/api/health', async (req, res) => {
   try {
     const db = getAdapter();
-    res.json({ status: 'ok', workspace: config.workspaceId, uptime: Math.floor(process.uptime()) });
+    const version = require('../package.json').version || '1.0.0';
+    res.json({ status: 'ok', workspace: config.workspaceId, version, uptime: Math.floor(process.uptime()) });
   } catch (err) {
     res.status(503).json({ status: 'error', error: err.message });
   }
@@ -256,7 +257,8 @@ app.get('/api/workspace/info', requireAuth, async (req, res) => {
   try {
     const db = getAdapter();
     const ws = await db.getWorkspace(config.workspaceId);
-    res.json(ws || { id: config.workspaceId, name: config.workspaceName, status: 'active' });
+    const version = require('../package.json').version || '1.0.0';
+    res.json({ ...(ws || { id: config.workspaceId, name: config.workspaceName, status: 'active' }), version });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

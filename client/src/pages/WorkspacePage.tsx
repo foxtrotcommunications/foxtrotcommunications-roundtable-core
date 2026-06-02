@@ -96,7 +96,7 @@ export default function WorkspacePage({ user, onLogout }: Props) {
           <div className="chat-header">
             <div className="chat-header-info">
               <h2>{workspace?.name || 'Roundtable'}</h2>
-              <p>{workspace?.ai_provider || 'vertexai'} · {workspace?.ai_model || 'gemini-2.5-flash'}</p>
+              <p>{workspace?.ai_provider || 'vertexai'} · {workspace?.ai_model || 'gemini-2.5-flash'}{workspace?.version ? ` · v${workspace.version}` : ''}</p>
             </div>
             <div className="chat-header-actions">
               {/* Hide toolbar in demo mode — only show workspace name + model */}
