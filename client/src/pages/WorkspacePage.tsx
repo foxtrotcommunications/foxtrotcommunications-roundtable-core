@@ -102,9 +102,10 @@ export default function WorkspacePage({ user, onLogout }: Props) {
               {/* Hide toolbar in demo mode — only show workspace name + model */}
               {!window.__ROUNDTABLE_DEMO__ && (<>
               <PresenceBar users={presence.users} />
-              <button className="btn btn-ghost btn-sm" onClick={() => setSettingsOpen(true)} title="Settings">⚙️</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setSettingsOpen(true)} title="Workspace settings" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>⚙️ <span style={{ fontSize: '0.75rem' }}>Settings</span></button>
               <BridgeButton
                 hasBridges={bridges.length > 0}
+                bridgeCount={bridges.length}
                 isOpen={bridgePanelOpen}
                 onClick={() => setBridgePanelOpen(!bridgePanelOpen)}
               />
