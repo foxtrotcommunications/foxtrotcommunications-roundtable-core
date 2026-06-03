@@ -21,6 +21,9 @@ const tool: Tool = {
   },
   async execute(args: any, workspaceConfig: any = {}, _context?: any) {
     const { code } = args;
+    if (!code || typeof code !== 'string') {
+      return { error: 'Missing required parameter: code (string)' };
+    }
     try {
       const logs = [];
       const sandbox = {

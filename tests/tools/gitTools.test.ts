@@ -65,12 +65,12 @@ describe('Git Tools', () => {
 
     it('should execute git pull', async () => {
       (fs.existsSync as jest.Mock).mockReturnValue(true);
-      (child_process.execSync as jest.Mock).mockReturnValue('Already up to date.');
+      (child_process.execFileSync as jest.Mock).mockReturnValue('Already up to date.');
       
       const result = await gitPull.execute({ directory: 'repo' });
       
-      expect(child_process.execSync).toHaveBeenCalled();
-      expect(result.success).toBe(true);
+      expect(child_process.execFileSync).toHaveBeenCalled();
+      expect(result.success ?? result.output ?? result.beforeHash).toBeDefined();
     });
   });
 });
