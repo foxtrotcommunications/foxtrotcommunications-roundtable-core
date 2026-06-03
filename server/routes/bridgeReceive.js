@@ -18,13 +18,19 @@ const router = express.Router();
 
 router.post('/receive', async (req, res) => {
   try {
-    const { taskId, bridgeId, action, content, sourceWorkspace, timestamp, signature } = req.body;
+    const {
+      taskId, bridgeId, contractId, contractToken,
+      action, content, sourceWorkspace, timestamp, signature,
+    } = req.body;
 
-    // Verify HMAC signature
+    // Verify HMAC signature — now covers taskId:timestamp:contractId:action
+    // This binds the specific action and contract into the signature, so the
+    // control plane cannot be impersonated by replaying a signature for a
+    // different action or contract.
     const secret = config.bridgeHmacSecret;
     const expectedSig = crypto
       .createHmac('sha256', secret)
-      .update(`${taskId}:${timestamp}`)
+      .update(`${taskId}:${timestamp}:${contractId ?? ''}:${action}`)
       .digest('hex');
 
     if (!signature || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
@@ -35,6 +41,63 @@ router.post('/receive', async (req, res) => {
     if (Math.abs(Date.now() - parseInt(timestamp)) > 5 * 60 * 1000) {
       return res.status(401).json({ error: 'Bridge timestamp expired' });
     }
+
+    // ── Contract enforcement gate ─────────────────────────────────────────────
+    // If a contractId is present, the workspace verifies the contract terms
+    // independently using its locally-cached RT_CONTRACTS manifest and the
+    // shared BRIDGE_HMAC_SECRET. This is self-reinforcing: the same key that
+    // authenticated the request also authenticates the contract terms, so
+    // tampering with allowedActions in transit breaks the contractToken check.
+    if (contractId) {
+      const rtContracts = (() => {
+        try { return JSON.parse(process.env.RT_CONTRACTS || '[]'); } catch { return []; }
+      })();
+
+      const manifest = rtContracts.find(c => c.contractId === contractId);
+
+      // 1. Contract must be in the local manifest (prevents unknown contracts)
+      if (!manifest) {
+        console.warn(`[Bridge] Rejected: contract ${contractId} not found in local manifest`);
+        return res.status(403).json({
+          error: 'Contract not recognized by this workspace',
+          contractId,
+          code: 'CONTRACT_NOT_FOUND',
+        });
+      }
+
+      // 2. Verify contractToken — proves allowedActions weren't tampered with in transit
+      const sortedActions = [...manifest.allowedActions].sort().join(',');
+      const expectedToken = crypto
+        .createHmac('sha256', secret)
+        .update(`${contractId}:${sortedActions}`)
+        .digest('hex');
+
+      if (!contractToken || !crypto.timingSafeEqual(
+        Buffer.from(contractToken, 'hex'),
+        Buffer.from(expectedToken, 'hex'),
+      )) {
+        console.warn(`[Bridge] Rejected: contract token mismatch for ${contractId}`);
+        return res.status(403).json({
+          error: 'Contract terms could not be verified',
+          contractId,
+          code: 'CONTRACT_TOKEN_INVALID',
+        });
+      }
+
+      // 3. Action must be in the contract's allowedActions
+      if (!manifest.allowedActions.includes(action)) {
+        console.warn(`[Bridge] Rejected: action "${action}" not permitted by contract ${contractId}`);
+        return res.status(403).json({
+          error: `Action "${action}" is not permitted by the active contract`,
+          contractId,
+          allowedActions: manifest.allowedActions,
+          code: 'ACTION_NOT_PERMITTED',
+        });
+      }
+
+      console.log(`[Bridge] Contract ${contractId} approved action "${action}" from ${sourceWorkspace.name}`);
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     console.log(`[Bridge] Received ${action} from ${sourceWorkspace.name} (${sourceWorkspace.id}): ${content.slice(0, 100)}`);
 
@@ -60,14 +123,10 @@ router.post('/receive', async (req, res) => {
     }
 
     if (action === 'result') {
-      // Result delivery from a completed delegation — just save and broadcast, do NOT report back
-      // (reporting back would create an infinite loop)
       return res.json({ success: true, action: 'result_delivered' });
     }
 
     if (action === 'message') {
-      // Simple message relay — already saved and broadcast, done
-      // Report completion to the control plane
       await reportTaskComplete(taskId, timestamp, secret, {
         result: `Message delivered to ${config.workspaceName}`,
       });
@@ -75,10 +134,7 @@ router.post('/receive', async (req, res) => {
     }
 
     if (action === 'delegate') {
-      // AI delegation — process the task asynchronously
       res.json({ success: true, action: 'delegation_started' });
-
-      // Process in background
       processDelegation(taskId, timestamp, secret, content, sourceWorkspace).catch(err => {
         console.error('[Bridge] Delegation error:', err);
         reportTaskComplete(taskId, timestamp, secret, { error: err.message });

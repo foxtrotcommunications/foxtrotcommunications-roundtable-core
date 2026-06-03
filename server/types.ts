@@ -302,3 +302,31 @@ export interface ChatMessage {
   tool_call_id?: string;
   name?: string;
 }
+
+// ─── Bridge Request ────────────────────────────────────────────────
+
+/**
+ * Payload sent by the control plane to a workspace's POST /api/bridge/receive.
+ *
+ * Signature covers: HMAC-SHA256("taskId:timestamp:contractId:action")
+ * — binding the specific action and contract into the request so replaying a
+ * signature for a different action or contract is cryptographically infeasible.
+ *
+ * contractToken = HMAC-SHA256("contractId:sortedAllowedActions")
+ * — the workspace re-derives this from its local RT_CONTRACTS manifest and
+ * compares it to detect any in-transit tampering of the allowedActions claim.
+ */
+export interface BridgeRequest {
+  taskId: string;
+  bridgeId: string;
+  /** Present when a contract governs this bridge direction. */
+  contractId?: string;
+  /** HMAC("contractId:sortedAllowedActions"). Workspace verifies against local manifest. */
+  contractToken?: string;
+  action: 'message' | 'delegate' | 'result';
+  content: string;
+  sourceWorkspace: { id: string; name: string; orgId?: string };
+  timestamp: string;
+  /** HMAC("taskId:timestamp:contractId:action"). Proves control-plane origin. */
+  signature: string;
+}
