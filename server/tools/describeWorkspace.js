@@ -9,6 +9,7 @@
 
 const config = require('../config');
 const fs = require('fs');
+const { fetchManifest } = require('../utils/fetchManifest');
 
 module.exports = {
   name: 'describe_workspace',
@@ -119,25 +120,24 @@ module.exports = {
       }
     }
 
-    // ── Workspace Bridges (from RT_BRIDGES env) ──────────────────
+    // ── Fetch Dynamic Manifest ───────────────────────────────
+    const manifest = await fetchManifest();
+
+    // ── Workspace Bridges (from dynamic manifest) ──────────────────
     const bridges = [];
     try {
-      const manifest = process.env.RT_BRIDGES;
-      if (manifest) {
-        const parsed = JSON.parse(manifest);
-        for (const b of parsed) {
+      if (manifest.RT_BRIDGES && Array.isArray(manifest.RT_BRIDGES)) {
+        for (const b of manifest.RT_BRIDGES) {
           bridges.push({ targetName: b.targetName, targetWsId: b.targetWsId, permissions: b.permissions });
         }
       }
     } catch (_) {}
 
-    // ── Governance Contracts (from RT_CONTRACTS env) ─────────
+    // ── Governance Contracts (from dynamic manifest) ─────────
     const contracts = [];
     try {
-      const contractManifest = process.env.RT_CONTRACTS;
-      if (contractManifest) {
-        const parsed = JSON.parse(contractManifest);
-        for (const c of parsed) {
+      if (manifest.RT_CONTRACTS && Array.isArray(manifest.RT_CONTRACTS)) {
+        for (const c of manifest.RT_CONTRACTS) {
           contracts.push({
             contractId: c.contractId,
             type: c.type,

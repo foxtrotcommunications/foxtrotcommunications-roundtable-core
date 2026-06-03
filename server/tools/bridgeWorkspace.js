@@ -8,6 +8,7 @@
 
 const config = require('../config');
 const crypto = require('crypto');
+const { fetchManifest } = require('../utils/fetchManifest');
 
 const bridgeWorkspace = {
   name: 'bridge_workspace',
@@ -45,19 +46,14 @@ const bridgeWorkspace = {
       return { error: 'target, action, and content are required' };
     }
 
-    // Read bridge manifest from env (injected by dashboard on pod start)
-    const manifest = process.env.RT_BRIDGES;
-    if (!manifest) {
+    // Read bridge manifest dynamically (falls back to env if control plane is down)
+    const manifest = await fetchManifest();
+    let bridges = manifest.RT_BRIDGES;
+
+    if (!bridges || !bridges.length) {
       return {
         error: 'No bridges configured for this workspace. Ask an admin to create a bridge in the dashboard.',
       };
-    }
-
-    let bridges;
-    try {
-      bridges = JSON.parse(manifest);
-    } catch {
-      return { error: 'Invalid bridge manifest' };
     }
 
     // Find the bridge for the target workspace
@@ -93,10 +89,9 @@ const bridgeWorkspace = {
     // Check if there's an active governance contract for this bridge.
     // If so, use HKDF-derived contract key for authentication.
     let contract = null;
-    const contractsManifest = process.env.RT_CONTRACTS;
-    if (contractsManifest) {
+    const contracts = manifest.RT_CONTRACTS;
+    if (contracts && Array.isArray(contracts)) {
       try {
-        const contracts = JSON.parse(contractsManifest);
         // Find outbound contract to this target
         contract = contracts.find(
           (c) =>
