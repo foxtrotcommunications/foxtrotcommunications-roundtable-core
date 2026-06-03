@@ -179,6 +179,8 @@ export interface AppConfig {
   workspaceName: string;
   workspaceUrl: string;
   platformOrg: string;
+  aiProvider?: string;
+  aiModel?: string;
   embedMode: boolean;
   demoMode: boolean;
   sessionIdleMinutes: number;
