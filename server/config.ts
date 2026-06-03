@@ -6,6 +6,34 @@ require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
 
 const sessionSecret = process.env.SESSION_SECRET || 'roundtable-dev-secret-change-me';
 
+export interface AppConfig {
+  port: number;
+  sessionSecret: string;
+  ssoJwtSecret: string;
+  bridgeHmacSecret: string;
+  databaseUrl: string;
+  workspaceId: string;
+  workspaceName: string;
+  workspaceUrl: string;
+  platformOrg: string;
+  aiProvider?: string;
+  aiModel?: string;
+  embedMode: boolean;
+  demoMode: boolean;
+  sessionIdleMinutes: number;
+  allowedProviders: string | null;
+  ai: { openai: string; anthropic: string; google: string };
+  vertexai: { project: string; location: string };
+  ollama: { host: string };
+  googleSearch: { apiKey: string; engineId: string };
+  snowflake: any;
+  databricks: any;
+  mcpServerEnabled: boolean;
+  a2aServerEnabled: boolean;
+  mcpApiKey: string;
+  a2aApiKey: string;
+}
+
 const config: AppConfig = {
   port: parseInt(process.env.PORT as string, 10) || 3000,
   sessionSecret,
@@ -22,6 +50,10 @@ const config: AppConfig = {
 
   // Platform branding (appears in system prompt and describe_workspace)
   platformOrg: process.env.PLATFORM_ORG || '',
+
+  // AI defaults (injected by provisioner)
+  aiProvider: process.env.AI_PROVIDER || undefined,
+  aiModel: process.env.AI_MODEL || undefined,
 
   embedMode: process.env.EMBED_MODE === 'true',
   demoMode: process.env.DEMO_MODE === 'true',
