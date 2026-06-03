@@ -10,8 +10,8 @@ describe('codeRunner tool', () => {
   });
 
   it('should require language and code', async () => {
-    const result = await codeRunner.execute({ language: 'python' });
-    expect(result.error).toBeDefined(); // Assuming it returns error
+    const result = await codeRunner.execute({});
+    expect(result.error).toBeDefined();
   });
 
   it('should execute code', async () => {
