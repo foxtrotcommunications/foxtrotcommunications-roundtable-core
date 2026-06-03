@@ -447,6 +447,19 @@ async function start() {
   const db = getAdapter();
   await db.registerWorkspace(config.workspaceId, config.workspaceName, config.workspaceUrl, null);
 
+  // Sync provisioned AI settings if present
+  if (config.aiProvider || config.aiModel) {
+    const ws = await db.getWorkspace(config.workspaceId);
+    if ((config.aiProvider && ws.ai_provider !== config.aiProvider) || 
+        (config.aiModel && ws.ai_model !== config.aiModel)) {
+      await db.updateWorkspace(config.workspaceId, {
+        aiProvider: config.aiProvider || ws.ai_provider,
+        aiModel: config.aiModel || ws.ai_model
+      });
+      console.log(`[Config] Synced AI settings from env: ${config.aiProvider || ws.ai_provider} / ${config.aiModel || ws.ai_model}`);
+    }
+  }
+
   // Apply infra-level provider restriction from env
   if (config.allowedProviders) {
     await db.updateWorkspace(config.workspaceId, { allowedProviders: config.allowedProviders });
