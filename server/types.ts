@@ -54,6 +54,7 @@ export interface ToolParameters {
   type: 'object';
   properties: Record<string, {
     type: string;
+    items?: { type: string };
     description?: string;
     enum?: string[];
     default?: unknown;
