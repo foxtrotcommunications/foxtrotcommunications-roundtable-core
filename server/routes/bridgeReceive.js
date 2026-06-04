@@ -19,7 +19,7 @@ const router = express.Router();
 router.post('/receive', async (req, res) => {
   try {
     const {
-      taskId, bridgeId, contractId, contractToken,
+      taskId, _bridgeId, contractId, contractToken,
       action, content, sourceWorkspace, timestamp, signature,
     } = req.body;
 
@@ -168,7 +168,7 @@ async function processDelegation(taskId, timestamp, secret, content, sourceWorks
     try {
       const parsed = JSON.parse(workspace.enabled_tools);
       if (Array.isArray(parsed) && parsed.length > 0) enabledToolNames = parsed;
-    } catch (_) {}
+    } catch { /* intentionally empty */ }
   }
 
   // Build workspace config for tools

@@ -1,6 +1,6 @@
 // @ts-nocheck
 // server/tools/shellExec.js — Execute a shell command in the workspace (allowlist-based)
-import {  execFileSync, execSync  } from 'child_process';
+import {  execSync  } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 
@@ -70,7 +70,7 @@ const tool: Tool = {
     },
     required: ['command'],
   },
-  async execute(args: any, workspaceConfig: any = {}, _context?: any) {
+  async execute(args: any, _workspaceConfig: any = {}, _context?: any) {
     const { command, cwd = '.' } = args;
     try {
       // Check if shell_exec is disabled

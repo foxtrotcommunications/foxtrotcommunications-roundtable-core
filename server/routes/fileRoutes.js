@@ -27,7 +27,7 @@ router.get('/workspace', (req, res) => {
               .readFileSync(path.join(WORKSPACE_DIR, e.name, '.git', 'HEAD'), 'utf-8')
               .trim()
               .replace('ref: refs/heads/', '');
-          } catch (_) {}
+          } catch { /* intentionally empty */ }
         }
         return { name: e.name, branch: isGit ? branch : 'uploads' };
       });

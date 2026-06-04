@@ -46,7 +46,7 @@ const tool: Tool = {
     },
     required: ['directory'],
   },
-  async execute(args: any, workspaceConfig: any = {}, _context?: any) {
+  async execute(args: any, _workspaceConfig: any = {}, _context?: any) {
     const { directory, rebase = false, remote = 'origin', branch } = args;
     try {
       const repoPath = path.resolve(WORKSPACE_DIR, directory);
