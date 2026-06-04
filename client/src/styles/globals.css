@@ -477,6 +477,28 @@ html, body { height: 100%; font-family: 'Inter', system-ui, sans-serif; backgrou
 .chat-send-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 .chat-send-btn svg { width: 18px; height: 18px; }
 
+/* ─── @ai Invoke Pill ─── */
+.ai-invoke-pill {
+  position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 12px 4px 8px; border-radius: 20px;
+  background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.25);
+  color: #10b981; font-size: 13px; font-weight: 700;
+  font-family: 'SF Mono', Monaco, monospace;
+  cursor: pointer; transition: all 0.2s ease;
+  z-index: 2; animation: pillPulse 3s ease-in-out infinite;
+}
+.ai-invoke-pill:hover {
+  background: rgba(16, 185, 129, 0.2); border-color: rgba(16, 185, 129, 0.4);
+  transform: translateY(-50%) scale(1.05); box-shadow: 0 0 12px rgba(16, 185, 129, 0.2);
+}
+.ai-invoke-pill-icon { font-size: 12px; }
+@keyframes pillPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.08); }
+}
+.chat-input-wrapper:has(.ai-invoke-pill) .chat-input { padding-left: 72px; }
+
 /* ─── Chat Help Icon ─── */
 .chat-input-row { display: flex; gap: 8px; align-items: flex-end; }
 .chat-input-row .chat-input-wrapper { flex: 1; min-width: 0; }
