@@ -443,10 +443,28 @@ export default function ChatView({
                 onSelect={handleMentionSelect}
               />
             )}
+            {/* Persistent @ai pill — visible when input is empty to guide new users */}
+            {!inputValue && !streaming && (
+              <button
+                className="ai-invoke-pill"
+                onClick={() => {
+                  setInputValue('@ai ');
+                  requestAnimationFrame(() => {
+                    inputRef.current?.focus();
+                    const len = 4; // '@ai '.length
+                    inputRef.current?.setSelectionRange(len, len);
+                  });
+                }}
+                title="Click to address the AI assistant"
+              >
+                <span className="ai-invoke-pill-icon">⚡</span>
+                <span>@ai</span>
+              </button>
+            )}
             <textarea
               ref={inputRef}
               className="chat-input"
-              placeholder={wsAlias ? `Message the workspace… Use @ai or @${wsAlias} to invoke AI` : 'Message the workspace… Use @ai to invoke AI'}
+              placeholder={inputValue ? '' : 'Type a message to your team, or click @ai to talk to the AI…'}
               rows={1}
               value={inputValue}
               onChange={e => handleInput(e.target.value)}
