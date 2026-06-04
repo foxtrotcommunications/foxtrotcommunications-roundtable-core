@@ -19,7 +19,7 @@ const tool: Tool = {
     },
     required: ['url'],
   },
-  async execute(args: any, workspaceConfig: any = {}, _context?: any) {
+  async execute(args: any, _workspaceConfig: any = {}, _context?: any) {
     const { url } = args;
     try {
       // ── SSRF Protection: block internal/private network access ──

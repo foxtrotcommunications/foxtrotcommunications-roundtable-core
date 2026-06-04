@@ -44,7 +44,7 @@ const bridgeWorkspace: Tool = {
     required: ['target', 'action', 'content'],
   },
 
-  async execute(args: any, workspaceConfig: any = {}, _context?: any) {
+  async execute(args: any, _workspaceConfig: any = {}, _context?: any) {
     const { target, action, content } = args;
 
     if (!target || !action || !content) {
@@ -53,7 +53,7 @@ const bridgeWorkspace: Tool = {
 
     // Read bridge manifest dynamically (falls back to env if control plane is down)
     const manifest = await fetchManifest();
-    let bridges = manifest.RT_BRIDGES;
+    const bridges = manifest.RT_BRIDGES;
 
     if (!bridges || !bridges.length) {
       return {
@@ -104,14 +104,14 @@ const bridgeWorkspace: Tool = {
             c.counterparty.wsId === bridge.targetWsId &&
             c.status === 'active'
         );
-      } catch (_: any) {}
+      } catch { /* intentionally empty */ }
     }
 
     // ── A2A Direct Communication ──────────────────────────────
     // Send directly to target workspace's A2A endpoint via the wake proxy.
     // The wake proxy auto-wakes sleeping workspaces on HTTP requests.
     const taskId = crypto.randomUUID();
-    const sourceName = config.workspaceName || config.workspaceId;
+    const _sourceName = config.workspaceName || config.workspaceId;
 
     try {
       const a2aEndpoint = `${targetUrl.replace(/\/$/, '')}/a2a`;

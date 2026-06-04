@@ -251,7 +251,7 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
               typeof workspace.data_sources === 'string'
                 ? JSON.parse(workspace.data_sources)
                 : workspace.data_sources;
-          } catch (_) {}
+          } catch { /* intentionally empty */ }
         }
         if (workspace.ollama_host) {
           workspaceConfig.ollamaHost = workspace.ollama_host;

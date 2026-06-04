@@ -70,14 +70,14 @@ const tool: Tool = {
     required: ['rows'],
   },
 
-  async execute(args: any, workspaceConfig: any = {}, _context?: any) {
+  async execute(args: any, _workspaceConfig: any = {}, _context?: any) {
     const { rows, columns, filename } = args;
     if (!Array.isArray(rows) || rows.length === 0) {
       return { error: 'No data to export — rows array is empty.' };
     }
 
     const id = crypto.randomUUID();
-    const fname = (filename || 'query_results.csv').replace(/[^a-zA-Z0-9_.\-]/g, '_');
+    const fname = (filename || 'query_results.csv').replace(/[^a-zA-Z0-9_.-]/g, '_');
     const csv = rowsToCsv(rows, columns);
 
     downloads.set(id, {

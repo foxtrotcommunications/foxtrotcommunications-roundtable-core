@@ -298,7 +298,7 @@ app.patch('/api/workspace/info', requireAuth, async (req, res) => {
           if (Array.isArray(allowed) && allowed.length > 0 && !allowed.includes(req.body.aiProvider)) {
             return res.status(403).json({ error: `Provider "${req.body.aiProvider}" is restricted. Allowed: ${allowed.join(', ')}` });
           }
-        } catch (_) { /* invalid JSON = unrestricted */ }
+        } catch { /* invalid JSON = unrestricted */ }
       }
     }
     const updated = await db.updateWorkspace(config.workspaceId, req.body);
@@ -471,7 +471,7 @@ async function start() {
 
   // Heartbeat every 60s
   heartbeatInterval = setInterval(async () => {
-    try { await db.updateWorkspaceHeartbeat(config.workspaceId); } catch (_) {}
+    try { await db.updateWorkspaceHeartbeat(config.workspaceId); } catch { /* intentionally empty */ }
   }, 60000);
 
   server.listen(config.port, () => {
@@ -523,7 +523,7 @@ async function shutdown(signal) {
     const db = getAdapter();
     await db.updateWorkspaceStatus(config.workspaceId, 'stopped');
     if (typeof db.close === 'function') await db.close();
-  } catch (_) {}
+  } catch { /* intentionally empty */ }
   process.exit(0);
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));

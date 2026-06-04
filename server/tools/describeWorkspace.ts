@@ -49,7 +49,7 @@ const tool: Tool = {
       try {
         const parsed = JSON.parse(workspace.enabled_tools);
         if (Array.isArray(parsed) && parsed.length > 0) enabledToolNames = parsed;
-      } catch (_: any) {}
+      } catch { /* intentionally empty */ }
     }
 
     const activeTools = resolveTools(enabledToolNames);
@@ -108,7 +108,7 @@ const tool: Tool = {
           .filter(f => f.endsWith('.yaml') || f.endsWith('.yml'));
         schemaFiles.push(...files);
       }
-    } catch (_: any) {}
+    } catch { /* intentionally empty */ }
 
     // ── A2A Agents (configured in workspace data_sources or env) ──
     const agents = [];
@@ -137,7 +137,7 @@ const tool: Tool = {
           bridges.push({ targetName: b.targetName, targetWsId: b.targetWsId, permissions: b.permissions });
         }
       }
-    } catch (_: any) {}
+    } catch { /* intentionally empty */ }
 
     // ── Governance Contracts (from dynamic manifest) ─────────
     const contracts = [];
@@ -155,14 +155,14 @@ const tool: Tool = {
           });
         }
       }
-    } catch (_: any) {}
+    } catch { /* intentionally empty */ }
 
     // ── Usage Stats (current period) ─────────────────────────
     let usage = null;
     try {
       const db = getAdapter();
       usage = await db.getUsageSummary(config.workspaceId, 30);
-    } catch (_: any) {}
+    } catch { /* intentionally empty */ }
 
     return {
       platform: 'Roundtable',

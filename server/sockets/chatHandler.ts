@@ -69,7 +69,7 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
 
   // Derive workspace alias(es) for @-mention triggering
   // e.g., "ICU — Critical Care" → "icu", "Pharmacy" → "pharmacy"
-  const wsAlias: string = (config.workspaceName || '').split(/[\s—–\-]/)[0].trim().toLowerCase();
+  const wsAlias: string = (config.workspaceName || '').split(/[\s—–-]/)[0].trim().toLowerCase();
   const wsId: string = config.workspaceId.toLowerCase();
   const aliasParts: string[] = [wsAlias, wsId]
     .filter(a => a.length >= 2 && a !== 'roundtable')
@@ -291,7 +291,7 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
             });
             return;
           }
-        } catch (_) {}
+        } catch { /* intentionally empty */ }
       }
 
       // Audit: AI request
@@ -307,7 +307,7 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
           dataSources = typeof workspace.data_sources === 'string'
             ? JSON.parse(workspace.data_sources)
             : workspace.data_sources;
-        } catch (_) {}
+        } catch { /* intentionally empty */ }
       }
       const workspaceConfig: WorkspaceConfig = { dataSources };
 
@@ -317,7 +317,7 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
         try {
           const parsed: unknown = JSON.parse(workspace.enabled_tools);
           if (Array.isArray(parsed) && parsed.length > 0) enabledToolNames = parsed as string[];
-        } catch (_) {}
+        } catch { /* intentionally empty */ }
       }
 
       // ── MCP Tool Discovery ──────────────────────────────────────
@@ -332,7 +332,7 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
         try {
           const parsed = JSON.parse(process.env.RT_MCP_SERVERS);
           if (Array.isArray(parsed) && parsed.length > 0) mcpServerList = parsed;
-        } catch (_) {}
+        } catch { /* intentionally empty */ }
       }
       if (mcpServerList) {
         try {
@@ -362,7 +362,7 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
         try {
           const parsed = JSON.parse(process.env.RT_A2A_AGENTS);
           if (Array.isArray(parsed) && parsed.length > 0) a2aAgentList = parsed;
-        } catch (_) {}
+        } catch { /* intentionally empty */ }
       }
       if (a2aAgentList) {
         workspaceConfig.a2aAgents = a2aAgentList;
@@ -403,7 +403,7 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
           const repos = fs.readdirSync(workspaceDir, { withFileTypes: true })
             .filter((e: import('fs').Dirent) => e.isDirectory() && fs.existsSync(require('path').join(workspaceDir, e.name, '.git')));
           if (repos.length > 0) {
-            let ctx: string = '\n\n--- WORKSPACE CONTEXT ---\nYou have DIRECT ACCESS to these cloned repositories via your tools. ALWAYS use your tools to find and read code. NEVER say a file does not exist without first using find_file to search for it.\n\nTOOL USAGE:\n- find_file: Search for any file by name across repos. USE THIS FIRST when a user mentions a file.\n- list_files: List directory contents. Use directory=\"reponame/path\" for subdirectories.\n- read_file: Read file contents. Use filepath=\"reponame/path/to/file\"\n- write_file: Edit files. Use filepath=\"reponame/path/to/file\"\n- git_commit: Commit, push, and create PRs. Use directory=\"reponame\"\n\nWhen a user mentions a filename, ALWAYS use find_file first to locate it, then read_file to read it. Do NOT guess paths or say a file does not exist.\n';
+            let ctx: string = '\n\n--- WORKSPACE CONTEXT ---\nYou have DIRECT ACCESS to these cloned repositories via your tools. ALWAYS use your tools to find and read code. NEVER say a file does not exist without first using find_file to search for it.\n\nTOOL USAGE:\n- find_file: Search for any file by name across repos. USE THIS FIRST when a user mentions a file.\n- list_files: List directory contents. Use directory="reponame/path" for subdirectories.\n- read_file: Read file contents. Use filepath="reponame/path/to/file"\n- write_file: Edit files. Use filepath="reponame/path/to/file"\n- git_commit: Commit, push, and create PRs. Use directory="reponame"\n\nWhen a user mentions a filename, ALWAYS use find_file first to locate it, then read_file to read it. Do NOT guess paths or say a file does not exist.\n';
 
             // Inject the active repo context
             if (activeRepo) {
@@ -423,7 +423,7 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
             systemPrompt += ctx;
           }
         }
-      } catch (e) { /* ignore workspace scan errors */ }
+      } catch { /* ignore workspace scan errors */ }
 
       // ── Platform Context ────────────────────────────────────
       // Lean system prompt with behavioral rules + data context.
@@ -521,7 +521,7 @@ When generating Mermaid diagrams (flowcharts, sequence diagrams, etc.):
             contractCtx += '\n\nWhen asked about contracts or governance, describe these relationships. Use the bridge_workspace tool to communicate with counterparties per contract terms.\n';
           }
         }
-      } catch (_) { /* ignore contract parse errors */ }
+      } catch { /* ignore contract parse errors */ }
 
       systemPrompt = envCtx + contractCtx + (systemPrompt ? '\n\n' + systemPrompt : '');
 
@@ -541,7 +541,7 @@ When generating Mermaid diagrams (flowcharts, sequence diagrams, etc.):
             systemPrompt += schemaCtx;
           }
         }
-      } catch (e) { /* ignore schema scan errors */ }
+      } catch { /* ignore schema scan errors */ }
 
       // Auto-inject markdown docs from workspace/docs/ into the system prompt
       try {
@@ -559,7 +559,7 @@ When generating Mermaid diagrams (flowcharts, sequence diagrams, etc.):
             systemPrompt += docsCtx;
           }
         }
-      } catch (e) { /* ignore docs scan errors */ }
+      } catch { /* ignore docs scan errors */ }
 
       if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
 
@@ -726,7 +726,7 @@ When generating Mermaid diagrams (flowcharts, sequence diagrams, etc.):
               }),
             }).catch((err: Error) => console.warn('[Usage] Dashboard report failed:', err.message));
           }
-        } catch (_) {}
+        } catch { /* intentionally empty */ }
       }
     } catch (err: unknown) {
       const error = err as Error;
