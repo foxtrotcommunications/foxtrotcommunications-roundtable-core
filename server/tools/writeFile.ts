@@ -20,7 +20,7 @@ const tool: Tool = {
     },
     required: ['filepath', 'content'],
   },
-  async execute(args: any, workspaceConfig: any = {}, _context?: any) {
+  async execute(args: any, _workspaceConfig: any = {}, _context?: any) {
     const { filepath, content } = args;
     try {
       const fullPath = path.resolve(WORKSPACE_DIR, filepath);

@@ -63,8 +63,14 @@ jobs:
           SESSION_SECRET: ci-test-secret
           WORKSPACE_ID: ci-test
 
+      - name: Run integration tests
+        run: npm run test:integration
+
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Lint server (report only)
+        run: npm run lint:server || true
 
   # ── Build & Deploy (main branch only) ──────────────────────
   build:

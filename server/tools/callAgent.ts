@@ -39,7 +39,7 @@ const callAgent: Tool = {
     required: ['agent_url', 'message'],
   },
 
-  async execute(args: any, workspaceConfig: any = {}, _context?: any) {
+  async execute(args: any, _workspaceConfig: any = {}, _context?: any) {
     const { agent_url, message, api_key } = args;
 
     if (!agent_url || !message) {

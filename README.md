@@ -7,7 +7,7 @@ Multiple users collaborate on AI conversations in real-time — with built-in to
 Roundtable is designed as a **platform for agent orchestration** — connect your own A2A agents, MCP servers, or custom tools and let the AI route between them. Build agents in any language, deploy them anywhere, and plug them into a shared workspace where your whole team works together.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-106%20passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-321%20passing-brightgreen.svg)](#testing)
 [![CI](https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable-core/actions/workflows/ci.yml/badge.svg)](https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable-core/actions/workflows/ci.yml)
 
 ## Quick Start
@@ -329,10 +329,15 @@ Deployment model (workspace-per-container):
 ## Testing
 
 ```bash
-npm test
+npm test                # Unit tests (222 tests)
+npm run test:integration  # Integration tests (99 tests)
+npm run typecheck       # TypeScript strict mode check
+npm run lint:server     # ESLint (0 errors, warnings only)
 ```
 
-106 tests across 8 suites:
+### Unit Tests (Jest)
+
+222 tests across 12 suites:
 
 | Suite | Tests | Coverage |
 |-------|-------|----------|
@@ -344,6 +349,29 @@ npm test
 | Auth middleware | 4 | Session validation |
 | Config | 9 | Environment variable parsing |
 | DB adapter | 2 | Export validation |
+
+### Integration Tests (Jest)
+
+99 tests across 4 suites:
+
+| Suite | Tests | Coverage |
+|-------|-------|----------|
+| Contract crypto (`contractAuth`) | 38 | HKDF key derivation, AES-256-GCM encrypt/decrypt, HMAC signing, timestamp freshness |
+| Bridge communication (`bridgeReceive`) | 11 | HMAC auth validation, contract enforcement, expired timestamps |
+| MCP protocol (`mcpProtocol`) | 19 | JSON-RPC 2.0 compliance, initialize/tools/list/call, error codes |
+| Tool registry (`toolRegistry`) | 31 | All 22+ tools validated, resolveTools filtering, OpenAI/Anthropic/Google format output |
+
+### TypeScript Strict Mode
+
+The server TypeScript config has incremental strict flags enabled (`strictNullChecks`, `noImplicitAny`, `strictFunctionTypes`) with 0 errors.
+
+### ESLint
+
+Flat config with `typescript-eslint` recommended rules. 0 errors, 164 warnings (intentional `no-explicit-any` and `ban-ts-comment` at warn level).
+
+```bash
+npm run lint:server  # Lint server/ directory
+```
 
 ## Kubernetes Structure
 
@@ -365,10 +393,11 @@ k8s/
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Run tests (`npm test`)
-4. Commit your changes (`git commit -m 'Add my feature'`)
-5. Push to the branch (`git push origin feature/my-feature`)
-6. Open a Pull Request
+3. Run tests (`npm test && npm run test:integration`)
+4. Run typecheck (`npm run typecheck`)
+5. Commit your changes (`git commit -m 'Add my feature'`)
+6. Push to the branch (`git push origin feature/my-feature`)
+7. Open a Pull Request
 
 ## Security
 

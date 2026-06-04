@@ -50,7 +50,7 @@ const tool: Tool = {
     },
     required: ['module_repo', 'module_path'],
   },
-  async execute(args: any, workspaceConfig: any = {}, _context?: any) {
+  async execute(args: any, _workspaceConfig: any = {}, _context?: any) {
     const BELLOWS_URL = process.env.BELLOWS_SERVICE_URL || 'https://foxtrotcommunications-bellows-<hash>.run.app';
     const BELLOWS_TOKEN = process.env.ROUNDTABLE_SERVICE_TOKEN;
     
