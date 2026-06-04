@@ -26,7 +26,7 @@ const tool: Tool = {
   // Meta flag — tool registry uses this to ensure it's always included
   alwaysEnabled: true,
 
-  async execute(_args: any, workspaceConfig: any = {}, _context?: any) {
+  async execute(_args: any, _workspaceConfig: any = {}, _context?: any) {
     const { getAdapter   } = require('../db/adapter');
     const { resolveTools   } = require('./index');
 
@@ -38,7 +38,7 @@ const tool: Tool = {
       try {
         const parsed = JSON.parse(workspace.enabled_tools);
         if (Array.isArray(parsed) && parsed.length > 0) enabledToolNames = parsed;
-      } catch (_: any) {}
+      } catch { /* intentionally empty */ }
     }
 
     const activeTools = resolveTools(enabledToolNames);
@@ -56,7 +56,7 @@ const tool: Tool = {
       try {
         switch (name) {
           // ── Calculator: evaluate a trivial expression ───────
-          case 'calculator':
+          case 'calculator': {
             const calcResult = await tool.execute({ expression: '1 + 1' });
             if (calcResult.result === 2 || calcResult.result === '2') {
               check.status = 'pass';
@@ -66,9 +66,10 @@ const tool: Tool = {
               check.detail = `Expected 2, got ${calcResult.result}`;
             }
             break;
+          }
 
           // ── Code Runner: execute trivial JS ────────────────
-          case 'run_code':
+          case 'run_code': {
             const codeResult = await tool.execute({ code: 'console.log("ok")' });
             if (codeResult.output && codeResult.output.includes('ok')) {
               check.status = 'pass';
@@ -78,12 +79,13 @@ const tool: Tool = {
               check.detail = `Unexpected output: ${JSON.stringify(codeResult)}`;
             }
             break;
+          }
 
           // ── File Tools: check workspace directory exists ───
           case 'read_file':
           case 'write_file':
           case 'list_files':
-          case 'find_file':
+          case 'find_file': {
             const wsDir = path.resolve(__dirname, '..', '..', 'workspace');
             if (fs.existsSync(wsDir)) {
               check.status = 'pass';
@@ -93,6 +95,7 @@ const tool: Tool = {
               check.detail = 'Workspace directory not found';
             }
             break;
+          }
 
           // ── Shell Exec: check if enabled at env level ──────
           case 'shell_exec':
@@ -113,14 +116,14 @@ const tool: Tool = {
               const gitVersion = execSync('git --version', { encoding: 'utf8', timeout: 3000 }).trim();
               check.status = 'pass';
               check.detail = gitVersion;
-            } catch (e: any) {
+            } catch (_e: any) {
               check.status = 'fail';
               check.detail = 'git binary not found';
             }
             break;
 
           // ── BigQuery: run SELECT 1 ─────────────────────────
-          case 'query_bigquery':
+          case 'query_bigquery': {
             const gcpProject = config.vertexai?.project || process.env.GCP_PROJECT;
             if (!gcpProject) {
               check.status = 'fail';
@@ -129,7 +132,7 @@ const tool: Tool = {
               try {
                 const bqResult = await tool.execute(
                   { query: 'SELECT 1 AS health_check', projectId: gcpProject },
-                  workspaceConfig
+                  _workspaceConfig
                 );
                 if (bqResult.error) {
                   check.status = 'fail';
@@ -138,12 +141,13 @@ const tool: Tool = {
                   check.status = 'pass';
                   check.detail = `Connected to BigQuery (project: ${gcpProject})`;
                 }
-              } catch (e: any) {
+              } catch (_e: any) {
                 check.status = 'fail';
-                check.detail = e.message;
+                check.detail = _e.message;
               }
             }
             break;
+          }
 
           // ── Snowflake: check config presence ───────────────
           case 'query_snowflake':

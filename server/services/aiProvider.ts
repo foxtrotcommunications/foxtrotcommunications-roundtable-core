@@ -95,7 +95,7 @@ async function* streamCompletion(provider: string, model: string, messages: Chat
 // ─── OpenAI ─────────────────────────────────────────────
 
 async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: string, enableTools: boolean, maxRounds: number, signal: AbortSignal | null, enabledToolNames: string[] | null, workspaceConfig: WorkspaceConfig = {}): AsyncGenerator<StreamEvent> {
-  let currentMessages: Array<Record<string, unknown> | ChatMessage> = [...messages];
+  const currentMessages: Array<Record<string, unknown> | ChatMessage> = [...messages];
   let fullText: string = '';
 
   for (let round: number = 0; round < maxRounds; round++) {
@@ -219,7 +219,7 @@ async function* parseOpenAIStream(response: NodeFetchResponse, signal: AbortSign
         if ((parsed as Record<string, unknown>).usage) {
           usage = (parsed as Record<string, unknown>).usage as OpenAIUsage;
         }
-      } catch (e) {
+      } catch {
         // Skip malformed JSON
       }
     }
@@ -231,8 +231,8 @@ async function* parseOpenAIStream(response: NodeFetchResponse, signal: AbortSign
 // ─── Anthropic ──────────────────────────────────────────
 
 async function* streamAnthropic(model: string, messages: ChatMessage[], apiKey: string, enableTools: boolean, maxRounds: number, signal: AbortSignal | null, enabledToolNames: string[] | null, workspaceConfig: WorkspaceConfig = {}): AsyncGenerator<StreamEvent> {
-  let currentMessages: Record<string, unknown>[] = formatAnthropicMessages(messages);
-  let systemPrompt: string = extractSystemPrompt(messages);
+  const currentMessages: Record<string, unknown>[] = formatAnthropicMessages(messages);
+  const systemPrompt: string = extractSystemPrompt(messages);
   let fullText: string = '';
 
   for (let round: number = 0; round < maxRounds; round++) {
@@ -366,7 +366,7 @@ async function* parseAnthropicStream(response: NodeFetchResponse, signal: AbortS
         if (parsed.type === 'content_block_stop' && currentToolUse) {
           try {
             currentToolUse.input = JSON.parse(currentToolJson);
-          } catch (e) {
+          } catch {
             currentToolUse.input = {};
           }
           toolUses.push(currentToolUse);
@@ -391,7 +391,7 @@ async function* parseAnthropicStream(response: NodeFetchResponse, signal: AbortS
             usage = { input_tokens: 0, output_tokens: deltaUsage.output_tokens || 0 };
           }
         }
-      } catch (e) {
+      } catch {
         // Skip
       }
     }
@@ -403,8 +403,8 @@ async function* parseAnthropicStream(response: NodeFetchResponse, signal: AbortS
 // ─── Google / Gemini ────────────────────────────────────
 
 async function* streamGoogle(model: string, messages: ChatMessage[], apiKey: string, enableTools: boolean, maxRounds: number, signal: AbortSignal | null, enabledToolNames: string[] | null, workspaceConfig: WorkspaceConfig = {}): AsyncGenerator<StreamEvent> {
-  let contents: Record<string, unknown>[] = formatGoogleMessages(messages);
-  let systemInstruction: string = extractGoogleSystemInstruction(messages);
+  const contents: Record<string, unknown>[] = formatGoogleMessages(messages);
+  const systemInstruction: string = extractGoogleSystemInstruction(messages);
   let fullText: string = '';
 
   for (let round: number = 0; round < maxRounds; round++) {
@@ -519,7 +519,7 @@ async function* parseGoogleStream(response: NodeFetchResponse, signal: AbortSign
         if (parsed.usageMetadata) {
           usage = parsed.usageMetadata as GoogleUsageMetadata;
         }
-      } catch (e) {
+      } catch {
         // Skip
       }
     }
@@ -532,7 +532,7 @@ async function* parseGoogleStream(response: NodeFetchResponse, signal: AbortSign
 
 async function* streamOllama(model: string, messages: ChatMessage[], enableTools: boolean, maxRounds: number, signal: AbortSignal | null, enabledToolNames: string[] | null, workspaceConfig: WorkspaceConfig = {}): AsyncGenerator<StreamEvent> {
   const host: string = (workspaceConfig.ollamaHost || config.ollama.host || 'http://localhost:11434').replace(/\/+$/, '');
-  let currentMessages: Array<Record<string, unknown> | ChatMessage> = [...messages];
+  const currentMessages: Array<Record<string, unknown> | ChatMessage> = [...messages];
   let fullText: string = '';
 
   for (let round: number = 0; round < maxRounds; round++) {

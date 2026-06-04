@@ -30,7 +30,7 @@ const tool: Tool = {
     },
     required: ['expression'],
   },
-  async execute(args: any, workspaceConfig: any = {}, _context?: any) {
+  async execute(args: any, _workspaceConfig: any = {}, _context?: any) {
     const { expression } = args;
     try {
       const result = math.evaluate(expression);
