@@ -425,6 +425,10 @@ class PostgreSQLAdapter {
     return this.getMessages(workspaceId, { limit });
   }
 
+  async clearMessages(workspaceId) {
+    await this._exec('DELETE FROM messages WHERE workspace_id = $1', [workspaceId]);
+  }
+
   // ─── API Keys ───────────────────────────────────
   async saveApiKey(userId, provider, apiKey) {
     const encrypted = encryptApiKey(apiKey);
