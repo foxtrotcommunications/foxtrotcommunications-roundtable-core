@@ -648,16 +648,21 @@ let genaiRegionalClient: GoogleGenAIClient | null = null;
 let genaiGlobalClient: GoogleGenAIClient | null = null;
 
 /**
- * Preview models (e.g. gemini-3.1-pro-preview) are only available on the
- * global Vertex AI endpoint. GA models use the regional endpoint.
+ * Preview models (e.g. gemini-3.1-pro-preview) and newest generation models
+ * (gemini-3.5+) are only available on the global Vertex AI endpoint.
+ * GA models use the regional endpoint.
  */
 function getGenAIClient(model: string): GoogleGenAIClient {
   const project: string = config.vertexai.project;
   if (!project) throw new Error('GCP_PROJECT not set. Required for Vertex AI.');
 
-  const isPreview: boolean = !!(model && model.includes('-preview'));
+  // Models requiring the global endpoint: preview models and gemini-3.5+
+  const needsGlobal: boolean = !!(model && (
+    model.includes('-preview') ||
+    /^gemini-(?:[3-9]\.[5-9]|[4-9]\.|[1-9]\d+\.)/.test(model)
+  ));
 
-  if (isPreview) {
+  if (needsGlobal) {
     if (!genaiGlobalClient) {
       genaiGlobalClient = new GoogleGenAI({
         vertexai: true,
