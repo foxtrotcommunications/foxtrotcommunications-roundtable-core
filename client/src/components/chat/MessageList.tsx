@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, Component, type ReactNode } from 'react';
 import Message from './Message';
 import ToolCard from './ToolCard';
 import type { ChatMessage, ToolCall, ToolResult } from '../../types/message';
@@ -11,6 +11,22 @@ interface Props {
   toolCalls: Map<string, { call: ToolCall; result?: ToolResult }>;
 }
 
+/** Catches render errors in ToolCard so one bad result doesn't break the list */
+class ToolCardBoundary extends Component<{ children: ReactNode; toolName: string }, { error: string | null }> {
+  state = { error: null as string | null };
+  static getDerivedStateFromError(err: Error) { return { error: err.message }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="tool-card" style={{ padding: '8px 14px', fontSize: 12, color: 'var(--error)' }}>
+          🔧 {this.props.toolName} — render error: {this.state.error}
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 /**
  * Memoized message list — isolated render boundary so that input state
  * changes (typing) in ChatView don't trigger re-renders of the message
@@ -21,17 +37,16 @@ function MessageList({ messages, currentUsername, knownMentions, streaming, tool
     <>
       {messages.map(msg => {
         if (msg.role === 'tool') {
-          // In demo/embed mode, hide tool calls — they show as distracting empty lines
-          if (window.__ROUNDTABLE_DEMO__) return null;
           try {
             const result = JSON.parse(msg.content);
             return (
-              <ToolCard
-                key={msg.id}
-                call={{ name: msg.tool_name || 'tool', args: {}, callId: msg.tool_call_id || `hist-${msg.id}` }}
-                result={{ callId: msg.tool_call_id || `hist-${msg.id}`, result }}
-                defaultCollapsed={msg.tool_name !== 'render_chart'}
-              />
+              <ToolCardBoundary key={msg.id} toolName={msg.tool_name || 'tool'}>
+                <ToolCard
+                  call={{ name: msg.tool_name || 'tool', args: {}, callId: msg.tool_call_id || `hist-${msg.id}` }}
+                  result={{ callId: msg.tool_call_id || `hist-${msg.id}`, result }}
+                  defaultCollapsed={msg.tool_name !== 'render_chart'}
+                />
+              </ToolCardBoundary>
             );
           } catch { return null; }
         }
@@ -44,7 +59,7 @@ function MessageList({ messages, currentUsername, knownMentions, streaming, tool
       })}
 
       {/* Live tool calls during streaming */}
-      {streaming && !window.__ROUNDTABLE_DEMO__ && Array.from(toolCalls.values()).map(({ call, result }) => (
+      {streaming && Array.from(toolCalls.values()).map(({ call, result }) => (
         <ToolCard key={call.callId} call={call} result={result} />
       ))}
     </>
