@@ -52,6 +52,7 @@ async function googleCustomSearch(query) {
       cx: config.googleSearch.engineId,
       q: query,
       num: '5',
+      ...(process.env.SEARCH_SAFE_MODE === 'true' ? { safe: 'active' } : {}),
     });
     const url = `https://www.googleapis.com/customsearch/v1?${params}`;
     const response = await fetch(url, { timeout: 10000 });
@@ -100,6 +101,14 @@ async function vertexGroundingSearch(query, model = 'gemini-2.5-flash') {
       }],
       config: {
         tools: [{ googleSearch: {} }],
+        ...(process.env.SEARCH_SAFE_MODE === 'true' ? {
+          safetySettings: [
+            { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_LOW_AND_ABOVE' },
+            { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_LOW_AND_ABOVE' },
+            { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_LOW_AND_ABOVE' },
+            { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_LOW_AND_ABOVE' },
+          ],
+        } : {}),
       },
     });
 

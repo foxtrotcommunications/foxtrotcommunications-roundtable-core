@@ -1,0 +1,68 @@
+# Demo environment reset — runs every 4 hours to clean up demo data
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: demo-reset
+  labels:
+    app: roundtable
+    component: demo
+spec:
+  schedule: "0 */4 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: roundtable
+            component: demo-reset
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: reset
+              image: curlimages/curl:8.7.1
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -e
+                  echo "[demo-reset] Starting demo environment reset..."
+
+                  # 1. Reset Firestore demo org data via control plane
+                  echo "[demo-reset] Resetting Firestore demo org..."
+                  curl -sf -X POST "${DASHBOARD_URL}/api/internal/demo-reset" \
+                    -H "Authorization: Bearer ${INTERNAL_SECRET}" \
+                    -H "Content-Type: application/json" \
+                    --max-time 30
+
+                  # 2. Clear workspace message history
+                  for ws in pharmacy executive billing compliance research; do
+                    echo "[demo-reset] Clearing messages in ${ws}..."
+                    curl -sf -X POST "https://${ws}.acme-health.ws.roundtable.foxtrotcommunications.net/api/admin/reset" \
+                      -H "X-Reset-Token: ${RESET_TOKEN}" \
+                      --max-time 15 || echo "[demo-reset] WARNING: Failed to reset ${ws}"
+                  done
+
+                  echo "[demo-reset] Reset complete."
+              env:
+                - name: DASHBOARD_URL
+                  value: "https://roundtable.foxtrotcommunications.net"
+                - name: INTERNAL_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: roundtable-secrets
+                      key: internal-secret
+                - name: RESET_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: roundtable-secrets
+                      key: reset-token
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "32Mi"
+                limits:
+                  cpu: "100m"
+                  memory: "64Mi"
