@@ -44,11 +44,16 @@ export default function ToolCard({ call, result, defaultCollapsed }: Props) {
 }
 
 function ToolResultBody({ result }: { result: ToolResult['result'] }) {
-  const r = result as unknown as Record<string, unknown>;
+  // Unwrap nested result wrapper if present (e.g., { name, callId, result: actualData })
+  let r = result as unknown as Record<string, unknown>;
+  if (r && 'result' in r && typeof r.result === 'object' && r.result !== null && ('name' in r || 'callId' in r)) {
+    r = r.result as Record<string, unknown>;
+  }
 
-  // Error
-  if ('error' in r && typeof r.error === 'string') {
-    return <div className="tool-result-error">❌ {r.error}</div>;
+  // Error — handle both string and object errors
+  if ('error' in r && r.error) {
+    const errorMsg = typeof r.error === 'string' ? r.error : JSON.stringify(r.error, null, 2);
+    return <div className="tool-result-error">❌ {errorMsg}</div>;
   }
 
   // Chart result (from render_chart tool)
@@ -195,8 +200,8 @@ function ToolResultBody({ result }: { result: ToolResult['result'] }) {
     return <div className="tool-result-success">= <strong>{String(r.result)}</strong></div>;
   }
 
-  // Fallback
-  return <div className="tool-card-result">{JSON.stringify(result, null, 2)}</div>;
+  // Fallback — always show something visible
+  return <div className="tool-card-result" style={{ color: 'var(--text-secondary)' }}><pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{JSON.stringify(r, null, 2)}</pre></div>;
 }
 
 function QueryResultTable({ data }: { data: QueryResult }) {
