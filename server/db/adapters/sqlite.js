@@ -313,6 +313,10 @@ class SQLiteAdapter {
     return this.getMessages(workspaceId, { limit });
   }
 
+  async clearMessages(workspaceId) {
+    this._run('DELETE FROM messages WHERE workspace_id = ?', [workspaceId]);
+  }
+
   // ─── API Keys ───────────────────────────────────
 
   async saveApiKey(userId, provider, apiKey) {

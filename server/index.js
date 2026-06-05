@@ -153,6 +153,27 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
+// Demo reset endpoint — clears all messages (token-authenticated)
+app.post('/api/admin/reset', async (req, res) => {
+  const token = req.headers['x-reset-token'];
+  const expected = process.env.RESET_TOKEN;
+  if (!expected) return res.status(503).json({ error: 'Reset not configured' });
+  if (!token || token !== expected) return res.status(401).json({ error: 'Invalid reset token' });
+
+  try {
+    const db = getAdapter();
+    await db.clearMessages(config.workspaceId);
+    if (global._io) {
+      global._io.to(`ws:${config.workspaceId}`).emit('workspace-reset');
+    }
+    console.log('[Admin] Workspace reset by token auth');
+    res.json({ success: true, message: 'Workspace reset complete' });
+  } catch (err) {
+    console.error('[Admin] Reset error:', err);
+    res.status(500).json({ error: 'Reset failed' });
+  }
+});
+
 // React SPA — serve from client/dist if available
 const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
 const fs = require('fs');
