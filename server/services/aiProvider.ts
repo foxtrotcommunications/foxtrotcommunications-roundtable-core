@@ -60,7 +60,7 @@ interface GoogleGenAIChunk {
  * @param {object} [workspaceConfig] — per-workspace config { dataSources: {...} }
  */
 async function* streamCompletion(provider: string, model: string, messages: ChatMessage[], apiKey: string, enableTools: boolean = true, signal: AbortSignal | null = null, enabledToolNames: string[] | null = null, workspaceConfig: WorkspaceConfig = {}): AsyncGenerator<StreamEvent> {
-  const maxToolRounds: number = 10;
+  const maxToolRounds: number = 20;
 
   try {
     switch (provider) {
