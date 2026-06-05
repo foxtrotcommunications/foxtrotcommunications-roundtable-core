@@ -13,7 +13,9 @@ export default function ToolCard({ call, result, defaultCollapsed }: Props) {
   const [expanded, setExpanded] = useState(!defaultCollapsed);
   const icon = TOOL_ICONS[call.name] || '🔧';
   const label = call.name.replace(/_/g, ' ');
-  const status = result ? ('error' in result.result ? 'error' : 'done') : 'running';
+  const status = result
+    ? (result.result && typeof result.result === 'object' && 'error' in result.result ? 'error' : 'done')
+    : 'running';
 
   // Smart arg preview
   const args = call.args as Record<string, string>;
@@ -44,9 +46,14 @@ export default function ToolCard({ call, result, defaultCollapsed }: Props) {
 }
 
 function ToolResultBody({ result }: { result: ToolResult['result'] }) {
+  // Guard: if result is not an object, render it directly
+  if (!result || typeof result !== 'object') {
+    return <div className="tool-card-result" style={{ color: 'var(--text-secondary)' }}>{String(result)}</div>;
+  }
+
   // Unwrap nested result wrapper if present (e.g., { name, callId, result: actualData })
   let r = result as unknown as Record<string, unknown>;
-  if (r && 'result' in r && typeof r.result === 'object' && r.result !== null && ('name' in r || 'callId' in r)) {
+  if ('result' in r && typeof r.result === 'object' && r.result !== null && ('name' in r || 'callId' in r)) {
     r = r.result as Record<string, unknown>;
   }
 
