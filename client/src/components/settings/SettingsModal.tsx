@@ -242,13 +242,32 @@ export default function SettingsModal({ onClose, onSaved, addToast }: Props) {
           ))}
         </div>
 
-        {/* Appearance Tab */}
         {tab === 'appearance' && (
           <div className="settings-tab-panel active">
             <p className="settings-desc">Customize the look and feel of your workspace.</p>
             <div className="form-group">
               <label>Color Scheme</label>
               <ThemeToggle />
+            </div>
+            <div className="form-group" style={{ marginTop: 20 }}>
+              <label>Chat Display</label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13, fontWeight: 400, marginTop: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={localStorage.getItem('rt-show-tool-calls') === 'true'}
+                  onChange={e => {
+                    localStorage.setItem('rt-show-tool-calls', String(e.target.checked));
+                    window.dispatchEvent(new Event('rt-settings-changed'));
+                    // Force re-render of this component
+                    setTab('appearance');
+                  }}
+                  style={{ width: 16, height: 16, accentColor: 'var(--accent-primary)' }}
+                />
+                Show intermediate stages
+              </label>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block', marginLeft: 26 }}>
+                When enabled, tool calls (BigQuery queries, file reads, etc.) are shown inline during AI responses.
+              </span>
             </div>
           </div>
         )}

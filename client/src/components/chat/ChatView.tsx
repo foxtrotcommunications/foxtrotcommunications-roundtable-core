@@ -42,11 +42,19 @@ export default function ChatView({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [inputValue, setInputValue] = useState('');
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [showToolCalls, setShowToolCalls] = useState(() => localStorage.getItem('rt-show-tool-calls') === 'true');
 
   // @mention autocomplete state
   const [showMention, setShowMention] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
   const [mentionIndex, setMentionIndex] = useState(0);
+
+  // Listen for settings changes
+  useEffect(() => {
+    const onSettingsChanged = () => setShowToolCalls(localStorage.getItem('rt-show-tool-calls') === 'true');
+    window.addEventListener('rt-settings-changed', onSettingsChanged);
+    return () => window.removeEventListener('rt-settings-changed', onSettingsChanged);
+  }, []);
 
   // Track scroll position to show/hide scroll-to-bottom button
   useEffect(() => {
@@ -328,6 +336,7 @@ export default function ChatView({
           knownMentions={knownMentions}
           streaming={streaming}
           toolCalls={toolCalls}
+          showToolCalls={showToolCalls}
         />
 
         {/* Streaming AI response */}
