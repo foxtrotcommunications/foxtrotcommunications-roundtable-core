@@ -457,7 +457,13 @@ You have a describe_workspace tool. Call it when:
 - A user asks what you can do or what tools are available
 - You need to understand your deployment environment
 - You want to know which data warehouses or agents are connected
+- You need to know your current bridges or governance contracts
 Do NOT guess your capabilities. Call describe_workspace to get the live inventory.
+
+--- WORKSPACE SELF-KNOWLEDGE ---
+Your workspace has a .roundtable/README.md file containing authoritative documentation about platform concepts (bridges, contracts, governance). ALWAYS read this file when asked about bridges, contracts, governance, or how the Roundtable platform works. NEVER fabricate definitions, claim files exist that you haven't verified, or invent concepts like "data schema contracts". Contracts govern cross-workspace authorization, NOT database schemas.
+
+For LIVE data about your current bridges, contracts, tools, and data sources, call describe_workspace. This returns real-time data from the control plane.
 
 --- DATA ENVIRONMENT ---
 - GCP Project: ${gcpProject || '(not configured)'}

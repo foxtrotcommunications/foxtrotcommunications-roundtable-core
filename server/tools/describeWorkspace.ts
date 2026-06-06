@@ -134,7 +134,13 @@ const tool: Tool = {
     try {
       if (manifest.RT_BRIDGES && Array.isArray(manifest.RT_BRIDGES)) {
         for (const b of manifest.RT_BRIDGES) {
-          bridges.push({ targetName: b.targetName, targetWsId: b.targetWsId, permissions: b.permissions });
+          const permList = (b.permissions || []).join(', ');
+          bridges.push({
+            targetName: b.targetName,
+            targetWsId: b.targetWsId,
+            permissions: b.permissions,
+            summary: `${(b.permissions || []).includes('delegate') ? 'Full' : 'Message-only'} bridge to ${b.targetName}. Permitted actions: ${permList}.`,
+          });
         }
       }
     } catch { /* intentionally empty */ }
@@ -144,14 +150,20 @@ const tool: Tool = {
     try {
       if (manifest.RT_CONTRACTS && Array.isArray(manifest.RT_CONTRACTS)) {
         for (const c of manifest.RT_CONTRACTS) {
+          const counterpartyName = c.counterparty?.name || 'Unknown';
+          const actionList = (c.allowedActions || []).join(', ');
+          const dirLabel = c.direction === 'outbound'
+            ? `You → ${counterpartyName}`
+            : `${counterpartyName} → You`;
           contracts.push({
             contractId: c.contractId,
             type: c.type,
             direction: c.direction,  // 'inbound' or 'outbound'
-            counterparty: c.counterparty?.name || 'Unknown',
+            counterparty: counterpartyName,
             counterpartyWsId: c.counterparty?.wsId,
             allowedActions: c.allowedActions || [],
             escalationTarget: c.escalationTarget || null,
+            summary: `${c.type} contract (${dirLabel}). Allowed actions: [${actionList}].`,
           });
         }
       }
