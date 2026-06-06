@@ -9,6 +9,7 @@ interface Props {
   knownMentions: string[];
   streaming: boolean;
   toolCalls: Map<string, { call: ToolCall; result?: ToolResult }>;
+  showToolCalls: boolean;
 }
 
 /** Catches render errors in ToolCard so one bad result doesn't break the list */
@@ -32,11 +33,13 @@ class ToolCardBoundary extends Component<{ children: ReactNode; toolName: string
  * changes (typing) in ChatView don't trigger re-renders of the message
  * history, preventing chart/mermaid flash.
  */
-function MessageList({ messages, currentUsername, knownMentions, streaming, toolCalls }: Props) {
+function MessageList({ messages, currentUsername, knownMentions, streaming, toolCalls, showToolCalls }: Props) {
   return (
     <>
       {messages.map(msg => {
         if (msg.role === 'tool') {
+          // Always show chart renders; hide other tool calls when preference is off
+          if (!showToolCalls && msg.tool_name !== 'render_chart') return null;
           try {
             const result = JSON.parse(msg.content);
             return (
@@ -59,7 +62,7 @@ function MessageList({ messages, currentUsername, knownMentions, streaming, tool
       })}
 
       {/* Live tool calls during streaming */}
-      {streaming && Array.from(toolCalls.values()).map(({ call, result }) => (
+      {streaming && showToolCalls && Array.from(toolCalls.values()).map(({ call, result }) => (
         <ToolCard key={call.callId} call={call} result={result} />
       ))}
     </>
@@ -77,7 +80,8 @@ function areEqual(prev: Props, next: Props): boolean {
       prev.toolCalls === next.toolCalls &&
       prev.knownMentions === next.knownMentions &&
       prev.streaming === next.streaming &&
-      prev.currentUsername === next.currentUsername) {
+      prev.currentUsername === next.currentUsername &&
+      prev.showToolCalls === next.showToolCalls) {
     return true;
   }
 
@@ -92,6 +96,7 @@ function areEqual(prev: Props, next: Props): boolean {
   // Scalars
   if (prev.streaming !== next.streaming) return false;
   if (prev.currentUsername !== next.currentUsername) return false;
+  if (prev.showToolCalls !== next.showToolCalls) return false;
 
   // Tool calls: compare by size (new tool calls = re-render)
   if (prev.toolCalls.size !== next.toolCalls.size) return false;
