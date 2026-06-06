@@ -38,8 +38,7 @@ function MessageList({ messages, currentUsername, knownMentions, streaming, tool
     <>
       {messages.map(msg => {
         if (msg.role === 'tool') {
-          // Always show chart renders; hide other tool calls when preference is off
-          if (!showToolCalls && msg.tool_name !== 'render_chart') return null;
+          if (!showToolCalls) return null;
           try {
             const result = JSON.parse(msg.content);
             return (
