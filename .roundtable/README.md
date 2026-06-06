@@ -17,7 +17,9 @@ collaborate through **Bridges** and are governed by **Contracts**.
 ## Bridges
 
 Bridges are **bidirectional, HMAC-authenticated communication channels** connecting
-two workspaces. They enable secure collaboration without exposing raw data.
+two workspaces. They establish the *potential* for collaboration — the secure pipe
+between workspaces. However, a bridge alone does not authorize any activity.
+**A governance contract is required before any cross-workspace communication can occur.**
 
 ### Operations
 
@@ -44,9 +46,10 @@ including target names, IDs, and permitted actions.
 
 ## Contracts
 
-Contracts are **directional, typed, approval-gated governance agreements** between
-workspaces. They sit on top of bridges and restrict *which specific actions* are
-permitted between two workspaces.
+Contracts are **directional, typed, approval-gated governance agreements** that
+authorize specific actions across a bridge. Without an active contract, a bridge
+is dormant — no messages, no delegations, no data flows. Contracts are the
+authorization layer that brings bridges to life.
 
 ### Key Properties
 
@@ -74,9 +77,9 @@ permitted between two workspaces.
 
 | Aspect | Bridges | Contracts |
 |--------|---------|-----------|
-| **Purpose** | Connectivity — *can we talk?* | Governance — *what can we do?* |
+| **Purpose** | Connectivity — *can we talk?* | Authorization — *what can we do?* |
 | **Direction** | Bidirectional | Directional (source → target) |
-| **Permissions** | `message`, `delegate` | Fine-grained action lists |
+| **Permissions** | None (connectivity only) | Fine-grained action lists |
 | **Approval** | Admin creates | Both admins must approve |
 | **Mutability** | Toggle on/off | Changes require re-approval |
 
