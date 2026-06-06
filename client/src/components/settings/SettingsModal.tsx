@@ -55,6 +55,8 @@ interface Props {
 
 export default function SettingsModal({ onClose, onSaved, addToast }: Props) {
   const [tab, setTab] = useState('appearance');
+  // Appearance state
+  const [showToolCalls, setShowToolCalls] = useState(() => localStorage.getItem('rt-show-tool-calls') === 'true');
   // Agent state
   const [provider, setProvider] = useState('vertexai');
   const [model, setModel] = useState('');
@@ -254,12 +256,12 @@ export default function SettingsModal({ onClose, onSaved, addToast }: Props) {
               <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13, fontWeight: 400, marginTop: 8 }}>
                 <input
                   type="checkbox"
-                  checked={localStorage.getItem('rt-show-tool-calls') === 'true'}
+                  checked={showToolCalls}
                   onChange={e => {
-                    localStorage.setItem('rt-show-tool-calls', String(e.target.checked));
+                    const val = e.target.checked;
+                    setShowToolCalls(val);
+                    localStorage.setItem('rt-show-tool-calls', String(val));
                     window.dispatchEvent(new Event('rt-settings-changed'));
-                    // Force re-render of this component
-                    setTab('appearance');
                   }}
                   style={{ width: 16, height: 16, accentColor: 'var(--accent-primary)' }}
                 />
