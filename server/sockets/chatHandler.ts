@@ -183,7 +183,8 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
         });
 
         try {
-          const bridgeTool = require('../tools/bridgeWorkspace') as {
+          const bridgeMod = require('../tools/bridgeWorkspace');
+          const bridgeTool = (bridgeMod.default || bridgeMod) as {
             execute: (args: Record<string, unknown>) => Promise<BridgeToolResult>;
           };
           const result: BridgeToolResult = await bridgeTool.execute({
