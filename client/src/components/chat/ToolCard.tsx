@@ -23,21 +23,25 @@ export default function ToolCard({ call, result, defaultCollapsed }: Props) {
     (args.command ? `$ ${args.command}` : '') || args.query || args.message || '';
 
   return (
-    <div className={`tool-card${expanded ? ' expanded' : ''}`} style={{ minHeight: 36, border: '2px solid #ef4444' }}>
-      <div className="tool-card-header" onClick={() => setExpanded(!expanded)} style={{ minHeight: 36 }}>
+    <div
+      className={`tool-card${expanded ? ' expanded' : ''}`}
+      style={{ minHeight: 36, flexShrink: 0 }}
+    >
+      <div className="tool-card-header" onClick={() => setExpanded(!expanded)}>
+        <span style={{ fontSize: 10, color: 'var(--text-muted)', transition: 'transform 0.2s', transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)', marginRight: 2 }}>▶</span>
         <span className="tool-card-icon">{icon}</span>
-        <span className="tool-card-name" style={{ color: '#818cf8' }}>{label}</span>
+        <span className="tool-card-name">{label}</span>
         {preview && (
           <span style={{ color: 'var(--text-muted)', fontSize: 12, marginLeft: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 300 }}>
             {preview}
           </span>
         )}
-        <span className={`tool-card-status ${status}`} style={{ color: status === 'error' ? '#ef4444' : '#22c55e' }}>
+        <span className={`tool-card-status ${status}`}>
           {status === 'running' ? 'running…' : status}
         </span>
       </div>
       {expanded && result && (
-        <div className="tool-card-body" style={{ display: 'block' }}>
+        <div style={{ padding: '0 14px 12px', fontSize: 13, color: 'var(--text-secondary)' }}>
           <ToolResultBody result={result.result} />
         </div>
       )}
