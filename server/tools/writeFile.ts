@@ -28,6 +28,12 @@ const tool: Tool = {
         return { error: 'Access denied: path is outside workspace' };
       }
 
+      // .roundtable/ is an immutable platform directory — AI cannot modify it
+      const roundtableDir = path.resolve(WORKSPACE_DIR, '..', '.roundtable');
+      if (fullPath.startsWith(roundtableDir)) {
+        return { error: 'Access denied: .roundtable/ is a read-only platform directory' };
+      }
+
       const dir = path.dirname(fullPath);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });

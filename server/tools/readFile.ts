@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 
 const WORKSPACE_DIR = path.resolve(__dirname, '..', '..', 'workspace');
+const ROUNDTABLE_DIR = path.resolve(__dirname, '..', '..', '.roundtable');
 
 import type { Tool } from '../types';
 // @ts-ignore
@@ -11,11 +12,11 @@ import type { Tool } from '../types';
 
 const tool: Tool = {
   name: 'read_file',
-  description: 'Read the contents of a file from the workspace. Returns the file content with line numbers.',
+  description: 'Read the contents of a file from the workspace or .roundtable/ platform directory. Returns the file content with line numbers.',
   parameters: {
     type: 'object',
     properties: {
-      filepath: { type: 'string', description: 'Relative path to the file within the workspace' },
+      filepath: { type: 'string', description: 'Relative path to the file within the workspace, or a .roundtable/ path (e.g., ".roundtable/README.md")' },
       startLine: { type: 'integer', description: 'Optional start line (1-indexed)' },
       endLine: { type: 'integer', description: 'Optional end line (1-indexed, inclusive)' },
     },
@@ -24,9 +25,13 @@ const tool: Tool = {
   async execute(args: any, _workspaceConfig: any = {}, _context?: any) {
     const { filepath, startLine, endLine } = args;
     try {
-      const fullPath = path.resolve(WORKSPACE_DIR, filepath);
-      // Security: ensure path is within workspace
-      if (!fullPath.startsWith(WORKSPACE_DIR)) {
+      // Resolve against workspace dir first; if it starts with .roundtable, resolve against app root
+      const isRoundtable = filepath.startsWith('.roundtable/') || filepath.startsWith('.roundtable\\');
+      const baseDir = isRoundtable ? path.resolve(__dirname, '..', '..') : WORKSPACE_DIR;
+      const fullPath = path.resolve(baseDir, filepath);
+
+      // Security: ensure path is within allowed directories
+      if (!fullPath.startsWith(WORKSPACE_DIR) && !fullPath.startsWith(ROUNDTABLE_DIR)) {
         return { error: 'Access denied: path is outside workspace' };
       }
       if (!fs.existsSync(fullPath)) {

@@ -30,6 +30,9 @@ COPY --from=client-build /build/dist ./client/dist/
 RUN mkdir -p /app/workspace && \
     git clone --depth 1 https://github.com/foxtrotcommunications/foxtrotcommunications-avalon-public.git /app/workspace/foxtrotcommunications-avalon-public
 
+# Copy immutable platform documentation (read-only AI reference)
+COPY .roundtable/ ./.roundtable/
+
 # Copy workspace docs (auto-injected into AI system prompt)
 COPY workspace/docs/ ./workspace/docs/
 
