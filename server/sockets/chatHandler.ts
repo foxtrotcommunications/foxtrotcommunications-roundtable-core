@@ -175,8 +175,25 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
         }
 
         socket.isGenerating = true;
-        // Use the best available action: prefer delegate, fall back to message
-        const bridgeAction: string = (bridge.permissions || []).includes('delegate') ? 'delegate' : 'message';
+
+        // Determine action from contracts (not bridge.permissions — bridges are connectivity only)
+        let contractManifest: any[];
+        try { contractManifest = JSON.parse(process.env.RT_CONTRACTS || '[]'); } catch { contractManifest = []; }
+        const outboundContract = contractManifest.find(
+          (c: any) => c.direction === 'outbound' && c.counterparty?.wsId === bridge.targetWsId && c.status === 'active'
+        );
+
+        if (!outboundContract) {
+          socket.isGenerating = false;
+          socket.emit('error-message', {
+            error: `No active governance contract with "${bridge.targetName}". A contract must be approved before any cross-workspace activity.`,
+          });
+          return;
+        }
+
+        const allowedActions: string[] = outboundContract.allowedActions || [];
+        const bridgeAction: string = allowedActions.includes('delegate') ? 'delegate' : allowedActions.includes('message') ? 'message' : allowedActions[0] || 'message';
+
         io.to(wsChannel).emit('ai-start', { userId: socket.userId, username: socket.username });
         io.to(wsChannel).emit('tool-call', {
           name: 'bridge_workspace',

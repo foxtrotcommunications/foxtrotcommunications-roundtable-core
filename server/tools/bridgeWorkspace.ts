@@ -76,28 +76,12 @@ const bridgeWorkspace: Tool = {
       };
     }
 
-    // Check permission
-    if (!bridge.permissions.includes(action)) {
-      return {
-        error: `Bridge to "${bridge.targetName}" does not allow "${action}". Allowed: ${bridge.permissions.join(', ')}`,
-      };
-    }
-
-    // Resolve target workspace URL for direct A2A communication
-    const targetUrl = bridge.targetUrl;
-    if (!targetUrl) {
-      // Fallback: legacy relay via control plane (backward compat)
-      return await this._legacyRelay(bridge, action, content);
-    }
-
-    // ── Contract Lookup ───────────────────────────────────────
-    // Check if there's an active governance contract for this bridge.
-    // If so, use HKDF-derived contract key for authentication.
-    let contract = null;
+    // ── Contract enforcement (required) ────────────────────────
+    // No contract = no activity. Bridges are connectivity only.
     const contracts = manifest.RT_CONTRACTS;
+    let contract = null;
     if (contracts && Array.isArray(contracts)) {
       try {
-        // Find outbound contract to this target
         contract = contracts.find(
           (c) =>
             c.direction === 'outbound' &&
@@ -106,6 +90,29 @@ const bridgeWorkspace: Tool = {
         );
       } catch { /* intentionally empty */ }
     }
+
+    if (!contract) {
+      return {
+        error: `No active governance contract with "${bridge.targetName}". A contract must be approved before any cross-workspace activity.`,
+      };
+    }
+
+    // Verify the action is allowed by the contract
+    if (!contract.allowedActions || !contract.allowedActions.includes(action)) {
+      return {
+        error: `Action "${action}" is not permitted by the contract with "${bridge.targetName}". Allowed: ${(contract.allowedActions || []).join(', ')}`,
+      };
+    }
+
+    // Resolve target workspace URL for direct A2A communication
+    const targetUrl = bridge.targetUrl;
+    if (!targetUrl) {
+      return {
+        error: `No A2A endpoint configured for "${bridge.targetName}". Contact an administrator.`,
+      };
+    }
+
+
 
     // ── A2A Direct Communication ──────────────────────────────
     // Send directly to target workspace's A2A endpoint via the wake proxy.
@@ -188,12 +195,10 @@ const bridgeWorkspace: Tool = {
 
       return await this._handleA2aResponse(response, bridge, action, content, taskId);
     } catch (err: any) {
-      // Network error — try legacy relay as fallback
       if (err.name === 'AbortError') {
         return { error: `Bridge communication timed out after ${action === 'delegate' ? '120' : '30'} seconds` };
       }
-      console.warn(`[Bridge] A2A direct failed (${err.message}), falling back to relay`);
-      return await this._legacyRelay(bridge, action, content);
+      return { error: `Bridge communication failed: ${err.message}` };
     }
   },
 
@@ -203,10 +208,6 @@ const bridgeWorkspace: Tool = {
   async _handleA2aResponse(response, bridge, action, content, taskId) {
     if (!response.ok) {
       const body = await response.text();
-      if (response.status === 404 || response.status === 502 || response.status === 503) {
-        console.warn(`[Bridge] A2A endpoint unavailable (${response.status}), falling back to relay`);
-        return await this._legacyRelay(bridge, action, content);
-      }
       return { error: `Bridge communication failed: ${response.status} ${body.slice(0, 200)}` };
     }
 
