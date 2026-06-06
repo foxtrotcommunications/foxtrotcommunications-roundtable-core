@@ -96,6 +96,13 @@ router.post('/receive', async (req, res) => {
       }
 
       console.log(`[Bridge] Contract ${contractId} approved action "${action}" from ${sourceWorkspace.name}`);
+    } else {
+      // No contract = no activity. All bridge communication requires an approved governance contract.
+      console.warn(`[Bridge] Rejected: no contractId provided by ${sourceWorkspace.name}`);
+      return res.status(403).json({
+        error: 'No governance contract provided. All bridge activity requires an approved contract.',
+        code: 'NO_CONTRACT',
+      });
     }
     // ─────────────────────────────────────────────────────────────────────────
 
