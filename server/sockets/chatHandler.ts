@@ -175,10 +175,12 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
         }
 
         socket.isGenerating = true;
+        // Use the best available action: prefer delegate, fall back to message
+        const bridgeAction: string = (bridge.permissions || []).includes('delegate') ? 'delegate' : 'message';
         io.to(wsChannel).emit('ai-start', { userId: socket.userId, username: socket.username });
         io.to(wsChannel).emit('tool-call', {
           name: 'bridge_workspace',
-          args: { target: bridge.targetName, action: 'delegate', content: bridgeContent },
+          args: { target: bridge.targetName, action: bridgeAction, content: bridgeContent },
           callId: `bridge-${Date.now()}`,
         });
 
@@ -189,7 +191,7 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
           };
           const result: BridgeToolResult = await bridgeTool.execute({
             target: bridge.targetName,
-            action: 'delegate',
+            action: bridgeAction,
             content: bridgeContent,
           });
 
