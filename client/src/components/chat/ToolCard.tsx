@@ -23,16 +23,16 @@ export default function ToolCard({ call, result, defaultCollapsed }: Props) {
     (args.command ? `$ ${args.command}` : '') || args.query || args.message || '';
 
   return (
-    <div className={`tool-card${expanded ? ' expanded' : ''}`}>
-      <div className="tool-card-header" onClick={() => setExpanded(!expanded)}>
+    <div className={`tool-card${expanded ? ' expanded' : ''}`} style={{ minHeight: 36, border: '2px solid #ef4444' }}>
+      <div className="tool-card-header" onClick={() => setExpanded(!expanded)} style={{ minHeight: 36 }}>
         <span className="tool-card-icon">{icon}</span>
-        <span className="tool-card-name">{label}</span>
+        <span className="tool-card-name" style={{ color: '#818cf8' }}>{label}</span>
         {preview && (
           <span style={{ color: 'var(--text-muted)', fontSize: 12, marginLeft: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 300 }}>
             {preview}
           </span>
         )}
-        <span className={`tool-card-status ${status}`}>
+        <span className={`tool-card-status ${status}`} style={{ color: status === 'error' ? '#ef4444' : '#22c55e' }}>
           {status === 'running' ? 'running…' : status}
         </span>
       </div>
