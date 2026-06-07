@@ -7,10 +7,10 @@ import fs from 'fs';
 const WORKSPACE_DIR = path.resolve(__dirname, '..', '..', 'workspace');
 
 // Allowed base commands — only these can be executed
-// SECURITY: Interpreters (python3, node) and network tools (curl, wget) are
-// intentionally excluded — they enable full sandbox escape via subprocess/eval.
+// SECURITY: Network tools (curl, wget) and shells (bash, sh) are excluded.
+// python3 is allowed because run_code already permits arbitrary Python execution.
 const ALLOWED_COMMANDS = new Set([
-  'npm', 'npx', 'git',
+  'npm', 'npx', 'git', 'python3',
   'cat', 'head', 'tail', 'grep', 'find', 'ls', 'wc',
   'diff', 'echo', 'pwd', 'which', 'env', 'printenv',
   'make', 'test', 'true', 'false',
@@ -61,7 +61,7 @@ import type { Tool } from '../types';
 
 const tool: Tool = {
   name: 'shell_exec',
-  description: 'Execute a shell command in the workspace directory. Allowed commands include: npm, npx, git, grep, find, ls, cat, diff, sed, awk, and common unix utilities. Returns stdout and stderr.',
+  description: 'Execute a shell command in the workspace directory. Allowed commands include: python3, npm, npx, git, grep, find, ls, cat, diff, sed, awk, and common unix utilities. Returns stdout and stderr.',
   parameters: {
     type: 'object',
     properties: {

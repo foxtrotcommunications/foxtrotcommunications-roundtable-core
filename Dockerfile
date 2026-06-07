@@ -13,7 +13,9 @@ FROM node:20-alpine AS runtime
 WORKDIR /app
 
 # Git is required for git_clone, git_status tools
-RUN apk add --no-cache git
+# Python + matplotlib/numpy for charting and data analysis
+RUN apk add --no-cache git python3 py3-pip && \
+    pip3 install --no-cache-dir --break-system-packages matplotlib numpy pandas
 
 # Copy package files and install production deps (skip optional: better-sqlite3 needs native build tools)
 COPY package*.json ./
