@@ -93,9 +93,10 @@ describe('shell_exec tool', () => {
       expect(result.error).toContain('not in the allowlist');
     });
 
-    it('should block python3 (removed from allowlist for security)', async () => {
+    it('should allow python3 (on allowlist — run_code already permits arbitrary Python)', async () => {
       const result = await shellExec.execute({ command: 'python3 --version' });
-      expect(result.error).toContain('not in the allowlist');
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout || '').toContain('Python');
     });
 
     it('should block curl (removed from allowlist for security)', async () => {
