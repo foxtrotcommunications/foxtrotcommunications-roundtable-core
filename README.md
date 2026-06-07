@@ -44,7 +44,7 @@ Roundtable auto-detects the environment: if no `DATABASE_URL` is set, it uses SQ
 - **Multiplayer AI Chat** — Multiple users in the same AI conversation, streaming in real-time
 - **Concurrent Generation** — Each user has an independent AI generation lifecycle; multiple people can prompt AI simultaneously without blocking each other
 - **Multi-Provider AI** — OpenAI, Anthropic (Claude), Google Gemini (via Vertex AI or API key), and Ollama (local models, OpenAI-compatible)
-- **20 Built-in Tools** — Web search, data warehouse queries, file management, shell execution, charts, cross-workspace bridges, and more
+- **22 Built-in Tools** — Web search, data warehouse queries, file management, shell execution, charts, cross-workspace bridges, A2A agent calls, and more
 - **Model-Aware Tooling** — Tools like web search automatically use the workspace's configured model and endpoint
 - **Configurable Tool Set** — Enable or disable individual tools per workspace via the Settings panel
 - **Configurable Agent** — Set the AI provider, model, and system prompt per workspace — no redeploy needed
@@ -222,6 +222,7 @@ Enable or disable individual tools per workspace. Disabled tools are removed fro
 - **Data**: `query_bigquery`, `query_snowflake`, `query_databricks`, `download_query_results`
 - **Visualization**: `render_chart`
 - **Workspace**: `describe_workspace`, `bridge_workspace`, `verify_workspace`, `trigger_synthea_pipeline`
+- **Agent**: `call_agent`
 
 > **Tip**: For workspaces focused on data analysis, disable `shell_exec`, `git_clone`, and `git_commit` to reduce the AI's tool surface and improve response focus.
 
@@ -255,7 +256,7 @@ Set `DEMO_MODE=true` to enable the `/api/auth/demo` endpoint, which creates auto
 
 ## Built-in Tools
 
-All 20 tools are enabled by default. Individual tools can be toggled per workspace via the Settings panel.
+All 22 tools are enabled by default. Individual tools can be toggled per workspace via the Settings panel.
 
 | Tool | Description |
 |------|-------------|
@@ -280,6 +281,7 @@ All 20 tools are enabled by default. Individual tools can be toggled per workspa
 | **download_query_results** | Export query results as downloadable CSV/JSON files |
 | **trigger_synthea_pipeline** | Trigger synthetic FHIR/OMOP patient data generation via Synthea |
 | **verify_workspace** | Run health checks on tools and data sources |
+| **call_agent** | Delegate a task to an external AI agent via the A2A (Agent-to-Agent) protocol |
 
 Data warehouse tools enforce **read-only access** — INSERT, UPDATE, DELETE, DROP, and other write operations are blocked at the tool level.
 
