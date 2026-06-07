@@ -12,38 +12,18 @@ const TOOL_CATALOG = [
 ];
 
 const MODEL_OPTIONS: Record<string, { value: string; label: string }[]> = {
-  vertexai: [
+  'gemini-enterprise': [
+    { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
     { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro (Preview)' },
-    { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite' },
-    { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-    { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-    { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
   ],
-  openai: [
-    { value: 'gpt-4o', label: 'GPT-4o' },
-    { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
-    { value: 'gpt-4.1', label: 'GPT-4.1' },
-    { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini' },
-    { value: 'o3-mini', label: 'o3-mini' },
-  ],
-  anthropic: [
-    { value: 'claude-opus-4-5', label: 'Claude Opus 4.5' },
-    { value: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5' },
-    { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' },
+  // Legacy providers — kept so existing workspaces can still display their models
+  vertexai: [
+    { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
+    { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro (Preview)' },
   ],
   google: [
+    { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
     { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro (Preview)' },
-    { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite' },
-    { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-    { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-    { value: 'gemini-2.0-flash-001', label: 'Gemini 2.0 Flash' },
-  ],
-  ollama: [
-    { value: 'llama3.1:8b', label: 'Llama 3.1 8B' },
-    { value: 'llama3.1:70b', label: 'Llama 3.1 70B' },
-    { value: 'qwen2:7b', label: 'Qwen 2 7B' },
-    { value: 'mistral:7b', label: 'Mistral 7B' },
-    { value: 'codellama:13b', label: 'Code Llama 13B' },
   ],
 };
 
@@ -58,7 +38,7 @@ export default function SettingsModal({ onClose, onSaved, addToast }: Props) {
   // Appearance state
   const [showToolCalls, setShowToolCalls] = useState(() => localStorage.getItem('rt-show-tool-calls') === 'true');
   // Agent state
-  const [provider, setProvider] = useState('vertexai');
+  const [provider, setProvider] = useState('gemini-enterprise');
   const [model, setModel] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [ollamaHost, setOllamaHost] = useState('');
@@ -91,7 +71,7 @@ export default function SettingsModal({ onClose, onSaved, addToast }: Props) {
 
   useEffect(() => {
     api.getWorkspaceInfo().then(workspace => {
-      setProvider(workspace.ai_provider || 'vertexai');
+      setProvider(workspace.ai_provider || 'gemini-enterprise');
       setModel(workspace.ai_model || '');
       setSystemPrompt(workspace.system_prompt || '');
       setOllamaHost(workspace.ollama_host || '');
@@ -282,12 +262,13 @@ export default function SettingsModal({ onClose, onSaved, addToast }: Props) {
               <label>Provider</label>
               {(() => {
                 const allProviderList = [
-                  { value: 'vertexai', label: 'Vertex AI (Google Cloud)' },
-                  { value: 'google', label: 'Google AI Studio' },
-                  { value: 'openai', label: 'OpenAI' },
-                  { value: 'anthropic', label: 'Anthropic' },
-                  { value: 'ollama', label: 'Ollama (OpenAI-compatible)' },
+                  { value: 'gemini-enterprise', label: 'Gemini Enterprise' },
                 ];
+                // Show legacy value if workspace uses one not in the list
+                const currentInList = allProviderList.some(p => p.value === provider);
+                if (!currentInList && provider) {
+                  allProviderList.push({ value: provider, label: provider });
+                }
                 const providers = allowedProviders
                   ? allProviderList.filter(p => allowedProviders.includes(p.value))
                   : allProviderList;
