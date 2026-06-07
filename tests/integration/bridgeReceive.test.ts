@@ -55,12 +55,15 @@ function makeValidRequest(overrides: Record<string, unknown> = {}) {
   const taskId = 'task-abc-123';
   const timestamp = Date.now().toString();
   const action = 'message';
-  const contractId = '';
+  const contractId = 'test-contract';
+  const allowedActions = ['message', 'delegate'];
+  const contractToken = makeContractToken(contractId, allowedActions);
 
   return {
     taskId,
     bridgeId: 'bridge-001',
-    contractId: contractId,
+    contractId,
+    contractToken,
     action,
     content: 'Hello from remote workspace',
     sourceWorkspace: { id: 'remote-ws', name: 'Remote Workspace' },
@@ -133,6 +136,10 @@ describe('Bridge Receive — HMAC Authentication', () => {
   });
 
   it('should accept a valid HMAC signature', async () => {
+    // Set up RT_CONTRACTS so contract enforcement passes
+    process.env.RT_CONTRACTS = JSON.stringify([
+      { contractId: 'test-contract', allowedActions: ['message', 'delegate'] },
+    ]);
     const body = makeValidRequest();
     const res = createMockRes();
     await handler({ body }, res);
@@ -167,7 +174,11 @@ describe('Bridge Receive — HMAC Authentication', () => {
     const taskId = 'task-expired';
     const timestamp = (Date.now() - 6 * 60 * 1000).toString(); // 6 minutes ago
     const action = 'message';
-    const contractId = '';
+    const contractId = 'test-contract';
+
+    process.env.RT_CONTRACTS = JSON.stringify([
+      { contractId, allowedActions: ['message', 'delegate'] },
+    ]);
 
     const body = makeValidRequest({
       taskId,
@@ -186,12 +197,19 @@ describe('Bridge Receive — HMAC Authentication', () => {
     const taskId = 'task-recent';
     const timestamp = (Date.now() - 4 * 60 * 1000).toString(); // 4 min ago
     const action = 'message';
-    const contractId = '';
+    const contractId = 'test-contract';
+    const allowedActions = ['message', 'delegate'];
+    const contractToken = makeContractToken(contractId, allowedActions);
+
+    process.env.RT_CONTRACTS = JSON.stringify([
+      { contractId, allowedActions },
+    ]);
 
     const body = makeValidRequest({
       taskId,
       timestamp,
       contractId,
+      contractToken,
       signature: makeSignature(taskId, timestamp, contractId, action),
     });
 
@@ -379,7 +397,7 @@ describe('Bridge Receive — Unknown Actions', () => {
     jest.restoreAllMocks();
   });
 
-  it('should return 400 for an unknown action type', async () => {
+  it('should return 403 for an unknown action without contract', async () => {
     const taskId = 'task-unknown-action';
     const timestamp = Date.now().toString();
     const action = 'unknown_action';
@@ -389,13 +407,16 @@ describe('Bridge Receive — Unknown Actions', () => {
       taskId,
       timestamp,
       action,
+      contractId,
+      contractToken: undefined,
       signature: makeSignature(taskId, timestamp, contractId, action),
     });
 
     const res = createMockRes();
     await handler({ body }, res);
 
-    expect(res.statusCode).toBe(400);
-    expect(res.body.error).toMatch(/Unknown action/);
+    // Without a contract, the enforcement gate rejects before reaching action dispatch
+    expect(res.statusCode).toBe(403);
+    expect(res.body.code).toBe('NO_CONTRACT');
   });
 });
