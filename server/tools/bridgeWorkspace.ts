@@ -140,7 +140,7 @@ const bridgeWorkspace: Tool = {
         headers['X-Contract-Timestamp'] = timestamp;
 
         // E2E encrypt the message payload — only the target workspace can decrypt
-        const encrypted = encryptPayload(contractKey, { text: messageText });
+        const encrypted = encryptPayload(contractKey, { text: content });
         headers['X-Contract-Encrypted'] = 'aes-256-gcm';
 
         const response = await fetch(a2aEndpoint, {
@@ -186,7 +186,7 @@ const bridgeWorkspace: Tool = {
           params: {
             message: {
               role: 'user',
-              parts: [{ type: 'text', text: messageText }],
+              parts: [{ type: 'text', text: content }],
             },
           },
         }),

@@ -544,7 +544,7 @@ When generating Mermaid diagrams (flowcharts, sequence diagrams, etc.):
                 contractCtx += `\n  Escalation target: ${c.escalationTarget}`;
               }
             }
-            contractCtx += '\n\nWhen asked about contracts or governance, describe these relationships. Use the bridge_workspace tool to communicate with counterparties per contract terms.\n';
+            contractCtx += '\n--- CROSS-WORKSPACE EXECUTION MODEL ---\nYou are the reasoning layer. ICE is the execution layer.\nWhen a user asks you to do something involving another workspace:\n1. YOU reason about what needs to happen\n2. YOU compile the operation into a structured intent\n3. intent_bridge executes it deterministically on the target — no AI over there\n4. YOU interpret the results and respond to the user\nThe other workspace AI is NOT involved. You do all the thinking. ICE is your hands.\nintent_bridge — Your execution tool for cross-workspace operations:\n- Data queries: op query with SQL or structured params\n- Tool invocations: op tool_call with tool name and args\n- Multi-step pipelines: op aggregate with steps and a reduce strategy\n- Discovery: op discover to see what a workspace can do\nbridge_workspace — Only when you need the OTHER AI to reason (rare):\n- Subjective analysis requiring judgment on the other side\n- Multi-turn collaborative problem solving\nDefault to intent_bridge. If unsure what a workspace has, discover first.\n';
           }
         }
       } catch { /* ignore contract parse errors */ }
