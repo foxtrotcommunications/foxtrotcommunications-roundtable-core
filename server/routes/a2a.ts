@@ -2,7 +2,14 @@
 //
 // Routes:
 //   GET  /.well-known/agent.json  — public agent card (no auth)
-//   POST /a2a                     — JSON-RPC 2.0 endpoint (API key auth)
+//   POST /a2a                     — JSON-RPC 2.0 endpoint (API key or contract auth)
+//
+// JSON-RPC Methods:
+//   message/send    — AI-interpreted message (full LLM inference on receiving side)
+//   intent/execute  — Compiled intent token (direct tool execution, NO LLM)
+//   intent/discover — Schema/capability discovery
+//   tasks/get       — Get task status
+//   tasks/cancel    — Cancel a running task
 //
 import type { Request, Response } from 'express';
 
@@ -17,9 +24,17 @@ const { processMessage, getTask, cancelTask } = require('../a2a/server') as {
   getTask: (id: string) => Record<string, unknown> | undefined;
   cancelTask: (id: string) => Record<string, unknown> | null;
 };
-const { getAvailableTools } = require('../tools') as {
+const { getAvailableTools, resolveTools } = require('../tools') as {
   getAvailableTools: () => Array<{ name: string; description: string }>;
+  resolveTools: (enabledNames?: string[] | null) => Record<string, unknown>;
 };
+
+// Intent Compilation Engine imports
+import { validateIntent, intentOpToAction } from '../protocols/intentToken';
+import type { IntentToken, IntentResult } from '../protocols/intentToken';
+import { verifyIntentToken, decryptIntentToken, signIntentResult } from '../protocols/intentTokenCodec';
+import { nonceStore } from '../protocols/nonceStore';
+import { intentMetrics } from '../protocols/intentMetrics';
 
 const router = express.Router();
 
@@ -304,6 +319,153 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
         }
 
         return res.json(jsonRpcSuccess(id, task));
+      }
+
+      // ── intent/execute ─────────────────────────────────
+      // Compiled intent token execution — NO LLM inference.
+      // Receives a signed IntentToken, verifies it, executes the operation
+      // directly against the tool registry, and returns a signed result.
+      case 'intent/execute': {
+        if (!params?.token) {
+          return res.json(
+            jsonRpcError(id, -32602, 'Missing params.token')
+          );
+        }
+
+        const token: IntentToken = params.token;
+        const masterSecret = process.env.ORG_MASTER_SECRET;
+
+        if (!masterSecret) {
+          return res.json(
+            jsonRpcError(id, -32000, 'Intent execution not available (no master secret)')
+          );
+        }
+
+        // 1. Verify token signature, expiry, and freshness
+        const verification = await verifyIntentToken(token, masterSecret);
+        if (!verification.valid) {
+          console.warn(`[A2A:ICE] Token verification failed: ${verification.error}`);
+          return res.json(
+            jsonRpcError(id, -32000, `Token verification failed: ${verification.error}`)
+          );
+        }
+
+        // 2. Check nonce for replay prevention
+        if (!nonceStore.add(token.nonce)) {
+          console.warn(`[A2A:ICE] Replay detected: nonce ${token.nonce}`);
+          return res.json(
+            jsonRpcError(id, -32000, 'Replay detected: token nonce already used')
+          );
+        }
+
+        // 3. Decrypt if encrypted
+        let executableToken = token;
+        if (token.encrypted && token.encryptedIntent) {
+          const { token: decrypted, error: decryptError } = await decryptIntentToken(token, verification.contractKey!);
+          if (decryptError) {
+            return res.json(
+              jsonRpcError(id, -32000, decryptError)
+            );
+          }
+          executableToken = decrypted;
+        }
+
+        // 4. Validate the intent structure
+        const intentValid = validateIntent(executableToken.intent);
+        if (!intentValid.valid) {
+          return res.json(
+            jsonRpcError(id, -32602, `Invalid intent: ${intentValid.error}`)
+          );
+        }
+
+        // 5. Check contract authorization for this specific operation
+        const contracts = process.env.RT_CONTRACTS ? JSON.parse(process.env.RT_CONTRACTS) : [];
+        const contract = contracts.find((c: any) =>
+          c.contractId === token.contractId && c.status === 'active'
+        );
+        if (!contract) {
+          return res.json(
+            jsonRpcError(id, -32000, 'No active contract found for this token')
+          );
+        }
+
+        const requiredAction = intentOpToAction(executableToken.intent);
+        const TRANSPORT_ACTIONS = ['intent_execute', 'discover'];
+        if (!TRANSPORT_ACTIONS.includes(requiredAction) &&
+            !contract.allowedActions?.includes(requiredAction) &&
+            !contract.allowedActions?.includes('intent_execute')) {
+          console.warn(`[A2A:ICE] Action '${requiredAction}' not permitted by contract ${token.contractId}`);
+          const deniedResult: Omit<IntentResult, 'signature'> = {
+            version: 1,
+            type: 'intent_result',
+            tokenId: token.id,
+            status: 'denied',
+            error: `Action '${requiredAction}' not permitted by contract`,
+            executionMs: 0,
+            timestamp: new Date().toISOString(),
+          };
+          return res.json(
+            jsonRpcSuccess(id, signIntentResult(deniedResult, verification.contractKey!))
+          );
+        }
+
+        // 6. Execute the intent directly (no LLM!)
+        try {
+          // Lazy import to avoid circular dependency at module load time
+          const { executeIntentToken } = require('../protocols/intentExecutor');
+
+          const db = getAdapter();
+          const workspace = await db.getWorkspace(config.workspaceId);
+          let enabledToolNames: string[] | null = null;
+          if (workspace?.enabled_tools) {
+            try {
+              enabledToolNames = JSON.parse(workspace.enabled_tools as string);
+            } catch { /* intentionally empty */ }
+          }
+
+          const result = await executeIntentToken(executableToken, {
+            contractKey: verification.contractKey!,
+            contract,
+            workspaceConfig: {},
+            enabledToolNames,
+          });
+
+          // Track metrics
+          intentMetrics.record(
+            executableToken.intent.op === 'discover' ? 'discover' : (executableToken.intent as any).tool || 'unknown',
+            result.executionMs,
+            true  // compiled execution
+          );
+
+          console.log(`[A2A:ICE] Executed intent ${token.id} (${executableToken.intent.op}) in ${result.executionMs}ms — zero LLM tokens used`);
+          return res.json(jsonRpcSuccess(id, result));
+        } catch (err: unknown) {
+          const error = err as Error;
+          console.error(`[A2A:ICE] Execution error:`, error.message);
+          const errorResult: Omit<IntentResult, 'signature'> = {
+            version: 1,
+            type: 'intent_result',
+            tokenId: token.id,
+            status: 'error',
+            error: error.message,
+            executionMs: 0,
+            timestamp: new Date().toISOString(),
+          };
+          return res.json(
+            jsonRpcSuccess(id, signIntentResult(errorResult, verification.contractKey!))
+          );
+        }
+      }
+
+      // ── intent/discover ────────────────────────────────
+      case 'intent/discover': {
+        // Returns available tools and capabilities — lightweight, no token required
+        const tools = getAvailableTools();
+        return res.json(jsonRpcSuccess(id, {
+          capabilities: ['intent/execute', 'intent/discover', 'message/send'],
+          tools: tools.map(t => ({ name: t.name, description: t.description })),
+          intentOps: ['query', 'tool_call', 'aggregate', 'discover'],
+        }));
       }
 
       // ── Unknown method ───────────────────────────────
