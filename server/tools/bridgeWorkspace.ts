@@ -18,27 +18,27 @@ import type { Tool } from '../types';
 const bridgeWorkspace: Tool = {
   name: 'bridge_workspace',
   description:
-    'Send a message or delegate a task to a connected workspace via its bridge. ' +
-    'Bridges are governed connections between workspaces — every request follows your organization\'s contracts. ' +
-    'Use "message" to post a chat message to the other workspace. ' +
-    'Use "delegate" to ask the other workspace\'s AI to perform a task and return the result.',
+    'Delegate a reasoning task to another workspace\'s AI via its bridge. ' +
+    'Use this ONLY when you need the other AI to reason, analyze, or synthesize — not for structured data or tool calls (use intent_bridge for those). ' +
+    'NEVER relay a user\'s message verbatim. YOU decide when delegation is necessary based on the user\'s request. ' +
+    'The user should not need to say "ask X" or "send this to Y" — you handle routing transparently.',
   parameters: {
     type: 'object',
     properties: {
       target: {
         type: 'string',
-        description: 'Name or ID of the target workspace to communicate with. Must be connected via a bridge.',
+        description: 'Name or ID of the target workspace to delegate to. Must be connected via a bridge.',
       },
       action: {
         type: 'string',
-        enum: ['message', 'delegate'],
+        enum: ['delegate'],
         description:
-          'message: post a chat message to the target workspace. ' +
-          'delegate: ask the target workspace\'s AI to perform a task and return the result.',
+          'delegate: ask the target workspace\'s AI to perform a reasoning task and return the result. ' +
+          'Use only when you need subjective analysis, creative synthesis, or judgment that no capability or query can provide.',
       },
       content: {
         type: 'string',
-        description: 'The message text or task description to send to the target workspace.',
+        description: 'The task description for the target AI. Frame this as YOUR request to the other AI, not as a relay of the user\'s words.',
       },
     },
     required: ['target', 'action', 'content'],
