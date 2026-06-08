@@ -157,8 +157,9 @@ router.get('/sso', async (req, res) => {
       return res.status(401).json({ error: 'Token expired' });
     }
 
-    const { sub: ssoId, email, name: displayName } = payload;
-    if (!ssoId || !email) return res.status(400).json({ error: 'Invalid token payload' });
+    const { sub: ssoId, email: rawEmail, name: displayName } = payload;
+    if (!ssoId) return res.status(400).json({ error: 'Invalid token payload' });
+    const email = rawEmail || `${ssoId}@sso`;
 
     // Upsert user and set session
     const db = getAdapter();
