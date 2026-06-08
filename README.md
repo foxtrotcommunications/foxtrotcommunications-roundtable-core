@@ -7,7 +7,7 @@ Multiple users collaborate on AI conversations in real-time — with built-in to
 Roundtable is designed as a **platform for agent orchestration** — connect your own A2A agents, MCP servers, or custom tools and let the AI route between them. Build agents in any language, deploy them anywhere, and plug them into a shared workspace where your whole team works together.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-321%20passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-315%20passing-brightgreen.svg)](#testing)
 [![CI](https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable-core/actions/workflows/ci.yml/badge.svg)](https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable-core/actions/workflows/ci.yml)
 
 ## Quick Start
@@ -44,7 +44,7 @@ Roundtable auto-detects the environment: if no `DATABASE_URL` is set, it uses SQ
 - **Multiplayer AI Chat** — Multiple users in the same AI conversation, streaming in real-time
 - **Concurrent Generation** — Each user has an independent AI generation lifecycle; multiple people can prompt AI simultaneously without blocking each other
 - **Multi-Provider AI** — OpenAI, Anthropic (Claude), Google Gemini (via Vertex AI or API key), and Ollama (local models, OpenAI-compatible)
-- **22 Built-in Tools** — Web search, data warehouse queries, file management, shell execution, charts, cross-workspace bridges, A2A agent calls, and more
+- **23 Built-in Tools** — Web search, data warehouse queries, file management, shell execution, charts, cross-workspace bridges, intent compilation, A2A agent calls, and more
 - **Model-Aware Tooling** — Tools like web search automatically use the workspace's configured model and endpoint
 - **Configurable Tool Set** — Enable or disable individual tools per workspace via the Settings panel
 - **Configurable Agent** — Set the AI provider, model, and system prompt per workspace — no redeploy needed
@@ -55,6 +55,10 @@ Roundtable auto-detects the environment: if no `DATABASE_URL` is set, it uses SQ
 - **A2A Agent Protocol** — Plug in external agents built in any language via the A2A standard (JSON-RPC 2.0 over HTTP)
 - **Governance Contracts** — Typed, approved agreements between workspaces that define allowed actions, approval chains, and escalation paths; enforced cryptographically at runtime
 - **E2E Encrypted Communication** — Cross-workspace A2A messages are encrypted with AES-256-GCM using HKDF-derived per-contract keys; only the two workspaces in an active contract can decrypt
+- **Intent Compilation Engine (ICE)** — Compiles structured AI operations into signed, deterministic intent tokens that execute on receiving workspaces without LLM inference. Includes SQL fusion, execution proofs, and result caching
+- **Execution Proofs** — Every compiled execution produces a cryptographic proof (SHA-256 input/output hashes, policy checks applied, HMAC-signed) for audit-grade traceability
+- **Intent Caching** — LRU cache (1000 entries, 60s TTL) for compiled intent results; identical operations return cached results in <1ms
+- **SQL Fusion Compiler** — Merges multiple queries against the same table into a single optimized query, reducing API costs and latency
 - **MCP Server Support** — Connect external Model Context Protocol servers to extend workspace tool capabilities
 - **Multi-Cloud** — Deploy on Cloud Run, GKE, EKS, AKS, or any Kubernetes cluster
 - **BYOK** — Bring Your Own Key; users configure their own API keys, or use server-level defaults
@@ -221,7 +225,7 @@ Enable or disable individual tools per workspace. Disabled tools are removed fro
 - **Git**: `git_clone`, `git_commit`, `git_pull`
 - **Data**: `query_bigquery`, `query_snowflake`, `query_databricks`, `download_query_results`
 - **Visualization**: `render_chart`
-- **Workspace**: `describe_workspace`, `bridge_workspace`, `verify_workspace`, `trigger_synthea_pipeline`
+- **Workspace**: `describe_workspace`, `bridge_workspace`, `intent_bridge`, `verify_workspace`, `trigger_synthea_pipeline`
 - **Agent**: `call_agent`
 
 > **Tip**: For workspaces focused on data analysis, disable `shell_exec`, `git_clone`, and `git_commit` to reduce the AI's tool surface and improve response focus.
@@ -256,7 +260,7 @@ Set `DEMO_MODE=true` to enable the `/api/auth/demo` endpoint, which creates auto
 
 ## Built-in Tools
 
-All 22 tools are enabled by default. Individual tools can be toggled per workspace via the Settings panel.
+All 23 tools are enabled by default. Individual tools can be toggled per workspace via the Settings panel.
 
 | Tool | Description |
 |------|-------------|
@@ -282,6 +286,7 @@ All 22 tools are enabled by default. Individual tools can be toggled per workspa
 | **trigger_synthea_pipeline** | Trigger synthetic FHIR/OMOP patient data generation via Synthea |
 | **verify_workspace** | Run health checks on tools and data sources |
 | **call_agent** | Delegate a task to an external AI agent via the A2A (Agent-to-Agent) protocol |
+| **intent_bridge** | Compiled intent token bridge — sends cryptographically signed, deterministic operations to other workspaces for direct execution without LLM inference (ICE) |
 
 Data warehouse tools enforce **read-only access** — INSERT, UPDATE, DELETE, DROP, and other write operations are blocked at the tool level.
 
@@ -322,6 +327,13 @@ Deployment model (workspace-per-container):
 └─────────────────────────────────────────┘
 ```
 
+```
+Intent Compilation Engine (ICE):
+  LLM → intent_bridge → IntentToken (signed) → /a2a intent/execute
+  → Cache check → SQL fusion → Tool dispatch → ExecutionProof → Signed result
+  Zero LLM inference on receiving side.
+```
+
 - **Backend**: Node.js 20, Express, Socket.IO
 - **Database**: PostgreSQL (production) or SQLite (local dev)
 - **Frontend**: React + TypeScript (Vite, `client/dist/`)
@@ -331,7 +343,7 @@ Deployment model (workspace-per-container):
 ## Testing
 
 ```bash
-npm test                # Unit tests (222 tests)
+npm test                # Unit + ICE tests (315 tests)
 npm run test:integration  # Integration tests (99 tests)
 npm run typecheck       # TypeScript strict mode check
 npm run lint:server     # ESLint (0 errors, warnings only)
@@ -339,7 +351,7 @@ npm run lint:server     # ESLint (0 errors, warnings only)
 
 ### Unit Tests (Jest)
 
-222 tests across 12 suites:
+315 tests across 18 suites:
 
 | Suite | Tests | Coverage |
 |-------|-------|----------|
@@ -351,6 +363,14 @@ npm run lint:server     # ESLint (0 errors, warnings only)
 | Auth middleware | 4 | Session validation |
 | Config | 9 | Environment variable parsing |
 | DB adapter | 2 | Export validation |
+| Intent token types | 19 | validateIntent, intentOpToAction, operation validation |
+| Intent token codec | 16 | Canonicalize, build, verify, decrypt, sign, expiry |
+| Nonce store | 7 | Replay detection, TTL expiry, cleanup |
+| Intent metrics | 8 | Stats, token savings, p95, cache/fusion counters |
+| Intent executor | 9 | Query, tool_call, discover, auth gate, SQL safety |
+| Execution proofs | 8 | Build, verify, tamper detection, hash matching |
+| Intent cache | 11 | Hit/miss, TTL, LRU eviction, stats |
+| Intent compiler | 14 | SQL fusion, dedup, LIMIT injection |
 
 ### Integration Tests (Jest)
 
@@ -416,6 +436,8 @@ Infrastructure and application security controls include:
 - **Workload Identity** — No static service account keys; pods authenticate via GKE Workload Identity
 - **Encryption in Transit** — TLS 1.2+ for all external communication (HTTPS, WSS)
 - **End-to-End Encryption** — Cross-workspace A2A messages are encrypted with AES-256-GCM using HKDF-derived per-contract keys. The wake proxy, ingress controller, and log pipeline cannot inspect message payloads
+- **Intent Compilation Engine** — Compiled intent tokens carry HMAC-SHA256 signatures, optional AES-256-GCM encryption, nonce-based replay prevention (10-min window), and contract-based action authorization. Every execution produces a signed `ExecutionProof` with SHA-256 hashes of input and output for audit-grade traceability
+- **SQL Safety in Compiled Execution** — The intent executor enforces the same SQL blocklist (INSERT, UPDATE, DELETE, DROP, TRUNCATE, ALTER, CREATE, MERGE, GRANT, REVOKE) as direct tool calls, preventing data mutation through compiled intent tokens
 - **Contract-Based Authentication** — Every bridge request carries a `contractToken` (`HMAC-SHA256(secret, contractId:sortedAllowedActions)`) generated by the control plane and independently re-derived by the pod using `timingSafeEqual`. The full request signature covers `taskId:timestamp:contractId:action`, binding the specific action into the signature so replay attacks against a different action or contract are rejected
 - **Pod-Side Enforcement Gate** — `server/routes/bridgeReceive.js` enforces contracts in four sequential stages: (1) HMAC + timestamp ≤5 min, (2) `contractId` in local `RT_CONTRACTS` manifest, (3) `contractToken` match, (4) action in `allowedActions`. Stages 2–4 use `timingSafeEqual`. A compromised or misconfigured control plane cannot grant permissions not written into the pod's manifest
 - **Handshake Approval Model** — Contracts require explicit approval from the workspace admin of both the source and target workspaces. Proposed amendments are staged in `amendment.proposedChanges` (original terms remain enforced) until both admins re-approve, preventing unilateral privilege escalation

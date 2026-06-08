@@ -26,6 +26,7 @@ import downloadQueryResults from './downloadQueryResults';
 import describeWorkspace from './describeWorkspace';
 import verifyWorkspace from './verifyWorkspace';
 import bridgeWorkspace from './bridgeWorkspace';
+import intentBridge from './intentBridge';
 
 // Protocol integration tools
 import callAgent from './callAgent';
@@ -55,8 +56,9 @@ const tools = {
   query_databricks: queryDatabricks,
   trigger_synthea_pipeline: triggerSyntheaPipeline,
   download_query_results: downloadQueryResults,
-  // Workspace bridge tool — communicate with other workspaces
+  // Workspace bridge tools — communicate with other workspaces
   bridge_workspace: bridgeWorkspace,
+  intent_bridge: intentBridge,
   // Protocol integration tools
   call_agent: callAgent,
 };

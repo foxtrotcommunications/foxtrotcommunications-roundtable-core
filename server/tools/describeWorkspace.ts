@@ -225,7 +225,22 @@ const tool: Tool = {
         webAccess: tools.some(t => t.name === 'web_search'),
         codeExecution: tools.some(t => t.name === 'run_code'),
         governanceContracts: contracts.length > 0,
+        intentCompilation: tools.some(t => t.name === 'intent_bridge'),
       },
+
+      // Intent Compilation Engine stats (if available)
+      ...(tools.some(t => t.name === 'intent_bridge') ? (() => {
+        try {
+          const { intentMetrics } = require('../protocols/intentMetrics');
+          const { intentCache } = require('../protocols/intentCache');
+          return {
+            ice: {
+              metrics: intentMetrics.getStats(),
+              cache: intentCache.stats(),
+            },
+          };
+        } catch { return {}; }
+      })() : {}),
     };
   },
 };
