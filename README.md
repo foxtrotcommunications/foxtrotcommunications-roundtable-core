@@ -280,7 +280,7 @@ All 23 tools are enabled by default. Individual tools can be toggled per workspa
 | **git_commit** | Stage and commit changes |
 | **git_pull** | Pull latest changes from a remote Git repository into the workspace |
 | **describe_workspace** | Self-discovery meta-tool that helps the AI understand what tools and data sources are available in the workspace (always enabled) |
-| **bridge_workspace** | Cross-workspace AI communication — delegates queries to other Roundtable workspaces via `@ai-{workspace}` mentions |
+| **bridge_workspace** | Delegate reasoning tasks to another workspace's AI — used only when the target AI needs to reason (rare). For structured operations, use `intent_bridge` |
 | **render_chart** | Generate interactive charts (bar, line, pie, doughnut, area, scatter) inline in chat from query results |
 | **download_query_results** | Export query results as downloadable CSV/JSON files |
 | **trigger_synthea_pipeline** | Trigger synthetic FHIR/OMOP patient data generation via Synthea |
