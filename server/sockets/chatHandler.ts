@@ -512,7 +512,12 @@ When generating Mermaid diagrams (flowcharts, sequence diagrams, etc.):
 - Do NOT use HTML tags (\`<b>\`, \`<br>\`, \`<i>\`, etc.) in node or edge labels — they render as literal text, not formatted HTML. Use plain text only.
 - Focus on clear node labels, meaningful edge labels, and logical flow.
 - The workspace uses a dark theme with these accent colors: indigo (#6366f1), soft purple (#c7d2fe), amber (#fde68a), green (#bbf7d0). The rendering engine maps these automatically.
-- Use subgraphs to group related nodes when the diagram has 8+ nodes.`;
+- Use subgraphs to group related nodes when the diagram has 8+ nodes.
+
+--- FORMATTING ---
+- Do NOT use LaTeX notation (e.g. \`$\\rightarrow$\`, \`$\\alpha$\`, \`$\\sum\`). The renderer does not support LaTeX.
+- Use Unicode symbols instead: → (arrow), ≥ (gte), ≤ (lte), ≠ (neq), × (multiply), ÷ (divide), α β γ (Greek letters).
+- Use standard Markdown for formatting: **bold**, *italic*, \`code\`, tables, lists.`;
 
       // ── Governance Contract Context ──────────────────────────
       // Inject active contract info so the AI knows its governance relationships
