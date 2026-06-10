@@ -22,8 +22,99 @@ import type { Tool } from '../types';
 /** Intent requests should be fast — 30s timeout (vs 120s for delegate) */
 const INTENT_TIMEOUT_MS = 30_000;
 
+/** Extended timeout when we detect a sleeping workspace and need to wait for wake */
+const WAKE_TIMEOUT_MS = 90_000;
+
+/** Interval between retries when waiting for a workspace to wake */
+const WAKE_RETRY_INTERVAL_MS = 5_000;
+
+/** Maximum time to wait for a sleeping workspace to come up */
+const MAX_WAKE_WAIT_MS = 120_000;
+
 /** Approximate prompt tokens saved by skipping LLM inference on the receiver */
 const ESTIMATED_TOKENS_SAVED = '~4300';
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Detect if a 503 response indicates a sleeping workspace (vs a real error).
+ * The wake proxy returns JSON { waking: true }, nginx returns HTML 503.
+ */
+async function detectSleepingWorkspace(response: Response): Promise<boolean> {
+  try {
+    const body = await response.clone().text();
+    // Wake proxy JSON response
+    if (body.includes('"waking"')) return true;
+    // Raw nginx 503 (pod is at 0 replicas)
+    if (body.includes('503 Service Temporarily Unavailable')) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Wake a sleeping workspace by scaling its K8s deployment from 0 → 1.
+ * Uses the in-cluster K8s API with the pod's service account token.
+ */
+async function wakeWorkspace(targetWsId: string): Promise<boolean> {
+  try {
+    const fs = require('fs');
+    const https = require('https');
+
+    // In-cluster credentials (auto-mounted by K8s)
+    const token = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/token', 'utf8').trim();
+    const ca = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/ca.crt');
+    const namespace = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/namespace', 'utf8').trim();
+
+    // Derive org namespace from current pod's namespace (rt-{orgSlug})
+    const orgNamespace = namespace; // Already in rt-pendragon-capital, etc.
+    const depName = `rt-ws-${targetWsId.slice(0, 12).toLowerCase()}`;
+
+    const payload = JSON.stringify({ spec: { replicas: 1 } });
+    const apiHost = process.env.KUBERNETES_SERVICE_HOST || 'kubernetes.default.svc';
+    const apiPort = process.env.KUBERNETES_SERVICE_PORT || '443';
+
+    return new Promise((resolve) => {
+      const req = https.request({
+        hostname: apiHost,
+        port: Number(apiPort),
+        path: `/apis/apps/v1/namespaces/${orgNamespace}/deployments/${depName}`,
+        method: 'PATCH',
+        ca,
+        rejectUnauthorized: true,
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/strategic-merge-patch+json',
+          'Content-Length': Buffer.byteLength(payload),
+        },
+      }, (res) => {
+        let data = '';
+        res.on('data', (c) => data += c);
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            console.log(`[intent_bridge] Scaled ${depName} → 1 replica in ns=${orgNamespace}`);
+            resolve(true);
+          } else {
+            console.error(`[intent_bridge] Failed to scale ${depName}: ${res.statusCode} ${data.slice(0, 200)}`);
+            resolve(false);
+          }
+        });
+      });
+      req.on('error', (err) => {
+        console.error(`[intent_bridge] K8s API error: ${err.message}`);
+        resolve(false);
+      });
+      req.write(payload);
+      req.end();
+    });
+  } catch (err: any) {
+    console.error(`[intent_bridge] wakeWorkspace error: ${err.message}`);
+    return false;
+  }
+}
 
 // ─── Tool Definition ────────────────────────────────────────────────────────
 
@@ -244,24 +335,94 @@ const intentBridge: Tool = {
       const requestId = crypto.randomUUID();
       const startTime = Date.now();
 
-      const response = await fetch(a2aEndpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Contract-Id': contract.contractId,
-          'X-Contract-Signature': contractSignature,
-          'X-Contract-Timestamp': timestamp,
+      const requestBody = JSON.stringify({
+        jsonrpc: '2.0',
+        id: requestId,
+        method: 'intent/execute',
+        params: {
+          token: signedToken,
         },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: requestId,
-          method: 'intent/execute',
-          params: {
-            token: signedToken,
-          },
-        }),
-        signal: AbortSignal.timeout(INTENT_TIMEOUT_MS),
       });
+
+      const requestHeaders = {
+        'Content-Type': 'application/json',
+        'X-Contract-Id': contract.contractId,
+        'X-Contract-Signature': contractSignature,
+        'X-Contract-Timestamp': timestamp,
+        'X-Contract-Action': action,
+      };
+
+      let response = await fetch(a2aEndpoint, {
+        method: 'POST',
+        headers: requestHeaders,
+        body: requestBody,
+        signal: AbortSignal.timeout(WAKE_TIMEOUT_MS),
+      });
+
+      // ── Wake-on-request: retry if workspace is sleeping ──────
+      if (response.status === 503) {
+        const isSleeping = await detectSleepingWorkspace(response);
+
+        if (isSleeping) {
+          console.log(`[intent_bridge] ${bridge.targetName} is sleeping — waking and retrying (up to ${MAX_WAKE_WAIT_MS / 1000}s)`);
+
+          // Scale the target deployment from 0 → 1 via K8s API
+          await wakeWorkspace(bridge.targetWsId);
+
+          const wakeStart = Date.now();
+          let woke = false;
+
+          while (Date.now() - wakeStart < MAX_WAKE_WAIT_MS) {
+            await sleep(WAKE_RETRY_INTERVAL_MS);
+
+            // Re-sign the request (timestamp must be fresh for HMAC)
+            const retryTimestamp = Date.now().toString();
+            const retrySignature = signRequest(contractKey, contract.contractId, retryTimestamp, action);
+
+            try {
+              response = await fetch(a2aEndpoint, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-Contract-Id': contract.contractId,
+                  'X-Contract-Signature': retrySignature,
+                  'X-Contract-Timestamp': retryTimestamp,
+                  'X-Contract-Action': action,
+                },
+                body: requestBody,
+                signal: AbortSignal.timeout(INTENT_TIMEOUT_MS),
+              });
+
+              const elapsed = Math.round((Date.now() - wakeStart) / 1000);
+              if (response.ok) {
+                woke = true;
+                console.log(`[intent_bridge] ${bridge.targetName} is awake after ${elapsed}s`);
+                break;
+              } else {
+                console.log(`[intent_bridge] Retry at ${elapsed}s → HTTP ${response.status}`);
+              }
+            } catch (retryErr: any) {
+              const elapsed = Math.round((Date.now() - wakeStart) / 1000);
+              console.log(`[intent_bridge] Retry at ${elapsed}s failed: ${retryErr.message}`);
+            }
+          }
+
+          if (!woke && !response.ok) {
+            return {
+              success: false,
+              error: `${bridge.targetName} did not respond after ${MAX_WAKE_WAIT_MS / 1000}s. The workspace may still be starting up — try again in a moment.`,
+              workspaceWaking: true,
+            };
+          }
+        } else {
+          // Non-wake 503 — return error immediately
+          const body = await response.text();
+          return {
+            success: false,
+            error: `Intent execution failed: ${response.status} ${body.slice(0, 200)}`,
+          };
+        }
+      }
 
       if (!response.ok) {
         const body = await response.text();

@@ -19,7 +19,7 @@ import renderChart from './renderChart';
 import queryBigQuery from './queryBigQuery';
 import querySnowflake from './querySnowflake';
 import queryDatabricks from './queryDatabricks';
-import triggerSyntheaPipeline from './triggerSyntheaPipeline';
+
 import downloadQueryResults from './downloadQueryResults';
 
 // Meta-tools — always available regardless of workspace config
@@ -54,7 +54,7 @@ const tools = {
   query_bigquery: queryBigQuery,
   query_snowflake: querySnowflake,
   query_databricks: queryDatabricks,
-  trigger_synthea_pipeline: triggerSyntheaPipeline,
+
   download_query_results: downloadQueryResults,
   // Workspace bridge tools — communicate with other workspaces
   bridge_workspace: bridgeWorkspace,

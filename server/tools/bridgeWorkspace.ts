@@ -138,14 +138,21 @@ const bridgeWorkspace: Tool = {
         headers['X-Contract-Id'] = contract.contractId;
         headers['X-Contract-Signature'] = signature;
         headers['X-Contract-Timestamp'] = timestamp;
+        headers['X-Contract-Action'] = action;
 
         // E2E encrypt the message payload — only the target workspace can decrypt
         const encrypted = encryptPayload(contractKey, { text: content });
         headers['X-Contract-Encrypted'] = 'aes-256-gcm';
 
-        const response = await fetch(a2aEndpoint, {
+        const doFetch = () => {
+          const ts = Date.now().toString();
+          return fetch(a2aEndpoint, {
           method: 'POST',
-          headers,
+          headers: {
+            ...headers,
+            'X-Contract-Timestamp': ts,
+            'X-Contract-Signature': signRequest(contractKey, contract.contractId, ts, action),
+          },
           body: JSON.stringify({
             jsonrpc: '2.0',
             id: taskId,
@@ -167,8 +174,10 @@ const bridgeWorkspace: Tool = {
           }),
           signal: AbortSignal.timeout(action === 'delegate' ? 120000 : 30000),
         });
+        };
 
-        return await this._handleA2aResponse(response, bridge, action, content, taskId);
+        const response = await doFetch();
+        return await this._handleA2aResponse(response, bridge, action, content, taskId, doFetch);
       }
 
       if (bridge.a2aApiKey) {
@@ -176,7 +185,7 @@ const bridgeWorkspace: Tool = {
         headers['x-api-key'] = bridge.a2aApiKey;
       }
 
-      const response = await fetch(a2aEndpoint, {
+      const doFetch = () => fetch(a2aEndpoint, {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -193,7 +202,9 @@ const bridgeWorkspace: Tool = {
         signal: AbortSignal.timeout(action === 'delegate' ? 120000 : 30000),
       });
 
-      return await this._handleA2aResponse(response, bridge, action, content, taskId);
+      const response = await doFetch();
+
+      return await this._handleA2aResponse(response, bridge, action, content, taskId, doFetch);
     } catch (err: any) {
       if (err.name === 'AbortError') {
         return { error: `Bridge communication timed out after ${action === 'delegate' ? '120' : '30'} seconds` };
@@ -205,7 +216,87 @@ const bridgeWorkspace: Tool = {
   /**
    * Handle A2A response — shared by encrypted and unencrypted paths.
    */
-  async _handleA2aResponse(response, bridge, action, content, taskId) {
+  async _handleA2aResponse(response, bridge, action, content, taskId, fetchFn?: () => Promise<Response>) {
+    // ── Wake-on-request: retry if workspace is sleeping ──────
+    if (response.status === 503 && fetchFn) {
+      const isSleeping = await this._detectSleepingWorkspace(response);
+
+      if (isSleeping) {
+        console.log(`[bridge_workspace] ${bridge.targetName} is sleeping — waking and retrying (up to 120s)`);
+
+        // Scale the target deployment from 0 → 1 via K8s API
+        try {
+          const fs = require('fs');
+          const https = require('https');
+          const token = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/token', 'utf8').trim();
+          const ca = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/ca.crt');
+          const namespace = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/namespace', 'utf8').trim();
+          const depName = `rt-ws-${bridge.targetWsId.slice(0, 12).toLowerCase()}`;
+          const payload = JSON.stringify({ spec: { replicas: 1 } });
+          const apiHost = process.env.KUBERNETES_SERVICE_HOST || 'kubernetes.default.svc';
+          const apiPort = process.env.KUBERNETES_SERVICE_PORT || '443';
+
+          await new Promise<void>((resolve) => {
+            const req = https.request({
+              hostname: apiHost, port: Number(apiPort),
+              path: `/apis/apps/v1/namespaces/${namespace}/deployments/${depName}`,
+              method: 'PATCH', ca, rejectUnauthorized: true,
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/strategic-merge-patch+json',
+                'Content-Length': Buffer.byteLength(payload),
+              },
+            }, (res) => {
+              let data = '';
+              res.on('data', (c) => data += c);
+              res.on('end', () => {
+                if (res.statusCode >= 200 && res.statusCode < 300) {
+                  console.log(`[bridge_workspace] Scaled ${depName} → 1 replica`);
+                } else {
+                  console.error(`[bridge_workspace] Scale failed: ${res.statusCode}`);
+                }
+                resolve();
+              });
+            });
+            req.on('error', () => resolve());
+            req.write(payload);
+            req.end();
+          });
+        } catch (err: any) {
+          console.error(`[bridge_workspace] Wake error: ${err.message}`);
+        }
+
+        const wakeStart = Date.now();
+        const MAX_WAKE_WAIT = 120_000;
+        const RETRY_INTERVAL = 5_000;
+
+        while (Date.now() - wakeStart < MAX_WAKE_WAIT) {
+          await new Promise((r) => setTimeout(r, RETRY_INTERVAL));
+
+          try {
+            response = await fetchFn();
+            const elapsed = Math.round((Date.now() - wakeStart) / 1000);
+            if (response.ok) {
+              console.log(`[bridge_workspace] ${bridge.targetName} is awake after ${elapsed}s`);
+              break;
+            } else {
+              console.log(`[bridge_workspace] Retry at ${elapsed}s → HTTP ${response.status}`);
+            }
+          } catch (retryErr: any) {
+            const elapsed = Math.round((Date.now() - wakeStart) / 1000);
+            console.log(`[bridge_workspace] Retry at ${elapsed}s failed: ${retryErr.message}`);
+          }
+        }
+
+        if (!response.ok) {
+          return {
+            error: `${bridge.targetName} did not respond after ${MAX_WAKE_WAIT / 1000}s. The workspace may still be starting up — try again in a moment.`,
+            workspaceWaking: true,
+          };
+        }
+      }
+    }
+
     if (!response.ok) {
       const body = await response.text();
       return { error: `Bridge communication failed: ${response.status} ${body.slice(0, 200)}` };
@@ -251,6 +342,20 @@ const bridgeWorkspace: Tool = {
     }
 
     return result;
+  },
+
+  /**
+   * Detect if a 503 response indicates a sleeping workspace.
+   */
+  async _detectSleepingWorkspace(response) {
+    try {
+      const body = await response.clone().text();
+      if (body.includes('"waking"')) return true;
+      if (body.includes('503 Service Temporarily Unavailable')) return true;
+      return false;
+    } catch {
+      return false;
+    }
   },
 
   /**

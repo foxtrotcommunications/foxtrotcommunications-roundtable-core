@@ -114,11 +114,10 @@ function findAndValidateContract(contracts, contractId, action) {
     return { error: `Contract ${contractId} is not active (status: ${contract.status})` };
   }
 
-  // Check allowedActions — map transport actions to contract actions
-  // Bridge actions (message, delegate) are always allowed if ANY action is permitted
+  // Check allowedActions — only transport/protocol actions are auto-allowed.
+  // All other actions (including intent ops) must be explicitly listed in the contract.
   const transportActions = ['message', 'delegate', 'message_send', 'tasks_get', 'tasks_cancel'];
   if (!transportActions.includes(action)) {
-    // Domain-specific action — must be in allowedActions
     if (!contract.allowedActions.includes(action)) {
       return { error: `Action "${action}" not permitted by contract ${contractId}. Allowed: ${contract.allowedActions.join(', ')}` };
     }

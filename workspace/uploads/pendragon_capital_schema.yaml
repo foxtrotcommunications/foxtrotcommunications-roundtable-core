@@ -1,68 +1,25 @@
-# Pendragon Capital — Data Governance Model
-#
-# This workspace has access to a SCOPED BigQuery dataset. You do NOT have
-# access to all Pendragon Capital data. Your available tables depend on your
-# workspace role.
-#
-# IMPORTANT: To discover which tables and columns are available to you,
-# run: SELECT table_name FROM `{dataset}.INFORMATION_SCHEMA.TABLES`
-# Then for each table: SELECT column_name, data_type FROM `{dataset}.INFORMATION_SCHEMA.COLUMNS` WHERE table_name = '{table}'
-#
-# The dataset name is provided in your data_sources configuration.
-# DO NOT query tables from other datasets — you will get a permission error.
-#
-# If you need data that is not in your dataset, suggest using a Bridge
-# to request it from the appropriate workspace.
+# Pendragon Capital — Data Governance Guide
+# This file provides general governance context. Your specific authorized
+# tables and columns are injected into the system prompt from workspace config.
 
 governance:
-  model: per-workspace-scoped-views
-  base_dataset: pendragon_capital
-  note: >
-    Each workspace has its own BigQuery dataset containing only the views
-    relevant to its role. Views are pre-filtered — for example, a fund
-    portfolio workspace only sees its own fund's positions, not other funds'.
+  model: least_privilege
+  principle: |
+    Each workspace has access ONLY to its authorized BigQuery views.
+    Do NOT use INFORMATION_SCHEMA to discover tables.
+    Do NOT query tables not listed in your authorized tables section.
+    If you need data from another workspace, suggest using a Bridge.
 
-workspace_datasets:
-  execution:
-    dataset: pc_execution
-    access: [positions (all funds), trades (all), market_data, compliance_checks]
-    restricted: [research_signals, risk_metrics]
+  access_denied_behavior: |
+    If a query returns "Access Denied" or "Table not found":
+    1. STOP — do not guess alternative table names
+    2. Tell the user which table you tried and the exact error
+    3. Suggest they check with the workspace admin or use a Bridge
 
-  equities:
-    dataset: pc_equities
-    access: [positions (arthur_equity only), trades (own), market_data (equities), research_signals (equities), risk_summary (own)]
-    restricted: [Other fund positions, full risk_metrics]
-
-  macro:
-    dataset: pc_macro
-    access: [positions (macro_alpha only), trades (own), market_data (macro assets), research_signals (macro), risk_summary (own)]
-    restricted: [Other fund positions, full risk_metrics]
-
-  risk:
-    dataset: pc_risk
-    access: [risk_metrics (all funds), positions (all), trades (all), market_data, compliance_checks, fund_exposure_summary]
-    restricted: [research_signals]
-
-  compliance:
-    dataset: pc_compliance
-    access: [compliance_checks (all), compliance_violations, trades (all), positions (all), risk_metrics, compliance_summary]
-    restricted: [research_signals]
-
-  research:
-    dataset: pc_research
-    access: [research_signals (all), market_data, signal_performance]
-    restricted: [positions, trades, risk_metrics, compliance_checks]
-
-  data:
-    dataset: pc_data
-    access: [market_data, market_summary]
-    restricted: [Everything else]
-
-cross_workspace_access: >
-  If a user asks about data you don't have access to, DO NOT fabricate an answer.
-  Instead, explain what data you can see, and suggest they use a Bridge connection
-  to request the data from the appropriate workspace. For example:
-  - Need positions? → Bridge to Execution or Risk
-  - Need risk metrics? → Bridge to Risk
-  - Need research signals? → Bridge to Research
-  - Need compliance data? → Bridge to Compliance
+platform:
+  name: Pendragon Capital Management
+  project: roundtable-public
+  query_rules:
+    - Always use fully-qualified table names: `project.dataset.table`
+    - Always include LIMIT clause (default 100)
+    - Format results as markdown tables
