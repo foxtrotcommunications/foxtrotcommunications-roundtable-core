@@ -11,7 +11,9 @@ client/node_modules
 *.log
 tests
 e2e
-# Exclude workspace runtime data but keep docs
+# Exclude workspace runtime data but keep docs and uploads
 workspace/*
 !workspace/docs
 !workspace/docs/**
+!workspace/uploads
+!workspace/uploads/**

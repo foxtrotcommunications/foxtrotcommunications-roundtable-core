@@ -39,12 +39,12 @@ When you type `@ai`, the assistant has access to the following tools:
 
 ## Who It's For
 
-Roundtable is designed for teams in data-sensitive industries:
+Roundtable is designed for teams in **highly regulated industries** that need strict control over what the AI can access and do:
 
-- **Healthcare** — HIPAA-compliant workspaces for clinical data analysis
-- **Financial services** — Secure environments for quantitative research
+- **Financial services** — Per-desk data scoping, compliance audit trails, governed cross-team AI collaboration
+- **Healthcare** — HIPAA-compliant workspaces with role-based data access
 - **Defense & intelligence** — Air-gapped deployments with no external dependencies
-- **Pharma & life sciences** — Collaborative drug discovery and clinical trial analysis
+- **Energy & utilities** — Operational data isolation across business units
 
 ## Deployment Options
 
@@ -55,14 +55,14 @@ Roundtable can be deployed anywhere:
 - **On-premises** — Run entirely within your network
 - **Air-gapped** — Zero external connectivity, all models run locally (Ollama support)
 
-## The Demo
+## This Workspace
 
-This demo workspace connects to a **synthetic healthcare dataset** built on the OMOP Common Data Model. The data contains ~1,000 synthetic patients with conditions, medications, procedures, observations, and more.
+This workspace is part of the **Pendragon Capital Management** demo — a multi-strategy hedge fund with specialized AI workspaces for each team (Execution, Research, Risk, Compliance, etc.).
+
+Your authorized tables and data access are defined in the system prompt. Each workspace can only query its own scoped BigQuery views — enforced at both the database and prompt level.
 
 Try asking:
-- `@ai How many patients are in the dataset?`
-- `@ai What are the top 10 most common conditions?`
-- `@ai Show me a chart of patient age distribution`
-- `@ai Query readmission rates by diagnosis`
+- `@ai What data do I have access to?`
+- `@ai Describe our bridges and contracts`
+- `@ai What are the latest research signals?`
 
-The data is entirely synthetic — no real patient information is used.

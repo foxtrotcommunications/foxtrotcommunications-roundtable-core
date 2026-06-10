@@ -467,6 +467,32 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
         } else {
           bqDatasetCtx += `\n- BigQuery is available. Use fully-qualified table names: \`${bqDataProject}.<dataset>.<table>\``;
         }
+
+        // Inject column-level schema from dataSources.bigquery.schema if present
+        const bqSchema: Record<string, string> | undefined = dataSources?.bigquery?.schema;
+        if (bqSchema && typeof bqSchema === 'object' && Object.keys(bqSchema).length > 0) {
+          bqDatasetCtx += `\n\n- Authorized BigQuery tables (you may ONLY query these — do NOT use INFORMATION_SCHEMA):`;
+          // Group tables by dataset for clean presentation
+          const tablesByDataset = new Map<string, Array<{ fullName: string; columns: string }>>();
+          for (const [fullTable, columns] of Object.entries(bqSchema)) {
+            // fullTable is like "pc_execution.positions" or "project.dataset.table"
+            const parts: string[] = fullTable.split('.');
+            const dataset: string = parts.length >= 2 ? parts[parts.length - 2] : 'unknown';
+            if (!tablesByDataset.has(dataset)) tablesByDataset.set(dataset, []);
+            const qualifiedName: string = parts.length >= 3
+              ? `${parts.join('.')}`
+              : `${bqDataProject}.${fullTable}`;
+            tablesByDataset.get(dataset)!.push({ fullName: qualifiedName, columns });
+          }
+          for (const [dataset, tables] of tablesByDataset) {
+            bqDatasetCtx += `\n  Dataset: ${dataset}`;
+            for (const t of tables) {
+              bqDatasetCtx += `\n    Table: \`${t.fullName}\``;
+              bqDatasetCtx += `\n      Columns: ${t.columns}`;
+            }
+          }
+          bqDatasetCtx += `\n\n- Do NOT use INFORMATION_SCHEMA. Do NOT query any tables not listed above.`;
+        }
       }
 
       const orgLabel: string = config.platformOrg ? ` by ${config.platformOrg}` : '';
@@ -557,22 +583,25 @@ When generating Mermaid diagrams (flowcharts, sequence diagrams, etc.):
       systemPrompt = envCtx + contractCtx + (systemPrompt ? '\n\n' + systemPrompt : '');
 
       // Auto-inject schema YAML files from workspace/uploads/ into the system prompt
-      try {
-        const uploadsDir: string = require('path').resolve(__dirname, '..', '..', 'workspace', 'uploads');
-        const fs = require('fs') as typeof import('fs');
-        if (fs.existsSync(uploadsDir)) {
-          const schemaFiles: string[] = fs.readdirSync(uploadsDir)
-            .filter((f: string) => f.endsWith('.yaml') || f.endsWith('.yml'));
-          if (schemaFiles.length > 0) {
-            let schemaCtx: string = '\n\n--- DATA SCHEMA DEFINITIONS ---\nThe following schemas define ALL available tables and columns. Use ONLY these table names in queries. Do NOT guess or invent table names.\n';
-            for (const sf of schemaFiles) {
-              const content: string = fs.readFileSync(require('path').join(uploadsDir, sf), 'utf8');
-              schemaCtx += `\n### ${sf}\n\`\`\`yaml\n${content}\n\`\`\`\n`;
+      // SKIP if dataSources.bigquery.schema is set — workspace config schema takes precedence
+      if (!dataSources?.bigquery?.schema || Object.keys(dataSources.bigquery.schema).length === 0) {
+        try {
+          const uploadsDir: string = require('path').resolve(__dirname, '..', '..', 'workspace', 'uploads');
+          const fs = require('fs') as typeof import('fs');
+          if (fs.existsSync(uploadsDir)) {
+            const schemaFiles: string[] = fs.readdirSync(uploadsDir)
+              .filter((f: string) => f.endsWith('.yaml') || f.endsWith('.yml'));
+            if (schemaFiles.length > 0) {
+              let schemaCtx: string = '\n\n--- DATA SCHEMA DEFINITIONS ---\nThe following schemas define ALL available tables and columns. Use ONLY these table names in queries. Do NOT guess or invent table names.\n';
+              for (const sf of schemaFiles) {
+                const content: string = fs.readFileSync(require('path').join(uploadsDir, sf), 'utf8');
+                schemaCtx += `\n### ${sf}\n\`\`\`yaml\n${content}\n\`\`\`\n`;
+              }
+              systemPrompt += schemaCtx;
             }
-            systemPrompt += schemaCtx;
           }
-        }
-      } catch { /* ignore schema scan errors */ }
+        } catch { /* ignore schema scan errors */ }
+      }
 
       // Auto-inject markdown docs from workspace/docs/ into the system prompt
       try {

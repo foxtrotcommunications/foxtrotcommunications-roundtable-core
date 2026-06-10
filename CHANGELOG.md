@@ -14,10 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **HKDF cryptographic contract authentication** — Per-contract keys derived via HKDF with AES-256-GCM end-to-end encryption for all cross-workspace payloads
 - **Cross-workspace execution model** — AI reasons locally, ICE executes remotely; target AI is not involved unless delegation is genuinely needed
 - **Wake-proxy for sleeping workspaces** — Sleeping workspaces are woken on-demand when an inbound intent token or delegation arrives
+- **Wake-on-request (K8s API)** — Bridge tools (`intent_bridge`, `bridge_workspace`) detect sleeping target workspaces (HTTP 503) and automatically scale them from 0→1 replicas via the Kubernetes API, then retry with fresh HMAC signatures every 5s for up to 120s
+- **X-Contract-Action header** — Bridge requests now include an `X-Contract-Action` header carrying the signed action name, allowing the receiver's auth middleware to verify the correct HMAC payload instead of hardcoding `message_send`
+- **Verbose bridge retry logging** — Both `intent_bridge` and `bridge_workspace` log each retry attempt with elapsed time and HTTP status for operational visibility
 
 ### Changed
 
 - **`bridge_workspace` simplified to delegate-only** — The `message` action has been removed; bridges now support only `delegate` for tasks requiring the target AI to reason. For structured operations, use `intent_bridge`
+- **Contract auth strict enforcement** — Transport action whitelist restricted to protocol-level actions only (`message`, `delegate`, `message_send`, `tasks_get`, `tasks_cancel`). All intent operations (`discover`, `query:*`, `tool:*`, `capability:*`, `aggregate`) must be explicitly listed in the contract's `allowedActions`
 
 ## [1.0.0] — 2026-05-16
 

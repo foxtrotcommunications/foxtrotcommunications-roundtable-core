@@ -103,7 +103,9 @@ function requireA2aAuth(req: Request, res: Response, next: () => void): void {
       }
 
       // Find and validate the contract
-      const { contract, error: contractError } = findAndValidateContract(contracts, contractId, 'message_send');
+      // Use the action the sender signed with (from header), default to 'message_send' for backward compat
+      const signedAction = (req.headers['x-contract-action'] as string) || 'message_send';
+      const { contract, error: contractError } = findAndValidateContract(contracts, contractId, signedAction);
       if (contractError) {
         res.status(403).json(
           jsonRpcError(req.body?.id || null, -32000, `Contract rejected: ${contractError}`)
@@ -115,7 +117,7 @@ function requireA2aAuth(req: Request, res: Response, next: () => void): void {
       deriveContractKey(masterSecret, contractId, contract.version || 1)
         .then((contractKey: Buffer) => {
           const { valid, error: sigError } = verifyRequest(
-            contractKey, contractId, contractTs, 'message_send', contractSig
+            contractKey, contractId, contractTs, signedAction, contractSig
           );
 
           if (!valid) {

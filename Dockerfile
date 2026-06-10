@@ -28,15 +28,15 @@ COPY public/ ./public/
 # Copy React client build from stage 1
 COPY --from=client-build /build/dist ./client/dist/
 
-# Create workspace directory and pre-clone demo dataset repo
-RUN mkdir -p /app/workspace && \
-    git clone --depth 1 https://github.com/foxtrotcommunications/foxtrotcommunications-avalon-public.git /app/workspace/foxtrotcommunications-avalon-public
+# Create workspace directory
+RUN mkdir -p /app/workspace
 
 # Copy immutable platform documentation (read-only AI reference)
 COPY .roundtable/ ./.roundtable/
 
 # Copy workspace docs (auto-injected into AI system prompt)
 COPY workspace/docs/ ./workspace/docs/
+COPY workspace/uploads/ ./workspace/uploads/
 
 ENV NODE_ENV=production
 ENV PORT=3000
