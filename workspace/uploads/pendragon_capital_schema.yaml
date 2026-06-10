@@ -1,76 +1,68 @@
-# Excalibur Execution — BigQuery Schema
-# Dataset: roundtable-public.pc_execution
-# Scope: Full cross-fund visibility for trade execution and order routing
+# Pendragon Capital — Data Governance Model
+#
+# This workspace has access to a SCOPED BigQuery dataset. You do NOT have
+# access to all Pendragon Capital data. Your available tables depend on your
+# workspace role.
+#
+# IMPORTANT: To discover which tables and columns are available to you,
+# run: SELECT table_name FROM `{dataset}.INFORMATION_SCHEMA.TABLES`
+# Then for each table: SELECT column_name, data_type FROM `{dataset}.INFORMATION_SCHEMA.COLUMNS` WHERE table_name = '{table}'
+#
+# The dataset name is provided in your data_sources configuration.
+# DO NOT query tables from other datasets — you will get a permission error.
+#
+# If you need data that is not in your dataset, suggest using a Bridge
+# to request it from the appropriate workspace.
 
-views:
-  - name: positions
-    description: Current holdings across ALL Pendragon funds. Execution desk has full visibility for order routing and position management.
-    columns:
-      - { name: fund, type: STRING, description: "Fund identifier (excalibur, arthur_equity, macro_alpha, gawain_risk)" }
-      - { name: fund_name, type: STRING, description: "Human-readable fund name" }
-      - { name: ticker, type: STRING, description: "Asset ticker symbol" }
-      - { name: asset_name, type: STRING, description: "Full asset name" }
-      - { name: asset_class, type: STRING, description: "equity, futures, fx, or crypto" }
-      - { name: sector, type: STRING, description: "Sector classification" }
-      - { name: quantity, type: INTEGER, description: "Number of shares/contracts held" }
-      - { name: avg_entry_price, type: FLOAT, description: "Volume-weighted average entry price" }
-      - { name: current_price, type: FLOAT, description: "Latest market price" }
-      - { name: market_value, type: FLOAT, description: "Current market value" }
-      - { name: unrealized_pnl, type: FLOAT, description: "Unrealized P&L in USD" }
-      - { name: unrealized_pnl_pct, type: FLOAT, description: "Unrealized P&L %" }
-      - { name: weight_pct, type: FLOAT, description: "Position weight % of fund" }
-      - { name: as_of_date, type: DATE }
+governance:
+  model: per-workspace-scoped-views
+  base_dataset: pendragon_capital
+  note: >
+    Each workspace has its own BigQuery dataset containing only the views
+    relevant to its role. Views are pre-filtered — for example, a fund
+    portfolio workspace only sees its own fund's positions, not other funds'.
 
-  - name: trades
-    description: Complete trade execution log across all funds and strategies.
-    columns:
-      - { name: trade_id, type: STRING, description: "Unique trade ID (TRD-XXXXX)" }
-      - { name: timestamp, type: TIMESTAMP, description: "Execution timestamp" }
-      - { name: fund, type: STRING }
-      - { name: fund_name, type: STRING }
-      - { name: ticker, type: STRING }
-      - { name: asset_name, type: STRING }
-      - { name: asset_class, type: STRING }
-      - { name: side, type: STRING, description: "BUY or SELL" }
-      - { name: quantity, type: INTEGER }
-      - { name: price, type: FLOAT }
-      - { name: notional, type: FLOAT, description: "Trade notional value" }
-      - { name: strategy, type: STRING, description: "Trading strategy" }
-      - { name: broker, type: STRING }
-      - { name: status, type: STRING, description: "FILLED or CANCELLED" }
-      - { name: venue, type: STRING, description: "NYSE, NASDAQ, or DARK_POOL" }
+workspace_datasets:
+  execution:
+    dataset: pc_execution
+    access: [positions (all funds), trades (all), market_data, compliance_checks]
+    restricted: [research_signals, risk_metrics]
 
-  - name: market_data
-    description: Daily OHLCV for all tracked assets.
-    columns:
-      - { name: date, type: DATE }
-      - { name: ticker, type: STRING }
-      - { name: asset_name, type: STRING }
-      - { name: asset_class, type: STRING }
-      - { name: sector, type: STRING }
-      - { name: open, type: FLOAT }
-      - { name: high, type: FLOAT }
-      - { name: low, type: FLOAT }
-      - { name: close, type: FLOAT }
-      - { name: volume, type: INTEGER }
-      - { name: adj_close, type: FLOAT }
-      - { name: daily_return_pct, type: FLOAT }
+  equities:
+    dataset: pc_equities
+    access: [positions (arthur_equity only), trades (own), market_data (equities), research_signals (equities), risk_summary (own)]
+    restricted: [Other fund positions, full risk_metrics]
 
-  - name: compliance_checks
-    description: Compliance check results for all executed trades.
-    columns:
-      - { name: check_id, type: STRING }
-      - { name: trade_id, type: STRING }
-      - { name: timestamp, type: TIMESTAMP }
-      - { name: fund, type: STRING }
-      - { name: ticker, type: STRING }
-      - { name: rule_name, type: STRING }
-      - { name: status, type: STRING, description: "PASS, FAIL, or REVIEW" }
-      - { name: details, type: STRING }
-      - { name: reviewer, type: STRING }
-      - { name: resolution, type: STRING }
+  macro:
+    dataset: pc_macro
+    access: [positions (macro_alpha only), trades (own), market_data (macro assets), research_signals (macro), risk_summary (own)]
+    restricted: [Other fund positions, full risk_metrics]
 
-note: |
-  You do NOT have access to research_signals or risk_metrics.
-  To get risk data, bridge to Gawain Risk via your contract.
-  To get research signals, bridge to Merlin Research.
+  risk:
+    dataset: pc_risk
+    access: [risk_metrics (all funds), positions (all), trades (all), market_data, compliance_checks, fund_exposure_summary]
+    restricted: [research_signals]
+
+  compliance:
+    dataset: pc_compliance
+    access: [compliance_checks (all), compliance_violations, trades (all), positions (all), risk_metrics, compliance_summary]
+    restricted: [research_signals]
+
+  research:
+    dataset: pc_research
+    access: [research_signals (all), market_data, signal_performance]
+    restricted: [positions, trades, risk_metrics, compliance_checks]
+
+  data:
+    dataset: pc_data
+    access: [market_data, market_summary]
+    restricted: [Everything else]
+
+cross_workspace_access: >
+  If a user asks about data you don't have access to, DO NOT fabricate an answer.
+  Instead, explain what data you can see, and suggest they use a Bridge connection
+  to request the data from the appropriate workspace. For example:
+  - Need positions? → Bridge to Execution or Risk
+  - Need risk metrics? → Bridge to Risk
+  - Need research signals? → Bridge to Research
+  - Need compliance data? → Bridge to Compliance
