@@ -218,7 +218,7 @@ const bridgeWorkspace: Tool = {
    */
   async _handleA2aResponse(response, bridge, action, content, taskId, fetchFn?: () => Promise<Response>) {
     // ── Wake-on-request: retry if workspace is sleeping ──────
-    if (response.status === 503 && fetchFn) {
+    if ((response.status === 502 || response.status === 503) && fetchFn) {
       const isSleeping = await this._detectSleepingWorkspace(response);
 
       if (isSleeping) {
@@ -352,6 +352,7 @@ const bridgeWorkspace: Tool = {
       const body = await response.clone().text();
       if (body.includes('"waking"')) return true;
       if (body.includes('503 Service Temporarily Unavailable')) return true;
+      if (body.includes('502 Bad Gateway')) return true;
       return false;
     } catch {
       return false;

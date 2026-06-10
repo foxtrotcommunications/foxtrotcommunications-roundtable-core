@@ -49,6 +49,8 @@ async function detectSleepingWorkspace(response: Response): Promise<boolean> {
     if (body.includes('"waking"')) return true;
     // Raw nginx 503 (pod is at 0 replicas)
     if (body.includes('503 Service Temporarily Unavailable')) return true;
+    // nginx 502 (service exists but no endpoints)
+    if (body.includes('502 Bad Gateway')) return true;
     return false;
   } catch {
     return false;
@@ -360,7 +362,7 @@ const intentBridge: Tool = {
       });
 
       // ── Wake-on-request: retry if workspace is sleeping ──────
-      if (response.status === 503) {
+      if (response.status === 502 || response.status === 503) {
         const isSleeping = await detectSleepingWorkspace(response);
 
         if (isSleeping) {
