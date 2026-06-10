@@ -29,7 +29,7 @@ const WAKE_TIMEOUT_MS = 90_000;
 const WAKE_RETRY_INTERVAL_MS = 5_000;
 
 /** Maximum time to wait for a sleeping workspace to come up */
-const MAX_WAKE_WAIT_MS = 120_000;
+const MAX_WAKE_WAIT_MS = 250_000;   // 50 retries × 5s
 
 /** Approximate prompt tokens saved by skipping LLM inference on the receiver */
 const ESTIMATED_TOKENS_SAVED = '~4300';

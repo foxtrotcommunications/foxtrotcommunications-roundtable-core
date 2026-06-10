@@ -267,7 +267,7 @@ const bridgeWorkspace: Tool = {
         }
 
         const wakeStart = Date.now();
-        const MAX_WAKE_WAIT = 120_000;
+        const MAX_WAKE_WAIT = 250_000;   // 50 retries × 5s
         const RETRY_INTERVAL = 5_000;
 
         while (Date.now() - wakeStart < MAX_WAKE_WAIT) {
