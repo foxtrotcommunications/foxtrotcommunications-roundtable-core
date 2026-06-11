@@ -358,7 +358,12 @@ export default function ChatView({
                   <span className="streaming-dot" />
                   <span className="streaming-label">
                     {toolCalls.size > 0
-                      ? `Working — ${Array.from(toolCalls.values()).filter(t => !t.result).length > 0 ? 'running tools…' : 'thinking…'}`
+                      ? `Working — ${(() => {
+                          const pending = Array.from(toolCalls.values()).filter(t => !t.result);
+                          if (pending.length === 0) return 'thinking…';
+                          const hasBridge = pending.some(t => ['bridge_workspace', 'intent_bridge'].includes(t.call.name));
+                          return hasBridge ? 'executing bridge request…' : 'running tools…';
+                        })()}`
                       : streamingContent ? 'generating…' : ''}
                   </span>
                 </div>
