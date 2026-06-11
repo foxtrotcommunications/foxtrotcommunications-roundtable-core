@@ -77,6 +77,7 @@ export interface DataSources {
     project?: string;
     dataProject?: string;
     datasets?: Record<string, string>;
+    schema?: Record<string, string>;
   };
   snowflake?: Record<string, unknown>;
   databricks?: Record<string, unknown>;
