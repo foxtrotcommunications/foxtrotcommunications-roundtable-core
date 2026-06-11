@@ -28,7 +28,7 @@ const tool: Tool = {
         return { error: 'Access denied: path is outside workspace' };
       }
       if (!fs.existsSync(fullPath)) {
-        return { error: `Directory not found: ${directory}` };
+        return { directory, entries: [], total: 0, note: `Directory '${directory}' does not exist yet.` };
       }
 
       const entries = [];
