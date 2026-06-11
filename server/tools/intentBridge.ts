@@ -234,7 +234,8 @@ const intentBridge: Tool = {
     if (!contract) {
       return {
         success: false,
-        error: `No active governance contract with "${bridge.targetName}". A contract must be approved before any cross-workspace activity.`,
+        error: `No active governance contract with "${bridge.targetName}". A contract must be approved before any cross-workspace activity. Do NOT retry — this requires administrator action to establish a contract.`,
+        permanent: true,
       };
     }
 
