@@ -30,8 +30,8 @@ describe('Tool Registry — static tools', () => {
       'read_file', 'write_file', 'list_files', 'find_file',
       'shell_exec', 'render_chart',
       'query_bigquery', 'query_snowflake', 'query_databricks',
-      'trigger_synthea_pipeline', 'download_query_results',
-      'bridge_workspace', 'call_agent',
+      'download_query_results',
+      'bridge_workspace', 'intent_bridge', 'call_agent',
     ];
 
     for (const name of expectedTools) {
