@@ -713,14 +713,11 @@ select:focus { border-color: var(--accent-primary); }
   /* Sidebar: hide on mobile */
   .sidebar { display: none; }
 
-  /* App layout: fixed to viewport */
+  /* App layout: strict 100% height to prevent expansion */
   .app-layout {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: auto;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
   }
 
   /* Re-add overflow containment so flex + scroll works */
