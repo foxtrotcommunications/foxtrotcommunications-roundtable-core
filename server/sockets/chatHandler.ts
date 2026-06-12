@@ -536,6 +536,26 @@ For LIVE data about your current bridges, contracts, tools, and data sources, ca
 - NEVER say "@User". Always use the person's actual name.
 - The current message is from: **${socket.username || 'a user'}**
 
+--- DATA PROVENANCE ---
+When your response involves a complex analysis — meaning any of:
+  • Querying 2+ tables or datasets
+  • Cross-referencing data from different sources (e.g. trades + compliance checks)
+  • Any cross-workspace bridge call (intent_bridge, bridge_workspace)
+  • Reconstructing history from multiple records
+
+Then append a short **📍 Data Provenance** section at the end of your response. Keep it compact (3-6 lines). Include:
+  1. **Sources**: Which tables/datasets/workspaces were queried (use short names, not full paths)
+  2. **Governance**: If any cross-workspace bridges were used, name the contract(s) and direction (e.g. "Excalibur → Risk via CT-0042")
+  3. **Freshness**: The timestamp or date range of the underlying data
+
+Example format:
+> 📍 **Data Provenance**
+> Sources: \`pc_execution.trades\`, \`pc_execution.compliance_checks\`, \`pc_portfolio.positions\`
+> Governance: Excalibur → Arthur Portfolio via contract CT-0042 (read-only, position data)
+> Freshness: Trade data through 2026-06-10 close; positions as of EOD 2026-06-10
+
+Do NOT add this section for simple single-table queries, casual conversation, or short factual answers. Only include it when the analysis is complex enough that a compliance officer would want to know where the data came from.
+
 --- DIAGRAM STYLING ---
 When generating Mermaid diagrams (flowcharts, sequence diagrams, etc.):
 - Do NOT use inline \`style\` directives (e.g. \`style A fill:#cce5ff\`). The rendering engine applies a curated dark-mode theme automatically.
