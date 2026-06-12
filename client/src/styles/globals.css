@@ -189,7 +189,7 @@ html, body { height: 100%; font-family: 'Inter', system-ui, sans-serif; backgrou
 
 /* ─── Main Chat Area ─── */
 .main-area { flex: 1; display: flex; flex-direction: row; background: var(--bg-primary); min-width: 0; min-height: 0; position: relative; overflow: hidden; }
-#chat-view { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+#chat-view { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 
 /* ─── Code Panel ─── */
 .code-panel { width: 0; min-width: 0; overflow: hidden; border-left: 1px solid var(--border-subtle); background: var(--bg-secondary); display: flex; flex-direction: column; transition: width 0.3s ease, min-width 0.3s ease; }
