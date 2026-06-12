@@ -140,9 +140,10 @@ app.get('/api/health', async (req, res) => {
     const version = require('../package.json').version || '1.0.0';
     // Include live provider/model so the dashboard can show actual state
     const ws = await db.getWorkspace(config.workspaceId);
-    // Report connected users so the dashboard idle checker can avoid
-    // scaling down workspaces with active users
+    // Report connected users and last activity so the dashboard idle checker
+    // can avoid scaling down workspaces with active users
     const connectedUsers = global._io ? global._io.sockets.sockets.size : 0;
+    const { getLastActivityAt } = require('./sockets/workspaceHandler');
     res.json({
       status: 'ok',
       workspace: config.workspaceId,
@@ -151,6 +152,7 @@ app.get('/api/health', async (req, res) => {
       model: ws?.ai_model || undefined,
       uptime: Math.floor(process.uptime()),
       connectedUsers,
+      lastActivityAt: getLastActivityAt(),
     });
   } catch (err) {
     res.status(503).json({ status: 'error', error: err.message });

@@ -78,7 +78,12 @@ function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
     `@(?:ai${aliasParts.map(a => '|' + a).join('')})\\b`, 'i'
   );
 
+const { touchActivity } = require('./workspaceHandler') as { touchActivity: () => void };
+
   socket.on('send-message', async ({ content, activeRepo, _fromQueue }: { content: string; activeRepo?: string; _fromQueue?: boolean }) => {
+    // Mark activity on every user message so the dashboard idle checker
+    // knows this workspace is actively in use (not just a stale tab)
+    touchActivity();
     try {
       // ── Input validation: reject oversized messages ──────────────
       const MAX_MESSAGE_LENGTH = 50_000; // 50KB — generous for any chat message
