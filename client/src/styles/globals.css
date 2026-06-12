@@ -713,7 +713,7 @@ select:focus { border-color: var(--accent-primary); }
   /* Sidebar: hide on mobile */
   .sidebar { display: none; }
 
-  /* NUCLEAR FIX: position:fixed bypasses ALL mobile viewport issues */
+  /* App layout: fixed to viewport */
   .app-layout {
     position: fixed;
     top: 0;
@@ -723,18 +723,34 @@ select:focus { border-color: var(--accent-primary); }
     height: auto;
   }
 
-  /* Chat messages: tighter padding */
-  .chat-messages { padding: 16px; }
+  /* Re-add overflow containment so flex + scroll works */
+  #chat-view { overflow: hidden; }
 
-  /* Input area: safe-area support for notched devices */
+  /* Chat messages: add bottom padding to clear the fixed input area */
+  .chat-messages { padding: 16px; padding-bottom: 80px; }
+
+  /* INPUT AREA: fixed to bottom of screen — guaranteed visible */
   .chat-input-area {
+    position: fixed !important;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
     padding: 10px 12px;
     padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-subtle);
   }
   .chat-input-wrapper { padding: 6px 10px; }
   .chat-input { font-size: 16px; /* prevents iOS zoom on focus */ }
   .chat-send-btn { width: 32px; height: 32px; }
   .chat-help-trigger { display: none; }
+
+  /* Typing bar: above the fixed input */
+  .typing-bar { display: none; }
+
+  /* Scroll-to-bottom: reposition above fixed input */
+  .scroll-to-bottom { position: fixed; bottom: 70px; right: 16px; margin: 0; z-index: 51; }
 
   /* Panels: full-screen overlay on mobile */
   .code-panel.open { width: 100% !important; min-width: 100% !important; position: absolute; right: 0; top: 0; bottom: 0; z-index: 50; }
