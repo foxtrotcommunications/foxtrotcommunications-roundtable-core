@@ -1,6 +1,9 @@
 import { useMemo, memo, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import CodeBlock from './CodeBlock';
 import ChartRenderer from './ChartRenderer';
 import MermaidRenderer from './MermaidRenderer';
@@ -16,7 +19,8 @@ interface Props {
 }
 
 /** Stable reference for remarkPlugins to avoid ReactMarkdown re-parses */
-const REMARK_PLUGINS = [remarkGfm];
+const REMARK_PLUGINS = [remarkGfm, remarkMath];
+const REHYPE_PLUGINS = [rehypeKatex];
 
 /**
  * Extract text content from React children, which may be strings,
@@ -154,6 +158,7 @@ function MessageContent({ content, streaming, knownMentions = [] }: Props) {
   return (
     <ReactMarkdown
       remarkPlugins={REMARK_PLUGINS}
+      rehypePlugins={REHYPE_PLUGINS}
       components={components}
     >
       {processed}
