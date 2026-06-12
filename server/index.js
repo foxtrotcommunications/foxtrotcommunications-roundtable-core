@@ -183,23 +183,6 @@ if (hasReactBuild) {
   console.log('[Server] React client build found at client/dist/');
 }
 
-// SPA routes MUST come before express.static to override public/index.html
-app.get('/', (req, res, next) => {
-  if (hasReactBuild) {
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    return res.sendFile(reactIndexPath);
-  }
-  next();
-});
-
-app.get('/app', (req, res) => {
-  if (hasReactBuild) {
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    return res.sendFile(reactIndexPath);
-  }
-  res.sendFile(path.join(__dirname, '..', 'public', 'app.html'));
-});
-
 // React client static assets (JS/CSS bundles)
 if (hasReactBuild) {
   app.use(express.static(clientDistPath, {
@@ -224,6 +207,24 @@ app.use(express.static(path.join(__dirname, '..', 'public'), {
     }
   },
 }));
+
+// React client catch-all (for client-side routing)
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api/') || req.path.startsWith('/socket.io/')) {
+    return next();
+  }
+  
+  // NEVER cache index.html
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+
+  if (hasReactBuild) {
+    res.sendFile(reactIndexPath);
+  } else {
+    res.sendFile(path.join(__dirname, '..', 'public', 'app.html'));
+  }
+});
 
 // Rate limiters
 const authLimiter = rateLimit({
