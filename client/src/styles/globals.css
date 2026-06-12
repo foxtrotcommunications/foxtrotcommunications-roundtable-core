@@ -109,7 +109,7 @@
   background: #f0f1f5;
 }
 
-html, body { height: 100%; font-family: 'Inter', system-ui, sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.6; -webkit-font-smoothing: antialiased; overflow: hidden; }
+html, body { height: 100%; font-family: 'Inter', system-ui, sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.6; -webkit-font-smoothing: antialiased; overflow: hidden; overscroll-behavior: none; }
 #root { height: 100%; }
 
 /* ─── Scrollbar ─── */
@@ -713,9 +713,10 @@ select:focus { border-color: var(--accent-primary); }
   /* Sidebar: hide on mobile */
   .sidebar { display: none; }
 
-  /* App layout: strict 100% height to prevent expansion */
+  /* App layout: strict 100svh height to guarantee it fits under the Safari nav bar on first load */
   .app-layout {
-    height: 100%;
+    height: 100vh; /* fallback */
+    height: 100svh;
     position: relative;
     overflow: hidden;
   }
