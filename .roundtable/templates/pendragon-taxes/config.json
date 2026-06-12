@@ -1,0 +1,10 @@
+{
+  "id": "pendragon-taxes",
+  "name": "Taxes",
+  "icon": "🧾",
+  "description": "Tax planning, bracket analysis, and deduction tracking",
+  "category": "pendragon",
+  "suggestedProvider": "vertexai",
+  "suggestedModel": "gemini-2.5-flash",
+  "toolsEnabled": ["bigquery", "calculator", "file_manager", "web_search"]
+}
