@@ -1,0 +1,10 @@
+{
+  "id": "pendragon-realestate",
+  "name": "Real Estate",
+  "icon": "🏠",
+  "description": "Property tracking, mortgage analysis, and equity monitoring",
+  "category": "pendragon",
+  "suggestedProvider": "vertexai",
+  "suggestedModel": "gemini-2.5-flash",
+  "toolsEnabled": ["bigquery", "calculator", "file_manager", "web_search"]
+}

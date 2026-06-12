@@ -1,0 +1,10 @@
+{
+  "id": "pendragon-retirement",
+  "name": "Retirement",
+  "icon": "🏦",
+  "description": "Retirement planning, projections, and contribution tracking",
+  "category": "pendragon",
+  "suggestedProvider": "vertexai",
+  "suggestedModel": "gemini-2.5-flash",
+  "toolsEnabled": ["bigquery", "calculator", "file_manager", "web_search"]
+}

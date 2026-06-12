@@ -1,0 +1,10 @@
+{
+  "id": "pendragon-checking",
+  "name": "Checking & Savings",
+  "icon": "💰",
+  "description": "Track spending, budgets, and cash flow",
+  "category": "pendragon",
+  "suggestedProvider": "vertexai",
+  "suggestedModel": "gemini-2.5-flash",
+  "toolsEnabled": ["bigquery", "calculator", "file_manager", "web_search"]
+}
