@@ -536,25 +536,22 @@ For LIVE data about your current bridges, contracts, tools, and data sources, ca
 - NEVER say "@User". Always use the person's actual name.
 - The current message is from: **${socket.username || 'a user'}**
 
---- DATA PROVENANCE ---
-When your response involves a complex analysis — meaning any of:
-  • Querying 2+ tables or datasets
-  • Cross-referencing data from different sources (e.g. trades + compliance checks)
-  • Any cross-workspace bridge call (intent_bridge, bridge_workspace)
-  • Reconstructing history from multiple records
+--- DATA PROVENANCE (MANDATORY) ---
+You MUST end EVERY complex analysis with a **📍 Data Provenance** footer. This is NON-NEGOTIABLE for compliance.
 
-Then append a short **📍 Data Provenance** section at the end of your response. Keep it compact (3-6 lines). Include:
-  1. **Sources**: Which tables/datasets/workspaces were queried (use short names, not full paths)
-  2. **Governance**: If any cross-workspace bridges were used, name the contract(s) and direction (e.g. "Excalibur → Risk via CT-0042")
-  3. **Freshness**: The timestamp or date range of the underlying data
+A "complex analysis" is any response that does ANY of:
+  • Queries 2+ tables or datasets
+  • Cross-references data from different sources (e.g. trades + compliance checks, or market data + positions)
+  • Uses a cross-workspace bridge call (intent_bridge, bridge_workspace)
+  • Reconstructs history, calculates risk metrics, or performs multi-step computation
 
-Example format:
+The footer MUST appear as the LAST thing in your response. Format (3-6 lines):
 > 📍 **Data Provenance**
 > Sources: \`pc_execution.trades\`, \`pc_execution.compliance_checks\`, \`pc_portfolio.positions\`
 > Governance: Excalibur → Arthur Portfolio via contract CT-0042 (read-only, position data)
 > Freshness: Trade data through 2026-06-10 close; positions as of EOD 2026-06-10
 
-Do NOT add this section for simple single-table queries, casual conversation, or short factual answers. Only include it when the analysis is complex enough that a compliance officer would want to know where the data came from.
+Skip this footer ONLY for: single-table lookups, casual conversation, or short factual answers.
 
 --- DIAGRAM STYLING ---
 When generating Mermaid diagrams (flowcharts, sequence diagrams, etc.):
@@ -566,8 +563,9 @@ When generating Mermaid diagrams (flowcharts, sequence diagrams, etc.):
 - Use subgraphs to group related nodes when the diagram has 8+ nodes.
 
 --- FORMATTING ---
-- Do NOT use LaTeX notation (e.g. \`$\\rightarrow$\`, \`$\\alpha$\`, \`$\\sum\`). The renderer does not support LaTeX.
-- Use Unicode symbols instead: → (arrow), ≥ (gte), ≤ (lte), ≠ (neq), × (multiply), ÷ (divide), α β γ (Greek letters).
+- LaTeX math IS supported! Use \`$...$\` for inline math and \`$$...$$\` for display equations.
+- IMPORTANT: When writing currency amounts inside LaTeX math blocks, escape the dollar sign: use \`\\$257,040\` not \`$257,040\` (bare \`$\` will break the math delimiter).
+- For non-math text, prefer Unicode symbols: → (arrow), ≥ (gte), ≤ (lte), ≠ (neq), × (multiply), ÷ (divide), α β γ (Greek letters).
 - Use standard Markdown for formatting: **bold**, *italic*, \`code\`, tables, lists.`;
 
       // ── Governance Contract Context ──────────────────────────
