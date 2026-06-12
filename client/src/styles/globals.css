@@ -109,7 +109,8 @@
   background: #f0f1f5;
 }
 
-html, body { height: 100%; font-family: 'Inter', system-ui, sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.6; -webkit-font-smoothing: antialiased; }
+html, body { height: 100%; font-family: 'Inter', system-ui, sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.6; -webkit-font-smoothing: antialiased; overflow: hidden; }
+#root { height: 100%; }
 
 /* ─── Scrollbar ─── */
 ::-webkit-scrollbar { width: 6px; }
@@ -709,17 +710,27 @@ select:focus { border-color: var(--accent-primary); }
 
 /* ─── Responsive ─── */
 @media (max-width: 768px) {
-  /* Sidebar: hide on mobile — workspace runs in its own tab */
+  /* Sidebar: hide on mobile */
   .sidebar { display: none; }
 
-  /* Main layout: ensure full height with dvh */
-  .app-layout { height: 100vh; height: 100dvh; }
+  /* NUCLEAR FIX: position:fixed bypasses ALL mobile viewport issues */
+  .app-layout {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: auto;
+  }
 
   /* Chat messages: tighter padding */
   .chat-messages { padding: 16px; }
 
-  /* Input area: pinned at bottom with safe-area support */
-  .chat-input-area { padding: 10px 12px; padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
+  /* Input area: safe-area support for notched devices */
+  .chat-input-area {
+    padding: 10px 12px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  }
   .chat-input-wrapper { padding: 6px 10px; }
   .chat-input { font-size: 16px; /* prevents iOS zoom on focus */ }
   .chat-send-btn { width: 32px; height: 32px; }
