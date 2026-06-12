@@ -151,7 +151,7 @@ html, body { height: 100%; font-family: 'Inter', system-ui, sans-serif; backgrou
 .auth-error.visible { display: block; }
 
 /* ─── App Layout ─── */
-.app-layout { display: flex; height: 100vh; overflow: hidden; }
+.app-layout { display: flex; height: 100vh; height: 100dvh; overflow: hidden; }
 .app-layout.no-sidebar .sidebar { display: none; }
 .sidebar { width: 280px; min-width: 280px; background: var(--bg-secondary); border-right: 1px solid var(--border-subtle); display: flex; flex-direction: column; transition: width 0.25s ease, min-width 0.25s ease; }
 .sidebar-header { padding: 16px 20px; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between; }
@@ -709,14 +709,27 @@ select:focus { border-color: var(--accent-primary); }
 
 /* ─── Responsive ─── */
 @media (max-width: 768px) {
+  /* Sidebar: hide on mobile — workspace runs in its own tab */
+  .sidebar { display: none; }
+
+  /* Main layout: ensure full height with dvh */
+  .app-layout { height: 100vh; height: 100dvh; }
+
+  /* Chat messages: tighter padding */
   .chat-messages { padding: 16px; }
+
+  /* Input area: pinned at bottom with safe-area support */
   .chat-input-area { padding: 10px 12px; padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
   .chat-input-wrapper { padding: 6px 10px; }
   .chat-input { font-size: 16px; /* prevents iOS zoom on focus */ }
   .chat-send-btn { width: 32px; height: 32px; }
   .chat-help-trigger { display: none; }
+
+  /* Panels: full-screen overlay on mobile */
   .code-panel.open { width: 100% !important; min-width: 100% !important; position: absolute; right: 0; top: 0; bottom: 0; z-index: 50; }
   .insights-panel.open { width: 100% !important; min-width: 100% !important; position: absolute; right: 0; top: 0; bottom: 0; z-index: 50; }
+
+  /* @ai pill: smaller on mobile */
   .ai-invoke-pill { font-size: 11px; padding: 3px 8px 3px 6px; }
   .chat-input-wrapper:has(.ai-invoke-pill) .chat-input { padding-left: 62px; }
 }
