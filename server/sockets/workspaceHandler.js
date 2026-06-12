@@ -5,6 +5,10 @@ const config = require('../config');
 // Online users in this workspace
 const presence = new Map(); // userId → { socketId, username, displayName, activity, cursorMessageId }
 
+// Track last meaningful user activity (chat, typing, scrolling, cursor moves)
+// Exported so the health endpoint can report it to the dashboard idle checker
+let lastActivityAt = Date.now();
+
 function setupWorkspaceHandlers(io, socket) {
   const wsChannel = `ws:${config.workspaceId}`;
 
@@ -60,6 +64,7 @@ function setupWorkspaceHandlers(io, socket) {
 function updateActivity(io, socket, activity) {
   if (presence.has(socket.userId)) {
     presence.get(socket.userId).activity = activity;
+    lastActivityAt = Date.now();
     broadcastPresence(io);
   }
 }
@@ -71,4 +76,4 @@ function broadcastPresence(io) {
   });
 }
 
-module.exports = { setupWorkspaceHandlers, presence };
+module.exports = { setupWorkspaceHandlers, presence, getLastActivityAt: () => lastActivityAt, touchActivity: () => { lastActivityAt = Date.now(); } };
