@@ -33,6 +33,18 @@ import intentBridge from './intentBridge';
 // Protocol integration tools
 import callAgent from './callAgent';
 
+// Domain financial tools — direct Cloud SQL queries for checking & savings
+import getFinancialSnapshot from './getFinancialSnapshot';
+import listAccounts from './listAccounts';
+import getBalance from './getBalance';
+import getBalanceHistory from './getBalanceHistory';
+import getTransactions from './getTransactions';
+import getSpendingByCategory from './getSpendingByCategory';
+import getSpendingByMerchant from './getSpendingByMerchant';
+import getRecurringCharges from './getRecurringCharges';
+import getIncomeSummary from './getIncomeSummary';
+import getCashflow from './getCashflow';
+
 const tools = {
   // Meta-tools — always available, cannot be disabled
   describe_workspace: describeWorkspace,
@@ -63,6 +75,18 @@ const tools = {
   intent_bridge: intentBridge,
   // Protocol integration tools
   call_agent: callAgent,
+
+  // Domain financial tools — Checking & Savings
+  get_financial_snapshot: getFinancialSnapshot,
+  list_accounts: listAccounts,
+  get_balance: getBalance,
+  get_balance_history: getBalanceHistory,
+  get_transactions: getTransactions,
+  get_spending_by_category: getSpendingByCategory,
+  get_spending_by_merchant: getSpendingByMerchant,
+  get_recurring_charges: getRecurringCharges,
+  get_income_summary: getIncomeSummary,
+  get_cashflow: getCashflow,
 };
 
 // ─── Dynamic Tool Registry (MCP servers inject tools here) ─────────
