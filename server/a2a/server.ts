@@ -23,10 +23,9 @@ const { streamCompletion } = require('../services/aiProvider') as {
 
 // ─── A2A Task Types ────────────────────────────────────────
 
-interface A2aPart {
-  type: 'text';
-  text: string;
-}
+type A2aPart =
+  | { type: 'text'; text: string }
+  | { type: 'data'; data: unknown };
 
 interface A2aMessage {
   role: 'user' | 'agent';
@@ -222,7 +221,7 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
     if (provenance) {
       artifacts.push({
         name: 'provenance',
-        parts: [{ type: 'data' as any, data: provenance }],
+        parts: [{ type: 'data', data: provenance }],
       });
     }
 
