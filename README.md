@@ -228,7 +228,6 @@ Enable or disable individual tools per workspace. Disabled tools are removed fro
 - **Data**: `query_bigquery`, `query_snowflake`, `query_databricks`, `download_query_results`
 - **Visualization**: `render_chart`
 - **Workspace**: `describe_workspace`, `bridge_workspace`, `intent_bridge`, `verify_workspace`
-- **Finance**: `plaid_sync`
 - **Agent**: `call_agent`
 
 > **Tip**: For workspaces focused on data analysis, disable `shell_exec`, `git_clone`, and `git_commit` to reduce the AI's tool surface and improve response focus.
@@ -289,7 +288,6 @@ All 23 tools are enabled by default. Individual tools can be toggled per workspa
 | **verify_workspace** | Run health checks on tools and data sources |
 | **call_agent** | Delegate a task to an external AI agent via the A2A (Agent-to-Agent) protocol |
 | **intent_bridge** | Compiled intent token bridge — sends cryptographically signed, deterministic operations to other workspaces for direct execution without LLM inference (ICE) |
-| **plaid_sync** | Sync financial data from Plaid into the workspace's local database (accounts, transactions, holdings). Domain-scoped via `@pendragon/tools-plaid` plugin |
 
 Data warehouse tools enforce **read-only access** — INSERT, UPDATE, DELETE, DROP, and other write operations are blocked at the tool level.
 
@@ -384,7 +382,7 @@ npm run lint:server     # ESLint (0 errors, warnings only)
 | Contract crypto (`contractAuth`) | 38 | HKDF key derivation, AES-256-GCM encrypt/decrypt, HMAC signing, timestamp freshness |
 | Bridge communication (`bridgeReceive`) | 11 | HMAC auth validation, contract enforcement, expired timestamps |
 | MCP protocol (`mcpProtocol`) | 19 | JSON-RPC 2.0 compliance, initialize/tools/list/call, error codes |
-| Tool registry (`toolRegistry`) | 31 | All 22+ tools validated, resolveTools filtering, OpenAI/Anthropic/Google format output |
+| Tool registry (`toolRegistry`) | 31 | All 21+ tools validated, resolveTools filtering, OpenAI/Anthropic/Google format output |
 
 ### TypeScript Strict Mode
 
