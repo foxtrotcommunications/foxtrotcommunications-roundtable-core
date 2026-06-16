@@ -75,19 +75,30 @@ const tools = {
   intent_bridge: intentBridge,
   // Protocol integration tools
   call_agent: callAgent,
-
-  // Domain financial tools — Checking & Savings
-  get_financial_snapshot: getFinancialSnapshot,
-  list_accounts: listAccounts,
-  get_balance: getBalance,
-  get_balance_history: getBalanceHistory,
-  get_transactions: getTransactions,
-  get_spending_by_category: getSpendingByCategory,
-  get_spending_by_merchant: getSpendingByMerchant,
-  get_recurring_charges: getRecurringCharges,
-  get_income_summary: getIncomeSummary,
-  get_cashflow: getCashflow,
 };
+
+// ─── Domain Financial Tools (conditional on Plaid connection) ────────
+// These tools only register on workspaces with a Plaid data connection.
+// Arthur (the orchestrator) should NOT have these — it calls them via
+// intent_bridge on the domain workspace that has the Plaid data.
+try {
+  const connections = JSON.parse(process.env.RT_CONNECTIONS || '[]');
+  const hasPlaid = connections.some((c: any) => c.type === 'plaid');
+  if (hasPlaid) {
+    Object.assign(tools, {
+      get_financial_snapshot: getFinancialSnapshot,
+      list_accounts: listAccounts,
+      get_balance: getBalance,
+      get_balance_history: getBalanceHistory,
+      get_transactions: getTransactions,
+      get_spending_by_category: getSpendingByCategory,
+      get_spending_by_merchant: getSpendingByMerchant,
+      get_recurring_charges: getRecurringCharges,
+      get_income_summary: getIncomeSummary,
+      get_cashflow: getCashflow,
+    });
+  }
+} catch { /* RT_CONNECTIONS not set or invalid JSON — skip domain tools */ }
 
 // ─── Dynamic Tool Registry (MCP servers inject tools here) ─────────
 // Dynamic tools are stored separately and merged at resolve-time.
