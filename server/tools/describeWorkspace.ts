@@ -155,6 +155,16 @@ const tool: Tool = {
           const dirLabel = c.direction === 'outbound'
             ? `You → ${counterpartyName}`
             : `${counterpartyName} → You`;
+
+          // Extract tool_call actions to highlight them
+          const toolActions = (c.allowedActions || [])
+            .filter((a: string) => a.startsWith('tool:'))
+            .map((a: string) => a.replace('tool:', ''));
+
+          const discoverHint = c.direction === 'outbound' && toolActions.length > 0
+            ? ` To see all available tools, call intent_bridge({ target: '${counterpartyName}', op: 'discover', scope: 'tools' }). Prefer op:'tool_call' over op:'capability' for better performance.`
+            : '';
+
           contracts.push({
             contractId: c.contractId,
             type: c.type,
@@ -162,8 +172,9 @@ const tool: Tool = {
             counterparty: counterpartyName,
             counterpartyWsId: c.counterparty?.wsId,
             allowedActions: c.allowedActions || [],
+            availableTools: toolActions.length > 0 ? toolActions : undefined,
             escalationTarget: c.escalationTarget || null,
-            summary: `${c.type} contract (${dirLabel}). Allowed actions: [${actionList}].`,
+            summary: `${c.type} contract (${dirLabel}). Allowed actions: [${actionList}].${discoverHint}`,
           });
         }
       }
