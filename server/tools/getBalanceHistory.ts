@@ -135,6 +135,10 @@ const tool: Tool = {
         chart: { labels, values },
         methodology: 'estimated',
         note: 'Balance estimated by applying transactions backward from current balance. May not reflect pending items, corrections, or transfers.',
+        metadata: {
+          accounts_analyzed: 1,
+          transactions_scanned: txnResult.rows.length,
+        },
         executionMs: Date.now() - start,
       };
     } catch (err: any) {

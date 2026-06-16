@@ -100,6 +100,11 @@ const tool: Tool = {
         groups[normalized].dates.push(row.date);
       }
 
+      // Provenance metadata
+      const acctCountResult = await query('SELECT COUNT(*)::int AS cnt FROM plaid_accounts');
+      const accountsAnalyzed = acctCountResult.rows[0]?.cnt || 0;
+      const transactionsScanned = result.rows.length;
+
       // Step 2: Analyze each group
       const recurring: any[] = [];
 
@@ -183,6 +188,10 @@ const tool: Tool = {
           },
         },
         filters: { account_id, min_occurrences },
+        metadata: {
+          accounts_analyzed: accountsAnalyzed,
+          transactions_scanned: transactionsScanned,
+        },
         executionMs: Date.now() - start,
       };
     } catch (err: any) {

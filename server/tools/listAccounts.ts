@@ -49,6 +49,9 @@ const tool: Tool = {
       return {
         accounts,
         total_accounts: accounts.length,
+        metadata: {
+          accounts_analyzed: accounts.length,
+        },
         executionMs: Date.now() - start,
       };
     } catch (err: any) {

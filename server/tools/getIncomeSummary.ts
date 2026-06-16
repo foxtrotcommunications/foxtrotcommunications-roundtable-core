@@ -114,6 +114,10 @@ const tool: Tool = {
         total: parseFloat(parseFloat(r.total).toFixed(2)),
       }));
 
+      // Provenance metadata
+      const acctCountResult = await query('SELECT COUNT(*)::int AS cnt FROM plaid_accounts');
+      const accountsAnalyzed = acctCountResult.rows[0]?.cnt || 0;
+
       const deposits = depositsResult.rows.map((r: any) => ({
         transaction_id: r.transaction_id,
         account_id: r.account_id,
@@ -138,6 +142,10 @@ const tool: Tool = {
           values: sources.map((s: any) => s.total),
         },
         filters: { account_id, start_date, end_date },
+        metadata: {
+          accounts_analyzed: accountsAnalyzed,
+          transactions_scanned: parseInt(stats.deposit_count || '0', 10),
+        },
         executionMs: Date.now() - start,
       };
     } catch (err: any) {
