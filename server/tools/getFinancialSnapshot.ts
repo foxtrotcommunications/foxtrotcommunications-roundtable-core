@@ -19,26 +19,14 @@ const tool: Tool = {
       // ── 1. Account aggregation ──────────────────────────────────
       const accountsSql = `
         SELECT
-          COUNT(*)::int                                  AS total_accounts,
-          COALESCE(SUM(balance_current), 0)              AS total_balance,
-          json_object_agg(
-            COALESCE(type, 'unknown'),
-            type_balance
-          )                                              AS balance_by_type,
-          MAX(synced_at)                                 AS last_sync
-        FROM (
-          SELECT
-            type,
-            SUM(balance_current) AS type_balance
-          FROM plaid_accounts
-          GROUP BY type
-        ) sub
-        CROSS JOIN (
-          SELECT COUNT(*)::int AS total_accounts,
-                 COALESCE(SUM(balance_current), 0) AS total_balance,
-                 MAX(synced_at) AS last_sync
-          FROM plaid_accounts
-        ) totals
+          (SELECT COUNT(*)::int FROM plaid_accounts) AS total_accounts,
+          (SELECT COALESCE(SUM(balance_current), 0) FROM plaid_accounts) AS total_balance,
+          (SELECT MAX(synced_at) FROM plaid_accounts) AS last_sync,
+          COALESCE(
+            (SELECT json_object_agg(COALESCE(type, 'unknown'), type_bal)
+             FROM (SELECT type, SUM(balance_current) AS type_bal FROM plaid_accounts GROUP BY type) t),
+            '{}'::json
+          ) AS balance_by_type
       `;
 
       // ── 2. 30-day transaction analysis ──────────────────────────
