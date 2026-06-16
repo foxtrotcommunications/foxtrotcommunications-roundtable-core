@@ -77,6 +77,9 @@ const tool: Tool = {
           total_available: totalAvailable,
           accounts_count: balances.length,
         }),
+        metadata: {
+          accounts_analyzed: balances.length,
+        },
         executionMs: Date.now() - start,
       };
     } catch (err: any) {

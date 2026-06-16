@@ -95,6 +95,11 @@ const tool: Tool = {
         last_seen: r.last_seen,
       }));
 
+      // Provenance metadata
+      const acctCountResult = await query('SELECT COUNT(*)::int AS cnt FROM plaid_accounts');
+      const accountsAnalyzed = acctCountResult.rows[0]?.cnt || 0;
+      const transactionsScanned = merchants.reduce((sum: number, m: any) => sum + m.count, 0);
+
       return {
         merchants,
         grand_total: parseFloat(grandTotal.toFixed(2)),
@@ -104,6 +109,10 @@ const tool: Tool = {
           values: merchants.map((m: any) => m.total),
         },
         filters: { account_id, start_date, end_date, top_n },
+        metadata: {
+          accounts_analyzed: accountsAnalyzed,
+          transactions_scanned: transactionsScanned,
+        },
         executionMs: Date.now() - start,
       };
     } catch (err: any) {

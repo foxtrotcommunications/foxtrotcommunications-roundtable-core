@@ -106,6 +106,13 @@ const tool: Tool = {
       totalSpending = parseFloat(totalSpending.toFixed(2));
       const totalNet = parseFloat((totalIncome - totalSpending).toFixed(2));
 
+      // Provenance metadata
+      const acctCountResult = await query('SELECT COUNT(*)::int AS cnt FROM plaid_accounts');
+      const accountsAnalyzed = acctCountResult.rows[0]?.cnt || 0;
+      const txnCountSql = `SELECT COUNT(*)::int AS cnt FROM plaid_transactions ${whereClause}`;
+      const txnCountResult = await query(txnCountSql, params);
+      const transactionsScanned = txnCountResult.rows[0]?.cnt || 0;
+
       return {
         periods,
         summary: {
@@ -126,6 +133,10 @@ const tool: Tool = {
         },
         granularity,
         filters: { account_id, start_date, end_date },
+        metadata: {
+          accounts_analyzed: accountsAnalyzed,
+          transactions_scanned: transactionsScanned,
+        },
         executionMs: Date.now() - start,
       };
     } catch (err: any) {

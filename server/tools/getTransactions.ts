@@ -157,6 +157,10 @@ const tool: Tool = {
       ]);
 
       const totalCount = countResult.rows[0]?.total_count || 0;
+
+      // Provenance metadata
+      const acctCountResult = await query('SELECT COUNT(*)::int AS cnt FROM plaid_accounts');
+      const accountsAnalyzed = acctCountResult.rows[0]?.cnt || 0;
       const totalAmount = parseFloat(countResult.rows[0]?.total_amount) || 0;
 
       const transactions = dataResult.rows.map((row: any) => ({
@@ -177,6 +181,10 @@ const tool: Tool = {
         total_amount: Math.round(totalAmount * 100) / 100,
         returned_count: transactions.length,
         filters_applied: filters,
+        metadata: {
+          accounts_analyzed: accountsAnalyzed,
+          transactions_scanned: totalCount,
+        },
         executionMs: Date.now() - start,
       };
     } catch (err: any) {
