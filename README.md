@@ -65,6 +65,7 @@ Roundtable auto-detects the environment: if no `DATABASE_URL` is set, it uses SQ
 - **BYOK** — Bring Your Own Key; users configure their own API keys, or use server-level defaults
 - **Presence** — See who's online in each workspace
 - **Streaming** — AI responses stream token-by-token to all participants
+- **Parallel Tool Execution** — When the AI emits multiple function calls in a single turn, all calls execute concurrently via `Promise.all`, reducing multi-tool round latency from N×latency to 1×latency
 - **Embeddable** — Embed in other apps via iframe with `EMBED_MODE=true`
 - 🎨 **Theme system** — Light, dark, and system (OS preference) color schemes
 - **React + TypeScript** — Modern frontend with Vite, hot-reload dev server
@@ -226,7 +227,8 @@ Enable or disable individual tools per workspace. Disabled tools are removed fro
 - **Git**: `git_clone`, `git_commit`, `git_pull`
 - **Data**: `query_bigquery`, `query_snowflake`, `query_databricks`, `download_query_results`
 - **Visualization**: `render_chart`
-- **Workspace**: `describe_workspace`, `bridge_workspace`, `intent_bridge`, `verify_workspace`, `trigger_synthea_pipeline`
+- **Workspace**: `describe_workspace`, `bridge_workspace`, `intent_bridge`, `verify_workspace`
+- **Finance**: `plaid_sync`
 - **Agent**: `call_agent`
 
 > **Tip**: For workspaces focused on data analysis, disable `shell_exec`, `git_clone`, and `git_commit` to reduce the AI's tool surface and improve response focus.
@@ -284,10 +286,10 @@ All 23 tools are enabled by default. Individual tools can be toggled per workspa
 | **bridge_workspace** | Delegate reasoning tasks to another workspace's AI — used only when the target AI needs to reason (rare). For structured operations, use `intent_bridge` |
 | **render_chart** | Generate interactive charts (bar, line, pie, doughnut, area, scatter) inline in chat from query results |
 | **download_query_results** | Export query results as downloadable CSV/JSON files |
-| **trigger_synthea_pipeline** | Trigger synthetic FHIR/OMOP patient data generation via Synthea |
 | **verify_workspace** | Run health checks on tools and data sources |
 | **call_agent** | Delegate a task to an external AI agent via the A2A (Agent-to-Agent) protocol |
 | **intent_bridge** | Compiled intent token bridge — sends cryptographically signed, deterministic operations to other workspaces for direct execution without LLM inference (ICE) |
+| **plaid_sync** | Sync financial data from Plaid into the workspace's local database (accounts, transactions, holdings). Domain-scoped via `@pendragon/tools-plaid` plugin |
 
 Data warehouse tools enforce **read-only access** — INSERT, UPDATE, DELETE, DROP, and other write operations are blocked at the tool level.
 

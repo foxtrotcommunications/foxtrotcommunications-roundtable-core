@@ -181,6 +181,20 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
           );
         }
 
+        // ── Domain Isolation Guard ──────────────────────
+        // If this workspace is a domain (has RT_CONNECTIONS), reject
+        // free-form message/send from contract-authenticated callers.
+        // Domains only accept intent/execute for structured, capability-scoped operations.
+        // This prevents external agents from bypassing the capability system.
+        if ((req as any).contract && process.env.RT_CONNECTIONS) {
+          return res.json(
+            jsonRpcError(id, -32000,
+              'Domain workspaces do not accept message/send via contracts. ' +
+              'Use intent/execute with a scoped capability instead.'
+            )
+          );
+        }
+
         // ── E2E Decryption ────────────────────────────────
         // If the request has X-Contract-Encrypted header, the message parts
         // are AES-256-GCM encrypted. Decrypt before processing.

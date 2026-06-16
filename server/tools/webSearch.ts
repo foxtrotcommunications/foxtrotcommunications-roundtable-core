@@ -23,7 +23,8 @@ const tool: Tool = {
   },
   async execute(args: any, workspaceConfig: any = {}, _context?: any) {
     const { query } = args;
-    const model = workspaceConfig.model || 'gemini-2.5-flash';
+    // Use the workspace's AI model for grounding (endpoint routing handles global vs regional)
+    const groundingModel = workspaceConfig.model || 'gemini-3.5-flash';
 
     // Try Google Custom Search first (if configured and working)
     if (config.googleSearch.apiKey && config.googleSearch.engineId) {
@@ -34,7 +35,7 @@ const tool: Tool = {
 
     // Fallback: Vertex AI grounding via Gemini
     if (config.vertexai.project) {
-      return vertexGroundingSearch(query, model);
+      return vertexGroundingSearch(query, groundingModel);
     }
 
     // Last resort: DuckDuckGo Instant Answer API
@@ -82,15 +83,18 @@ async function googleCustomSearch(query) {
  * Vertex AI Grounding — uses Gemini + Google Search grounding to get search results.
  * This leverages existing ADC credentials, no extra API key needed.
  */
-async function vertexGroundingSearch(query, model = 'gemini-2.5-flash') {
+async function vertexGroundingSearch(query, model = 'gemini-3.5-flash') {
   try {
     const { GoogleGenAI   } = require('@google/genai');
-    // Preview models need the global endpoint; GA models use regional
-    const isPreview = model && model.includes('-preview');
+    // Preview models and gemini-3.5+ need the global endpoint; older GA models use regional
+    const needsGlobal = !!(model && (
+      model.includes('-preview') ||
+      /^gemini-(?:[3-9]\.[5-9]|[4-9]\.|[1-9]\d+\.)/.test(model)
+    ));
     const ai = new GoogleGenAI({
       vertexai: true,
       project: config.vertexai.project,
-      location: isPreview ? 'global' : config.vertexai.location,
+      location: needsGlobal ? 'global' : config.vertexai.location,
     });
 
     const result = await ai.models.generateContent({

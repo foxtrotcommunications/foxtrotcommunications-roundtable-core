@@ -22,6 +22,15 @@ import queryDatabricks from './queryDatabricks';
 
 import downloadQueryResults from './downloadQueryResults';
 
+// Plaid tools — loaded from @pendragon/tools-plaid package (with fallback)
+let registerFromEnv: ((tools: any, caps: any) => void) | null = null;
+try {
+  registerFromEnv = require('@pendragon/tools-plaid').registerFromEnv;
+} catch {
+  // Package not installed — will fall back to legacy capability registration
+}
+import { capabilityRegistry } from '../protocols/capabilityRegistry.js';
+
 // Meta-tools — always available regardless of workspace config
 import describeWorkspace from './describeWorkspace';
 import verifyWorkspace from './verifyWorkspace';
@@ -62,6 +71,32 @@ const tools = {
   // Protocol integration tools
   call_agent: callAgent,
 };
+
+// ─── Plaid Plugin Registration ─────────────────────────────────────
+// Adapter bridges @pendragon/tools-plaid's register() interface into
+// roundtable-core's static tools object and capability registry.
+const pluginToolRegistry = {
+  register(name: string, tool: Tool) {
+    (tools as Record<string, Tool>)[name] = tool;
+  },
+};
+
+// Auto-detect Plaid connections from RT_CONNECTIONS and register
+// the appropriate tools + domain capabilities.
+// Domain-scoped filtering (account type exclusion) is handled inside
+// @pendragon/tools-plaid — sync, query, and capability handlers all
+// filter by the domain's allowed account types (e.g., checking → depository).
+if (registerFromEnv) {
+  registerFromEnv(pluginToolRegistry, capabilityRegistry);
+} else {
+  // Fallback: use legacy capability registration from capabilities/index.ts
+  try {
+    const { registerAllCapabilities } = require('../capabilities/index');
+    registerAllCapabilities(capabilityRegistry);
+  } catch (e: any) {
+    console.warn('[tools] Legacy capability registration failed:', e.message);
+  }
+}
 
 // ─── Dynamic Tool Registry (MCP servers inject tools here) ─────────
 // Dynamic tools are stored separately and merged at resolve-time.

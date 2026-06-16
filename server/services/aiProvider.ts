@@ -74,6 +74,7 @@ async function* streamCompletion(provider: string, model: string, messages: Chat
         yield* streamGoogle(model, messages, apiKey, enableTools, maxToolRounds, signal, enabledToolNames, workspaceConfig);
         break;
       case 'vertexai':
+      case 'gemini-enterprise':
         yield* streamVertexAI(model, messages, enableTools, maxToolRounds, signal, enabledToolNames, workspaceConfig);
         break;
       case 'ollama':
@@ -458,15 +459,28 @@ async function* streamGoogle(model: string, messages: ChatMessage[], apiKey: str
       })),
     });
 
-    // Execute tools and add responses
+    // Execute tools in parallel when multiple calls are emitted
+    const callIds = functionCalls.map((fc: GoogleFunctionCall) => {
+      const callId = `call_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${fc.name}`;
+      return callId;
+    });
+
+    // Yield all tool-call events first
+    for (let i = 0; i < functionCalls.length; i++) {
+      yield { type: 'tool-call', name: functionCalls[i].name, args: functionCalls[i].args, callId: callIds[i] };
+    }
+
+    // Execute all tools in parallel
+    const toolResults = await Promise.all(
+      functionCalls.map((fc: GoogleFunctionCall, i: number) =>
+        executeTool(fc.name, fc.args, { ...workspaceConfig, model }).then(result => ({ fc, callId: callIds[i], result }))
+      )
+    );
+
+    // Yield results and build response parts
     const functionResponses: Record<string, unknown>[] = [];
-    for (const fc of functionCalls) {
-      const callId: string = `call_${Date.now()}_${fc.name}`;
-      yield { type: 'tool-call', name: fc.name, args: fc.args, callId };
-
-      const result: Record<string, unknown> = await executeTool(fc.name, fc.args, { ...workspaceConfig, model });
+    for (const { fc, callId, result } of toolResults) {
       yield { type: 'tool-result', name: fc.name, callId, result };
-
       functionResponses.push({
         functionResponse: { name: fc.name, response: result },
       });
@@ -768,15 +782,28 @@ async function* streamVertexAI(model: string, messages: ChatMessage[], enableToo
       })),
     });
 
-    // Execute tools
+    // Execute tools in parallel when multiple calls are emitted
+    const callIds = functionCalls.map((fc: GoogleFunctionCall) => {
+      const callId = `call_${Date.now()}_${Math.random().toString(36).slice(2, 6)}_${fc.name}`;
+      return callId;
+    });
+
+    // Yield all tool-call events first
+    for (let i = 0; i < functionCalls.length; i++) {
+      yield { type: 'tool-call', name: functionCalls[i].name, args: functionCalls[i].args, callId: callIds[i] };
+    }
+
+    // Execute all tools in parallel
+    const toolResults = await Promise.all(
+      functionCalls.map((fc: GoogleFunctionCall, i: number) =>
+        executeTool(fc.name, fc.args, { ...workspaceConfig, model }).then(result => ({ fc, callId: callIds[i], result }))
+      )
+    );
+
+    // Yield results and build response parts
     const functionResponses: Record<string, unknown>[] = [];
-    for (const fc of functionCalls) {
-      const callId: string = `call_${Date.now()}_${fc.name}`;
-      yield { type: 'tool-call', name: fc.name, args: fc.args, callId };
-
-      const result: Record<string, unknown> = await executeTool(fc.name, fc.args, { ...workspaceConfig, model });
+    for (const { fc, callId, result } of toolResults) {
       yield { type: 'tool-result', name: fc.name, callId, result };
-
       functionResponses.push({
         functionResponse: { name: fc.name, response: result },
       });

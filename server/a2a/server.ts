@@ -79,6 +79,56 @@ interface ProcessMessageOptions {
 }
 
 /**
+ * Extract structured provenance from tool results.
+ * Captures which domains/capabilities were queried, accounts accessed, timing, etc.
+ */
+function extractProvenance(toolResults: Array<{ name: string; result: Record<string, unknown> }>) {
+  const intentResults = toolResults.filter(t => t.name === 'intent_bridge');
+  if (intentResults.length === 0) return null;
+
+  const domains: { name: string; capability: string }[] = [];
+  const accounts: string[] = [];
+  let totalExecutionMs = 0;
+  let anyCached = false;
+
+  for (const tr of intentResults) {
+    const r = tr.result as any;
+    if (!r?.success) continue;
+
+    // Extract domain and capability from the tool result
+    if (r.toolExecuted) {
+      domains.push({
+        name: r.target || 'Unknown Domain',
+        capability: r.toolExecuted,
+      });
+    }
+
+    // Extract account names from balance/transaction data
+    if (r.data?.accounts && Array.isArray(r.data.accounts)) {
+      for (const acct of r.data.accounts) {
+        if (acct.name && !accounts.includes(acct.name)) {
+          accounts.push(acct.name);
+        }
+      }
+    }
+
+    // Accumulate timing
+    if (r.executionMs) totalExecutionMs += r.executionMs;
+    if (r.roundTripMs) totalExecutionMs = Math.max(totalExecutionMs, r.roundTripMs);
+    if (r.cached) anyCached = true;
+  }
+
+  return {
+    domains,
+    accounts,
+    executionMs: totalExecutionMs,
+    timestamp: new Date().toISOString(),
+    cached: anyCached,
+    confidence: 'high' as const, // Direct data queries are always high confidence
+  };
+}
+
+/**
  * Process an incoming A2A message: create a task, run AI completion, return result.
  */
 async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> {
@@ -119,8 +169,10 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
   messages.push({ role: 'user', content: userText });
 
   try {
-    // 4. Stream completion and collect full text
+    // 4. Stream completion and collect full text + tool provenance
     let fullText = '';
+    const toolResults: Array<{ name: string; result: Record<string, unknown> }> = [];
+
     const stream = streamCompletion(
       provider,
       model,
@@ -135,12 +187,17 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
     for await (const event of stream) {
       if (event.type === 'text-delta') {
         fullText += event.content;
+      } else if (event.type === 'tool-result') {
+        toolResults.push({ name: event.name, result: event.result });
       } else if (event.type === 'done') {
         fullText = event.fullText || fullText;
       } else if (event.type === 'error') {
         throw new Error(event.error);
       }
     }
+
+    // Extract provenance from intent_bridge tool results
+    const provenance = extractProvenance(toolResults);
 
     // 5. Set status to 'completed' with result as an artifact
     const agentMessage: A2aMessage = {
@@ -154,12 +211,22 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
       timestamp: new Date().toISOString(),
     };
 
-    task.artifacts = [
+    const artifacts: A2aTask['artifacts'] = [
       {
         name: 'response',
         parts: [{ type: 'text', text: fullText }],
       },
     ];
+
+    // Include provenance as a structured artifact if available
+    if (provenance) {
+      artifacts.push({
+        name: 'provenance',
+        parts: [{ type: 'data' as any, data: provenance }],
+      });
+    }
+
+    task.artifacts = artifacts;
 
     if (task.history) {
       task.history.push(agentMessage);
