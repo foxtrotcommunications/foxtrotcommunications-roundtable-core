@@ -14,4 +14,7 @@ module.exports = {
     }],
   },
   moduleFileExtensions: ['js', 'ts', 'json'],
+  moduleNameMapper: {
+    '^(\\.{1,2}/.*)\\.js$': '$1',
+  },
 };
