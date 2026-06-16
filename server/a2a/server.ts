@@ -88,7 +88,11 @@ function extractProvenance(toolResults: Array<{ name: string; result: Record<str
   const domains: { name: string; capability: string }[] = [];
   const accounts: string[] = [];
   let totalExecutionMs = 0;
+  let maxRoundTripMs = 0;
   let anyCached = false;
+  let accountsAnalyzed = 0;
+  let transactionsScanned = 0;
+  let dataFreshness: string | undefined;
 
   for (const tr of intentResults) {
     const r = tr.result as any;
@@ -102,28 +106,74 @@ function extractProvenance(toolResults: Array<{ name: string; result: Record<str
       });
     }
 
-    // Extract account names from balance/transaction data
-    if (r.data?.accounts && Array.isArray(r.data.accounts)) {
-      for (const acct of r.data.accounts) {
-        if (acct.name && !accounts.includes(acct.name)) {
-          accounts.push(acct.name);
+    // Extract account names from multiple possible locations
+    const accountSources = r.data?.accounts || r.data?.balances;
+    if (accountSources && Array.isArray(accountSources)) {
+      for (const acct of accountSources) {
+        const name = acct.name || acct.account_name;
+        if (name && !accounts.includes(name)) {
+          accounts.push(name);
         }
       }
     }
 
+    // Also count unique account_id values in any arrays within r.data
+    if (r.data && typeof r.data === 'object') {
+      const seenAccountIds = new Set<string>();
+      for (const val of Object.values(r.data as Record<string, unknown>)) {
+        if (Array.isArray(val)) {
+          for (const item of val) {
+            if (item && typeof item === 'object' && 'account_id' in (item as any)) {
+              seenAccountIds.add(String((item as any).account_id));
+            }
+          }
+        }
+      }
+      if (seenAccountIds.size > 0) {
+        accountsAnalyzed = Math.max(accountsAnalyzed, seenAccountIds.size);
+      }
+    }
+
+    // Count transactions scanned
+    if (r.data?.transactions_scanned) {
+      transactionsScanned += Number(r.data.transactions_scanned);
+    } else if (r.data?.total_count) {
+      transactionsScanned += Number(r.data.total_count);
+    } else if (r.data?.transactions && Array.isArray(r.data.transactions)) {
+      transactionsScanned += r.data.transactions.length;
+    }
+
     // Accumulate timing
     if (r.executionMs) totalExecutionMs += r.executionMs;
-    if (r.roundTripMs) totalExecutionMs = Math.max(totalExecutionMs, r.roundTripMs);
+    if (r.roundTripMs) maxRoundTripMs = Math.max(maxRoundTripMs, r.roundTripMs);
     if (r.cached) anyCached = true;
+
+    // Data freshness
+    if (!dataFreshness) {
+      dataFreshness = r.data?.data_freshness || r.data?.last_sync || undefined;
+    }
+  }
+
+  // Fall back to roundTripMs when executionMs is 0
+  if (totalExecutionMs === 0 && maxRoundTripMs > 0) {
+    totalExecutionMs = maxRoundTripMs;
+  }
+
+  // Use accounts list length if accountsAnalyzed wasn't set from account_id scanning
+  if (accountsAnalyzed === 0 && accounts.length > 0) {
+    accountsAnalyzed = accounts.length;
   }
 
   return {
     domains,
     accounts,
+    accounts_analyzed: accountsAnalyzed,
+    transactions_scanned: transactionsScanned,
     executionMs: totalExecutionMs,
     timestamp: new Date().toISOString(),
     cached: anyCached,
     confidence: 'high' as const, // Direct data queries are always high confidence
+    data_freshness: dataFreshness,
   };
 }
 
