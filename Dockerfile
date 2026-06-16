@@ -17,9 +17,8 @@ WORKDIR /app
 RUN apk add --no-cache git python3 py3-pip && \
     pip3 install --no-cache-dir --break-system-packages matplotlib numpy pandas
 
-# Copy package files and local packages, install production deps
+# Copy package files, install production deps
 COPY package*.json ./
-COPY packages/ ./packages/
 RUN npm ci --omit=dev --omit=optional && \
     npm install tsx
 
