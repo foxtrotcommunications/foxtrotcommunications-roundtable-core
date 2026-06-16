@@ -486,6 +486,7 @@ const intentBridge: Tool = {
 
       return {
         success: true,
+        target,
         data: result.data,
         executionMs: result.executionMs,
         roundTripMs,

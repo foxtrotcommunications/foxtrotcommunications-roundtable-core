@@ -1,0 +1,13 @@
+{
+  "name": "@pendragon/tools-plaid",
+  "version": "1.1.0",
+  "description": "Domain-isolated Plaid financial tools for Pendragon workspaces",
+  "main": "src/index.js",
+  "scripts": {},
+  "dependencies": {
+    "pg": "^8.20.0",
+    "plaid": "^42.2.0"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}

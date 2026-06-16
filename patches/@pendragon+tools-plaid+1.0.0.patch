@@ -1,0 +1,27 @@
+diff --git a/dist/domains/checking.js b/dist/domains/checking.js
+index 1234567..abcdefg 100644
+--- a/dist/domains/checking.js
++++ b/dist/domains/checking.js
+@@ -11,9 +11,10 @@ async function syncCheckingData(config) {
+         // 1. Create domain-scoped tables
+         await pool.query(getSchemaForDomain(config.domainType));
+         const summary = { success: true, domain: config.domainType };
+-        // 2. Sync accounts
++        // 2. Sync accounts (filtered to depository types for checking/savings domain)
+         const accountsRes = await plaid.accountsGet(config.accessToken);
+-        const accounts = accountsRes.data.accounts;
++        const allAccounts = accountsRes.data.accounts;
++        const accounts = allAccounts.filter(a => a.type === 'depository');
+         for (const acct of accounts) {
+             await pool.query(`INSERT INTO plaid_accounts
+            (account_id, name, mask, type, subtype,
+@@ -138,7 +139,8 @@ function createGetBalancesHandler(config) {
+             const { rows } = await pool.query(`SELECT account_id, name, type, subtype,
+                 balance_available, balance_current, balance_limit,
+                 currency, synced_at
+-         FROM plaid_accounts
++         FROM plaid_accounts 
++         WHERE type = 'depository'
+          ORDER BY name`);
+             return { accounts: rows };
+         });

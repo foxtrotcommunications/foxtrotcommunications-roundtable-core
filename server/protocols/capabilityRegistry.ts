@@ -129,14 +129,20 @@ export class CapabilityRegistry {
   /**
    * Register a workspace capability.
    *
-   * @param capability - The capability definition (name, schemas, description)
-   * @param handler    - The implementation function
+   * Supports two calling conventions:
+   *   1. register(capability, handler)  — handler as separate arg (legacy)
+   *   2. register({ ...capability, handler })  — handler embedded in object (@pendragon/tools-plaid)
    */
-  register(capability: WorkspaceCapability, handler: CapabilityHandler): void {
+  register(capability: WorkspaceCapability & { handler?: CapabilityHandler }, handler?: CapabilityHandler): void {
     if (this.capabilities.has(capability.name)) {
       throw new Error(`Capability '${capability.name}' is already registered`);
     }
-    this.capabilities.set(capability.name, { ...capability, handler });
+    // Support both: explicit second arg takes priority, else use embedded handler
+    const resolvedHandler = handler || capability.handler;
+    if (!resolvedHandler) {
+      throw new Error(`Capability '${capability.name}' registered without a handler`);
+    }
+    this.capabilities.set(capability.name, { ...capability, handler: resolvedHandler });
   }
 
   /**
@@ -222,3 +228,10 @@ export class CapabilityRegistry {
 
 /** Global capability registry for this workspace */
 export const capabilityRegistry = new CapabilityRegistry();
+
+
+// ─── Domain capability auto-registration ────────────────────────────────────
+// NOTE: Domain capabilities (plaid.getBalances, plaid.getHoldings, etc.) are
+// now registered by @pendragon/tools-plaid via registerFromEnv() in
+// server/tools/index.ts. The old registerAllCapabilities() call has been
+// removed from here.

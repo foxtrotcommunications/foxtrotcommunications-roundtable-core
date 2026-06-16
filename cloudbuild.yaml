@@ -1,17 +1,29 @@
 steps:
+  # Generate npm auth token for Artifact Registry
+  - name: 'node:20-alpine'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        NPM_TKN=$$(wget -qO- --header "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token | node -e "process.stdin.on('data',d=>process.stdout.write(JSON.parse(d).access_token))")
+        echo "$$NPM_TKN" > /workspace/npm_token.txt
+
   # Build and push to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'sh'
     args:
-      - 'build'
-      - '-t'
-      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/roundtable/roundtable:${SHORT_SHA}'
-      - '-t'
-      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/roundtable/roundtable:latest'
-      - '.'
+      - '-c'
+      - |
+        NPM_TKN=$$(cat /workspace/npm_token.txt)
+        docker build \
+          --build-arg NPM_TOKEN="$$NPM_TKN" \
+          -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/roundtable/roundtable-core:${SHORT_SHA} \
+          -t ${_REGION}-docker.pkg.dev/${PROJECT_ID}/roundtable/roundtable-core:latest \
+          .
 
 images:
-  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/roundtable/roundtable:${SHORT_SHA}'
-  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/roundtable/roundtable:latest'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/roundtable/roundtable-core:${SHORT_SHA}'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/roundtable/roundtable-core:latest'
 
 substitutions:
   _REGION: us-central1

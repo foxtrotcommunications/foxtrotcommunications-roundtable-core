@@ -17,9 +17,15 @@ WORKDIR /app
 RUN apk add --no-cache git python3 py3-pip && \
     pip3 install --no-cache-dir --break-system-packages matplotlib numpy pandas
 
-# Copy package files and install production deps (skip optional: better-sqlite3 needs native build tools)
-COPY package*.json ./
-RUN npm ci --omit=dev --omit=optional && npm install tsx
+# Copy package files and .npmrc for @pendragon scoped registry, install production deps
+COPY package*.json .npmrc ./
+ARG NPM_TOKEN
+RUN if [ -n "$NPM_TOKEN" ]; then \
+      echo "//us-central1-npm.pkg.dev/roundtable-public/pendragon-npm/:_authToken=$NPM_TOKEN" >> .npmrc; \
+    fi && \
+    npm ci --omit=dev --omit=optional && \
+    npm install tsx && \
+    sed -i '/_authToken/d' .npmrc
 
 # Copy source
 COPY server/ ./server/
