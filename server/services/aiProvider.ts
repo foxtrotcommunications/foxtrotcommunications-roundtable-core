@@ -60,7 +60,7 @@ interface GoogleGenAIChunk {
  * @param {object} [workspaceConfig] — per-workspace config { dataSources: {...} }
  */
 async function* streamCompletion(provider: string, model: string, messages: ChatMessage[], apiKey: string, enableTools: boolean = true, signal: AbortSignal | null = null, enabledToolNames: string[] | null = null, workspaceConfig: WorkspaceConfig = {}): AsyncGenerator<StreamEvent> {
-  const maxToolRounds: number = 20;
+  const maxToolRounds: number = 10;
 
   try {
     switch (provider) {
@@ -703,9 +703,16 @@ async function* streamVertexAI(model: string, messages: ChatMessage[], enableToo
   const systemInstruction: string = extractGoogleSystemInstruction(messages);
   const contents: Record<string, unknown>[] = formatGoogleMessages(messages);
   let fullText: string = '';
+  const loopStartTime: number = Date.now();
+  const TOOL_LOOP_TIMEOUT_MS: number = 90_000; // 90s wall-clock cap — prevents A2A timeout
 
   for (let round: number = 0; round < maxRounds; round++) {
     if (signal?.aborted) { yield { type: 'done', fullText }; return; }
+    if (Date.now() - loopStartTime > TOOL_LOOP_TIMEOUT_MS) {
+      console.warn(`[VertexAI] Tool loop exceeded ${TOOL_LOOP_TIMEOUT_MS}ms wall-clock limit after ${round} rounds`);
+      yield { type: 'done', fullText: fullText || 'I ran out of time processing your request. Please try a simpler query.' };
+      return;
+    }
 
     const requestConfig: Record<string, unknown> = {};
     if (systemInstruction) {
