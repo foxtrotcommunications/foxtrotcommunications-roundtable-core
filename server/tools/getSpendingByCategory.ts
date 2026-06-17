@@ -94,6 +94,10 @@ const tool: Tool = {
       const accountsAnalyzed = acctCountResult.rows[0]?.cnt || 0;
       const transactionsScanned = categories.reduce((sum: number, c: any) => sum + c.count, 0);
 
+      const connections = JSON.parse(process.env.RT_CONNECTIONS || '[]');
+      const coverageGaps: string[] = [];
+      if (connections.length <= 1) coverageGaps.push('Only 1 institution connected — results may be incomplete');
+
       return {
         categories,
         grand_total: parseFloat(grandTotal.toFixed(2)),
@@ -106,6 +110,10 @@ const tool: Tool = {
         metadata: {
           accounts_analyzed: accountsAnalyzed,
           transactions_scanned: transactionsScanned,
+        },
+        coverage: {
+          institutions_connected: connections.length,
+          gaps: coverageGaps,
         },
         executionMs: Date.now() - start,
       };

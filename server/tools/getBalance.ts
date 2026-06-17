@@ -70,6 +70,10 @@ const tool: Tool = {
       const totalCurrent = balances.reduce((sum: number, b: any) => sum + (b.balance_current || 0), 0);
       const totalAvailable = balances.reduce((sum: number, b: any) => sum + (b.balance_available || 0), 0);
 
+      const connections = JSON.parse(process.env.RT_CONNECTIONS || '[]');
+      const coverageGaps: string[] = [];
+      if (connections.length <= 1) coverageGaps.push('Only 1 institution connected — results may be incomplete');
+
       return {
         balances: account_id ? balances[0] : balances,
         ...(account_id ? {} : {
@@ -79,6 +83,10 @@ const tool: Tool = {
         }),
         metadata: {
           accounts_analyzed: balances.length,
+        },
+        coverage: {
+          institutions_connected: connections.length,
+          gaps: coverageGaps,
         },
         executionMs: Date.now() - start,
       };

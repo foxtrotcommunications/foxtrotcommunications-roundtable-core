@@ -174,6 +174,11 @@ const tool: Tool = {
         }
       }, 0);
 
+      const connections = JSON.parse(process.env.RT_CONNECTIONS || '[]');
+      const coverageGaps: string[] = [];
+      if (connections.length <= 1) coverageGaps.push('Only 1 institution connected — results may be incomplete');
+      coverageGaps.push('Recurring detection based on transaction history — actual subscriptions may differ');
+
       return {
         recurring,
         summary: {
@@ -191,6 +196,10 @@ const tool: Tool = {
         metadata: {
           accounts_analyzed: accountsAnalyzed,
           transactions_scanned: transactionsScanned,
+        },
+        coverage: {
+          institutions_connected: connections.length,
+          gaps: coverageGaps,
         },
         executionMs: Date.now() - start,
       };
