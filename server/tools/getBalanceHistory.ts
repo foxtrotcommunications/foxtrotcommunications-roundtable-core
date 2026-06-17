@@ -124,6 +124,11 @@ const tool: Tool = {
         runningBalance = runningBalance - periodNet;
       }
 
+      const connections = JSON.parse(process.env.RT_CONNECTIONS || '[]');
+      const coverageGaps: string[] = [];
+      if (connections.length <= 1) coverageGaps.push('Only 1 institution connected — results may be incomplete');
+      coverageGaps.push('Balance estimated by applying transactions backward — may not reflect pending items');
+
       return {
         account_id,
         account_name: accountName,
@@ -138,6 +143,10 @@ const tool: Tool = {
         metadata: {
           accounts_analyzed: 1,
           transactions_scanned: txnResult.rows.length,
+        },
+        coverage: {
+          institutions_connected: connections.length,
+          gaps: coverageGaps,
         },
         executionMs: Date.now() - start,
       };

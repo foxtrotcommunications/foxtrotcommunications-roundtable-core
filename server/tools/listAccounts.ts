@@ -46,11 +46,19 @@ const tool: Tool = {
         synced_at: row.synced_at ? new Date(row.synced_at).toISOString() : null,
       }));
 
+      const connections = JSON.parse(process.env.RT_CONNECTIONS || '[]');
+      const coverageGaps: string[] = [];
+      if (connections.length <= 1) coverageGaps.push('Only 1 institution connected — results may be incomplete');
+
       return {
         accounts,
         total_accounts: accounts.length,
         metadata: {
           accounts_analyzed: accounts.length,
+        },
+        coverage: {
+          institutions_connected: connections.length,
+          gaps: coverageGaps,
         },
         executionMs: Date.now() - start,
       };

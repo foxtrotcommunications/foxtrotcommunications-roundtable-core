@@ -94,6 +94,15 @@ function extractProvenance(toolResults: Array<{ name: string; result: Record<str
   let transactionsScanned = 0;
   let dataFreshness: string | undefined;
 
+  // ── Epistemic analysis ─────────────────────────────────────
+  const assumptions: string[] = [];
+  const missing: string[] = [];
+  const visible: string[] = [];
+  let totalExplanationPct = 0;
+  let explanationSamples = 0;
+  let institutionsConnected = 0;
+  let hasCriticalUnknowns = false;
+
   for (const tr of intentResults) {
     const r = tr.result as any;
     if (!r?.success) continue;
@@ -134,8 +143,10 @@ function extractProvenance(toolResults: Array<{ name: string; result: Record<str
       }
     }
 
-    // Count transactions scanned
-    if (r.data?.transactions_scanned) {
+    // Count transactions scanned — check metadata first, then data fields
+    if (r.data?.metadata?.transactions_scanned) {
+      transactionsScanned += Number(r.data.metadata.transactions_scanned);
+    } else if (r.data?.transactions_scanned) {
       transactionsScanned += Number(r.data.transactions_scanned);
     } else if (r.data?.total_count) {
       transactionsScanned += Number(r.data.total_count);
@@ -150,7 +161,54 @@ function extractProvenance(toolResults: Array<{ name: string; result: Record<str
 
     // Data freshness
     if (!dataFreshness) {
-      dataFreshness = r.data?.data_freshness || r.data?.last_sync || undefined;
+      dataFreshness = r.data?.data_freshness || r.data?.metadata?.data_freshness || r.data?.last_sync || undefined;
+    }
+
+    // ── Coverage analysis from tool results ────────────────
+    const cov = r.data?.coverage;
+    if (cov) {
+      // Institutional coverage
+      if (cov.institutions_connected) {
+        institutionsConnected = Math.max(institutionsConnected, cov.institutions_connected);
+      }
+
+      // Explanation completeness
+      if (typeof cov.explanation_pct === 'number') {
+        totalExplanationPct += cov.explanation_pct;
+        explanationSamples++;
+      }
+
+      // Collect visible evidence
+      if (Array.isArray(cov.visible)) {
+        for (const v of cov.visible) {
+          if (!visible.includes(v)) visible.push(v);
+        }
+      }
+
+      // Collect gaps as assumptions
+      if (Array.isArray(cov.gaps)) {
+        for (const gap of cov.gaps) {
+          if (!assumptions.includes(gap)) assumptions.push(gap);
+        }
+      }
+
+      // Critical unknowns
+      if (cov.has_payroll_pattern === false) {
+        hasCriticalUnknowns = true;
+        if (!missing.includes('Payroll deposit source')) {
+          missing.push('Payroll deposit source');
+          assumptions.push('Income figure may be incomplete — no regular payroll pattern detected');
+        }
+      }
+      if (cov.institutions_connected && cov.institutions_connected <= 1) {
+        if (!missing.includes('Other banking institutions (only 1 connected)')) {
+          missing.push('Other banking institutions (only 1 connected)');
+        }
+      }
+      if (cov.unclassified_large_charges > 0) {
+        const msg = `Purpose of ${cov.unclassified_large_charges} large uncategorized charge(s)`;
+        if (!missing.includes(msg)) missing.push(msg);
+      }
     }
   }
 
@@ -164,15 +222,51 @@ function extractProvenance(toolResults: Array<{ name: string; result: Record<str
     accountsAnalyzed = accounts.length;
   }
 
+  // ── Evidence-based confidence ──────────────────────────────
+  // Derived from three dimensions:
+  //   Coverage Quality (40%): how much institutional breadth
+  //   Explanation Completeness (40%): can we explain observed activity
+  //   Critical Unknowns (20%): are essential inputs (payroll) missing
+  const avgExplanationPct = explanationSamples > 0
+    ? Math.round(totalExplanationPct / explanationSamples)
+    : 50; // default if no explanation data
+
+  const institutionScore = Math.min(institutionsConnected / 2, 1) * 100;
+  const explanationScore = avgExplanationPct;
+  const criticalScore = hasCriticalUnknowns ? 0 : 100;
+
+  const coveragePct = Math.round(
+    institutionScore * 0.4 +
+    explanationScore * 0.4 +
+    criticalScore * 0.2
+  );
+
+  // Confidence: can I explain what I see?
+  //   High:   >90% coverage
+  //   Medium: 60-90%
+  //   Low:    <60%
+  let confidence: 'high' | 'medium' | 'low';
+  if (coveragePct >= 90) confidence = 'high';
+  else if (coveragePct >= 60) confidence = 'medium';
+  else confidence = 'low';
+
+  // Deduplicate
+  const uniqueMissing = [...new Set(missing)];
+  const uniqueAssumptions = [...new Set(assumptions)];
+
   return {
     domains,
     accounts,
     accounts_analyzed: accountsAnalyzed,
     transactions_scanned: transactionsScanned,
+    coverage_pct: coveragePct,
+    visible,
     executionMs: totalExecutionMs,
     timestamp: new Date().toISOString(),
     cached: anyCached,
-    confidence: 'high' as const, // Direct data queries are always high confidence
+    confidence,
+    assumptions: uniqueAssumptions,
+    missing: uniqueMissing,
     data_freshness: dataFreshness,
   };
 }

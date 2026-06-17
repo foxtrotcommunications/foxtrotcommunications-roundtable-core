@@ -128,6 +128,11 @@ const tool: Tool = {
         payment_channel: r.payment_channel,
       }));
 
+      const connections = JSON.parse(process.env.RT_CONNECTIONS || '[]');
+      const coverageGaps: string[] = [];
+      if (connections.length <= 1) coverageGaps.push('Only 1 institution connected — results may be incomplete');
+      coverageGaps.push('Income reflects only visible credit transactions');
+
       return {
         deposits,
         total_income: parseFloat(totalIncome.toFixed(2)),
@@ -145,6 +150,10 @@ const tool: Tool = {
         metadata: {
           accounts_analyzed: accountsAnalyzed,
           transactions_scanned: parseInt(stats.deposit_count || '0', 10),
+        },
+        coverage: {
+          institutions_connected: connections.length,
+          gaps: coverageGaps,
         },
         executionMs: Date.now() - start,
       };

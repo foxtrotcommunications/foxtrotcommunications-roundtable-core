@@ -156,6 +156,64 @@ const tool: Tool = {
         }
       }
 
+      // ── Coverage analysis ──────────────────────────────────────
+      const connections = JSON.parse(process.env.RT_CONNECTIONS || '[]');
+
+      // Payroll detection — recurring credits >$500 with consistent timing
+      const payrollCheck = await query(`
+        SELECT COUNT(*)::int AS cnt FROM (
+          SELECT merchant_name
+          FROM plaid_transactions
+          WHERE amount < 0 AND ABS(amount) > 500
+            AND date >= CURRENT_DATE - INTERVAL '90 days'
+          GROUP BY merchant_name
+          HAVING COUNT(*) >= 2
+        ) t
+      `);
+      const hasPayroll = payrollCheck.rows[0]?.cnt > 0;
+
+      // Unclassified large charges
+      const unclassifiedCheck = await query(`
+        SELECT COUNT(*)::int AS cnt FROM plaid_transactions
+        WHERE amount > 200 AND (category IS NULL OR category = 'Uncategorized')
+          AND date >= CURRENT_DATE - INTERVAL '30 days'
+      `);
+      const unclassifiedCount = unclassifiedCheck.rows[0]?.cnt || 0;
+
+      // Income sources
+      const incomeSourcesCheck = await query(`
+        SELECT COUNT(DISTINCT COALESCE(merchant_name, name))::int AS cnt
+        FROM plaid_transactions
+        WHERE amount < 0 AND date >= CURRENT_DATE - INTERVAL '30 days'
+      `);
+
+      // Explainability — % of spending with categories
+      const explainCheck = await query(`
+        SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE category IS NOT NULL AND category != 'Uncategorized')::int AS explained
+        FROM plaid_transactions
+        WHERE amount > 0 AND date >= CURRENT_DATE - INTERVAL '30 days'
+      `);
+      const totalTxns = explainCheck.rows[0]?.total || 0;
+      const explainedTxns = explainCheck.rows[0]?.explained || 0;
+      const explanationPct = totalTxns > 0 ? Math.round((explainedTxns / totalTxns) * 100) : 0;
+
+      // Build gaps
+      const coverageGaps: string[] = [];
+      if (!hasPayroll) coverageGaps.push('No payroll deposit pattern detected in visible accounts');
+      if (connections.length <= 1) coverageGaps.push('Only 1 financial institution connected');
+      if (unclassifiedCount > 0) coverageGaps.push(`${unclassifiedCount} charges over $200 are uncategorized`);
+      coverageGaps.push('Income reflects only visible credit transactions');
+
+      // Visible evidence
+      const coverageVisible: string[] = [
+        `${totalAccounts} accounts`,
+        `${transactionsScanned} transactions (30 days)`,
+        'Current balances',
+      ];
+      if (hasPayroll) coverageVisible.push('Payroll deposit pattern');
+
       return {
         summary: {
           total_accounts: totalAccounts,
@@ -174,6 +232,16 @@ const tool: Tool = {
           data_freshness: dataFreshness,
           accounts_analyzed: totalAccounts,
           transactions_scanned: transactionsScanned,
+        },
+        coverage: {
+          institutions_connected: connections.length,
+          accounts_visible: totalAccounts,
+          has_payroll_pattern: hasPayroll,
+          income_sources_identified: incomeSourcesCheck.rows[0]?.cnt || 0,
+          unclassified_large_charges: unclassifiedCount,
+          explanation_pct: explanationPct,
+          visible: coverageVisible,
+          gaps: coverageGaps,
         },
         executionMs: Date.now() - start,
       };
