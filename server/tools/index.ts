@@ -81,32 +81,26 @@ const tools = {
   call_agent: callAgent,
 };
 
-// ─── Domain Financial Tools (conditional on Plaid connection) ────────
-// These tools only register on workspaces with a Plaid data connection.
-// Arthur (the orchestrator) should NOT have these — it calls them via
-// intent_bridge on the domain workspace that has the Plaid data.
-try {
-  const connections = JSON.parse(process.env.RT_CONNECTIONS || '[]');
-  const hasPlaid = connections.some((c: any) => c.type === 'plaid');
-  if (hasPlaid) {
-    Object.assign(tools, {
-      get_financial_snapshot: getFinancialSnapshot,
-      list_accounts: listAccounts,
-      get_balance: getBalance,
-      get_balance_history: getBalanceHistory,
-      get_transactions: getTransactions,
-      get_spending_by_category: getSpendingByCategory,
-      get_spending_by_merchant: getSpendingByMerchant,
-      get_recurring_charges: getRecurringCharges,
-      get_income_summary: getIncomeSummary,
-      get_cashflow: getCashflow,
-      get_liabilities: getLiabilities,
-      get_debt_summary: getDebtSummary,
-      get_credit_utilization: getCreditUtilization,
-      get_payoff_projection: getPayoffProjection,
-    });
-  }
-} catch { /* RT_CONNECTIONS not set or invalid JSON — skip domain tools */ }
+// ─── Domain Financial Tools ─────────────────────────────────────────
+// Always registered. Each tool uses domainDb which requires DATABASE_URL.
+// If no DB is configured, tools return a clear error rather than being invisible.
+// The workspace's toolsEnabled array controls which tools the LLM can actually call.
+Object.assign(tools, {
+  get_financial_snapshot: getFinancialSnapshot,
+  list_accounts: listAccounts,
+  get_balance: getBalance,
+  get_balance_history: getBalanceHistory,
+  get_transactions: getTransactions,
+  get_spending_by_category: getSpendingByCategory,
+  get_spending_by_merchant: getSpendingByMerchant,
+  get_recurring_charges: getRecurringCharges,
+  get_income_summary: getIncomeSummary,
+  get_cashflow: getCashflow,
+  get_liabilities: getLiabilities,
+  get_debt_summary: getDebtSummary,
+  get_credit_utilization: getCreditUtilization,
+  get_payoff_projection: getPayoffProjection,
+});
 
 // ─── Dynamic Tool Registry (MCP servers inject tools here) ─────────
 // Dynamic tools are stored separately and merged at resolve-time.
