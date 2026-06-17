@@ -44,6 +44,10 @@ import getSpendingByMerchant from './getSpendingByMerchant';
 import getRecurringCharges from './getRecurringCharges';
 import getIncomeSummary from './getIncomeSummary';
 import getCashflow from './getCashflow';
+import getLiabilities from './getLiabilities';
+import getDebtSummary from './getDebtSummary';
+import getCreditUtilization from './getCreditUtilization';
+import getPayoffProjection from './getPayoffProjection';
 
 const tools = {
   // Meta-tools — always available, cannot be disabled
@@ -96,6 +100,10 @@ try {
       get_recurring_charges: getRecurringCharges,
       get_income_summary: getIncomeSummary,
       get_cashflow: getCashflow,
+      get_liabilities: getLiabilities,
+      get_debt_summary: getDebtSummary,
+      get_credit_utilization: getCreditUtilization,
+      get_payoff_projection: getPayoffProjection,
     });
   }
 } catch { /* RT_CONNECTIONS not set or invalid JSON — skip domain tools */ }
