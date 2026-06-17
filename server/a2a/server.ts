@@ -143,6 +143,14 @@ function extractProvenance(toolResults: Array<{ name: string; result: Record<str
       }
     }
 
+    // Check metadata and coverage for accounts_analyzed
+    if (r.data?.metadata?.accounts_analyzed) {
+      accountsAnalyzed = Math.max(accountsAnalyzed, Number(r.data.metadata.accounts_analyzed));
+    }
+    if (r.data?.coverage?.accounts_visible) {
+      accountsAnalyzed = Math.max(accountsAnalyzed, Number(r.data.coverage.accounts_visible));
+    }
+
     // Count transactions scanned — check metadata first, then data fields
     if (r.data?.metadata?.transactions_scanned) {
       transactionsScanned += Number(r.data.metadata.transactions_scanned);
