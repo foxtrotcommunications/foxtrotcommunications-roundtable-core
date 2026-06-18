@@ -16,35 +16,14 @@ const DOMAIN_ACCOUNT_TYPES = {
     realestate: ['loan'],
 };
 // ─── Amount Normalization ───────────────────────────────────────────────────
-// Plaid convention: positive = debit (money out), negative = credit (money in).
-// Some institutions (and sandbox) return credits with positive amounts.
-// This function detects known credit patterns and normalizes the sign.
-const CREDIT_PATTERNS = [
-    'ach electronic credit',
-    'ach credit',
-    'direct dep',
-    'direct deposit',
-    'payroll',
-    'gusto pay',
-    'adp payroll',
-    'intuit payroll',
-    'employer',
-    'salary',
-    'wage',
-    'tax refund',
-    'irs treas',
-];
-function normalizeAmount(amount, name) {
-    // Only fix positive amounts that look like credits
-    if (amount <= 0 || !name)
-        return amount;
-    const lower = name.toLowerCase();
-    for (const pattern of CREDIT_PATTERNS) {
-        if (lower.includes(pattern)) {
-            return -amount; // Flip to negative (credit)
-        }
-    }
-    return amount;
+// Plaid uses INVERTED signage from standard accounting:
+//   Plaid: positive = money LEFT the account (debit), negative = money ENTERED (credit)
+//   Normal: positive = money IN, negative = money OUT
+//
+// We flip ALL signs at sync time so the rest of the system uses normal convention.
+// This is simpler and more reliable than pattern-matching transaction names.
+function normalizeAmount(amount) {
+    return -amount;
 }
 // ─── Sync Logic ─────────────────────────────────────────────────────────────
 async function syncCheckingData(config) {
@@ -124,7 +103,7 @@ async function syncCheckingData(config) {
              synced_at = NOW()`, [
                     txn.transaction_id,
                     txn.account_id,
-                    normalizeAmount(txn.amount, txn.name),
+                    normalizeAmount(txn.amount),
                     txn.date,
                     txn.name,
                     txn.merchant_name ?? null,
@@ -153,7 +132,7 @@ async function syncCheckingData(config) {
              synced_at = NOW()`, [
                     txn.transaction_id,
                     txn.account_id,
-                    normalizeAmount(txn.amount, txn.name),
+                    normalizeAmount(txn.amount),
                     txn.date,
                     txn.name,
                     txn.merchant_name ?? null,
