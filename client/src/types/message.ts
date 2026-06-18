@@ -1,5 +1,7 @@
 // Type definitions for chat messages and tool results
 
+import type { ProvenancePayload } from './provenance';
+
 export interface ChatMessage {
   id: number;
   workspace_id: string;
@@ -11,6 +13,7 @@ export interface ChatMessage {
   tool_name?: string;
   tool_call_id?: string;
   created_at: string;
+  provenance?: ProvenancePayload;
 }
 
 export interface ToolCall {

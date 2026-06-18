@@ -9,13 +9,16 @@ import ChartRenderer from './ChartRenderer';
 import MermaidRenderer from './MermaidRenderer';
 import CollapsibleBlock from './CollapsibleBlock';
 import { MermaidBlock, TableBlock } from './DownloadableBlocks';
+import ProvenanceFooter from './ProvenanceFooter';
 import type { ChartResult } from '../../types/message';
+import type { ProvenancePayload } from '../../types/provenance';
 
 interface Props {
   content: string;
   streaming?: boolean;
   /** Known mention targets — display names and usernames that should be highlighted */
   knownMentions?: string[];
+  provenance?: ProvenancePayload;
 }
 
 /** Stable reference for remarkPlugins to avoid ReactMarkdown re-parses */
@@ -85,7 +88,7 @@ function processMentions(children: ReactNode, knownMentions: string[]): ReactNod
   return children;
 }
 
-function MessageContent({ content, streaming, knownMentions = [] }: Props) {
+function MessageContent({ content, streaming, knownMentions = [], provenance }: Props) {
   const processed = useMemo(() => content, [content]);
 
   // Always include 'ai' as a known mention
@@ -156,13 +159,16 @@ function MessageContent({ content, streaming, knownMentions = [] }: Props) {
   }), [streaming, mentions]);
 
   return (
-    <ReactMarkdown
-      remarkPlugins={REMARK_PLUGINS}
-      rehypePlugins={REHYPE_PLUGINS}
-      components={components}
-    >
-      {processed}
-    </ReactMarkdown>
+    <>
+      <ReactMarkdown
+        remarkPlugins={REMARK_PLUGINS}
+        rehypePlugins={REHYPE_PLUGINS}
+        components={components}
+      >
+        {processed}
+      </ReactMarkdown>
+      {provenance && !streaming && <ProvenanceFooter provenance={provenance} />}
+    </>
   );
 }
 

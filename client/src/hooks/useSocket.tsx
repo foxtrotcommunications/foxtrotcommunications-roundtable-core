@@ -137,7 +137,7 @@ export function useChat(socket: Socket | null) {
       setStreaming(false);
     };
 
-    const onAiComplete = (data: { fullText?: string }) => {
+    const onAiComplete = (data: { fullText?: string; provenance?: any }) => {
       // Collect tool results before clearing
       const currentToolCalls = toolCallsRef.current;
       const toolMessages: ChatMessage[] = [];
@@ -166,6 +166,7 @@ export function useChat(socket: Socket | null) {
           role: 'assistant' as const,
           content: data.fullText,
           created_at: new Date().toISOString(),
+          provenance: data.provenance || undefined,
         });
       }
       if (newMessages.length > 0) {

@@ -1,0 +1,185 @@
+/* Provenance Footer */
+.provenance-footer {
+  margin-top: 12px;
+  border-top: 1px solid rgba(99, 102, 241, 0.15);
+  padding-top: 8px;
+  font-size: 0.8rem;
+}
+
+/* CSS variables for provenance colors */
+:root {
+  --prov-green: #4ade80;
+  --prov-amber: #fbbf24;
+  --prov-red: #f87171;
+}
+
+/* Summary line - always visible */
+.prov-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 0.78rem;
+}
+
+.prov-confidence-badge {
+  font-weight: 600;
+}
+
+.prov-summary-meta {
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+
+/* Section */
+.prov-section {
+  border-radius: 6px;
+  margin-top: 2px;
+}
+
+.prov-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.78rem;
+  text-align: left;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+.prov-section-header:hover {
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.prov-section-icon {
+  font-size: 0.85rem;
+}
+
+.prov-section-label {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.prov-section-summary {
+  color: var(--text-secondary);
+  opacity: 0.6;
+  margin-left: auto;
+  font-size: 0.72rem;
+}
+
+.prov-section-chevron {
+  transition: transform 0.2s;
+  font-size: 0.65rem;
+  opacity: 0.5;
+}
+
+.prov-chevron-open {
+  transform: rotate(90deg);
+}
+
+/* Content */
+.prov-section-content {
+  padding: 4px 8px 8px 28px;
+  animation: prov-slide-in 0.15s ease-out;
+}
+
+@keyframes prov-slide-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.prov-detail p {
+  margin: 2px 0;
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+}
+
+/* Confidence bar */
+.prov-confidence-bar {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  margin: 6px 0 8px;
+  overflow: hidden;
+}
+
+.prov-confidence-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.5s ease-out;
+}
+
+/* Source items */
+.prov-source-item {
+  color: var(--prov-green);
+  font-size: 0.76rem;
+  padding: 1px 0;
+}
+
+.prov-bridge-item {
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+  padding: 1px 0 1px 12px;
+}
+
+/* Sub-sections */
+.prov-sub-section {
+  margin-bottom: 8px;
+}
+
+.prov-sub-label {
+  font-weight: 500;
+  font-size: 0.74rem;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.prov-sub-section ul {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.prov-sub-section li {
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+  padding: 1px 0;
+}
+
+/* Tool traces */
+.prov-tool-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.74rem;
+  padding: 2px 0;
+}
+
+.prov-tool-status.success { color: var(--prov-green); }
+.prov-tool-status.error { color: var(--prov-red); }
+
+.prov-tool-name {
+  color: var(--text-primary);
+  font-family: monospace;
+  font-size: 0.72rem;
+}
+
+.prov-tool-duration {
+  color: var(--text-secondary);
+  margin-left: auto;
+  font-size: 0.7rem;
+  opacity: 0.6;
+}
+
+.prov-tool-total {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
