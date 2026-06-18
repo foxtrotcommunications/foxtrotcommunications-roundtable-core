@@ -1,6 +1,4 @@
 // server/sockets/chatHandler.ts — Message handling + AI streaming with tools (workspace-based)
-import type { ToolTrace, BridgeTrace } from '../utils/provenance';
-import { buildSystemProvenance, parseReasoningComment, mergeProvenance } from '../utils/provenance';
 import type { Server } from 'socket.io';
 import type {
   RoundtableSocket,
@@ -538,25 +536,22 @@ For LIVE data about your current bridges, contracts, tools, and data sources, ca
 - NEVER say "@User". Always use the person's actual name.
 - The current message is from: **${socket.username || 'a user'}**
 
---- REASONING PROVENANCE (MANDATORY) ---
-At the end of EVERY financial or analytical response, include a hidden reasoning block.
-The system parses this and renders a structured footer — do NOT render provenance yourself.
-Do NOT include a blockquote provenance footer — the system handles it.
+--- DATA PROVENANCE (MANDATORY) ---
+You MUST end EVERY complex analysis with a **📍 Data Provenance** footer. This is NON-NEGOTIABLE for compliance.
 
-Format (as the LAST thing in your response, after all visible content):
-<!--reasoning:{"assumptions":[],"keyCalculations":[],"keyDrivers":[],"limitations":[],"missingDomains":[],"wouldImprove":[]}-->
+A "complex analysis" is any response that does ANY of:
+  • Queries 2+ tables or datasets
+  • Cross-references data from different sources (e.g. trades + compliance checks, or market data + positions)
+  • Uses a cross-workspace bridge call (intent_bridge, bridge_workspace)
+  • Reconstructs history, calculates risk metrics, or performs multi-step computation
 
-Field rules:
-• assumptions: Every assumption you made ("APR = 20% estimated", "Monthly income based on last 3 deposits")
-• keyCalculations: Show actual math ("Monthly interest: $5,020 × (20% ÷ 12) = $83.67")
-• keyDrivers: The 2-4 most influential factors ("Business card APR", "Recurring charges $4,157/mo")
-• limitations: Constraints on your answer ("Only 1 institution connected", "No tax bracket data")
-• missingDomains: Domain workspaces that would improve this answer ("Investments", "Retirement")
-• wouldImprove: Specific analyses missing data would enable ("Employer match analysis", "Full portfolio review")
+The footer MUST appear as the LAST thing in your response. Format (3-6 lines):
+> 📍 **Data Provenance**
+> Sources: \`pc_execution.trades\`, \`pc_execution.compliance_checks\`, \`pc_portfolio.positions\`
+> Governance: Excalibur → Arthur Portfolio via contract CT-0042 (read-only, position data)
+> Freshness: Trade data through 2026-06-10 close; positions as of EOD 2026-06-10
 
-NEVER include confidence scores, coverage percentages, or freshness timestamps — the system computes those.
-NEVER render a > 📍 Data Provenance blockquote — the system handles provenance rendering.
-Include this block even for simple responses (with fewer fields filled).
+Skip this footer ONLY for: single-table lookups, casual conversation, or short factual answers.
 
 --- DIAGRAM STYLING ---
 When generating Mermaid diagrams (flowcharts, sequence diagrams, etc.):
@@ -684,13 +679,6 @@ When generating Mermaid diagrams (flowcharts, sequence diagrams, etc.):
       let toolCallCount: number = 0;
       const toolNamesUsed: string[] = [];
 
-      // Provenance tracking
-      const toolTraces: ToolTrace[] = [];
-      const bridgeTraces: BridgeTrace[] = [];
-      const toolStartTimes = new Map<string, number>();
-      const toolArgsMap = new Map<string, Record<string, unknown>>();
-      let firstToolTimestamp: number = 0;
-
       try {
         for await (const event of streamCompletion(
           aiProvider, aiModel, messages, apiKey, toolsEnabled,
@@ -708,10 +696,6 @@ When generating Mermaid diagrams (flowcharts, sequence diagrams, etc.):
               io.to(wsChannel).emit('tool-call', { name: event.name, args: event.args, callId: event.callId });
               toolCallCount++;
               if (!toolNamesUsed.includes(event.name)) toolNamesUsed.push(event.name);
-              // Provenance: track start time and args
-              toolStartTimes.set(event.callId, Date.now());
-              if (!firstToolTimestamp) firstToolTimestamp = Date.now();
-              toolArgsMap.set(event.callId, event.args || {});
               // Audit: tool call
               { const { getAdapter: _ga } = require('../db/adapter') as { getAdapter: () => DatabaseAdapter };
                 _ga().audit(config.workspaceId, socket.userId, socket.username, 'tool_call', event.name, {
@@ -729,25 +713,6 @@ When generating Mermaid diagrams (flowcharts, sequence diagrams, etc.):
                 _ga().audit(config.workspaceId, socket.userId, socket.username, auditType, event.name, {
                   resultPreview: JSON.stringify(event.result).substring(0, 200),
                 }, socket.handshake?.address).catch(() => {});
-              }
-              // Provenance: track tool duration and bridge calls
-              {
-                const startTime = toolStartTimes.get(event.callId) || Date.now();
-                const duration = Date.now() - startTime;
-                toolTraces.push({
-                  name: event.name,
-                  durationMs: duration,
-                  status: 'success',
-                });
-                if (event.name === 'intent_bridge' || event.name === 'bridge_workspace') {
-                  const args = toolArgsMap.get(event.callId) || {};
-                  bridgeTraces.push({
-                    targetWorkspace: String(args.targetWorkspace || args.target || 'unknown'),
-                    capability: String(args.capability || args.op || 'unknown'),
-                    durationMs: duration,
-                    status: 'success',
-                  });
-                }
               }
               // Notify code panel when workspace files change
               if (['write_file', 'git_clone', 'git_commit', 'shell_exec'].includes(event.name)) {
@@ -768,10 +733,7 @@ When generating Mermaid diagrams (flowcharts, sequence diagrams, etc.):
               io.to(wsChannel).emit('ai-error', { error: event.error });
               break;
             case 'done':
-              if (event.fullText) {
-                const { cleanText: savedText } = parseReasoningComment(event.fullText);
-                await workspaceService.saveMessage(null, 'assistant', savedText);
-              }
+              if (event.fullText) await workspaceService.saveMessage(null, 'assistant', event.fullText);
               break;
           }
         }
@@ -784,22 +746,7 @@ When generating Mermaid diagrams (flowcharts, sequence diagrams, etc.):
       } finally {
         socket.isGenerating = false;
         socket.abortController = null;
-
-        // Build provenance payload
-        const domainsAvailable = (() => {
-          try {
-            const contracts = JSON.parse(process.env.RT_CONTRACTS || '[]');
-            return Array.isArray(contracts) ? contracts.length : 0;
-          } catch { return 0; }
-        })();
-
-        const { cleanText, reasoning } = parseReasoningComment(fullText);
-        const systemProv = buildSystemProvenance(toolTraces, bridgeTraces, domainsAvailable, firstToolTimestamp);
-        const provenance = mergeProvenance(systemProv, reasoning);
-
-        console.log(`[Provenance] tools=${toolTraces.length} bridges=${bridgeTraces.length} domains=${domainsAvailable} confidence=${provenance.system.confidence}% (${provenance.system.confidenceLabel})`);
-
-        io.to(wsChannel).emit('ai-complete', { fullText: cleanText, userId: socket.userId, provenance });
+        io.to(wsChannel).emit('ai-complete', { fullText, userId: socket.userId });
 
         // ── Process next queued request ──────────────────────────
         workspaceProcessing.set(config.workspaceId, false);

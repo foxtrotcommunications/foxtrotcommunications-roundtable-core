@@ -47,7 +47,7 @@ function Message({ message, highlighted, knownMentions }: Props) {
           <span className="message-time">{formatTime(message.created_at)}</span>
         </div>
         <div className="message-content">
-          <MessageContent content={displayContent} knownMentions={knownMentions} provenance={message.provenance} />
+          <MessageContent content={displayContent} knownMentions={knownMentions} />
         </div>
         {isAssistant && <PinButton messageId={message.id} content={message.content} />}
       </div>
