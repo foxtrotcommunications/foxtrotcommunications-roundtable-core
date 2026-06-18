@@ -4,11 +4,14 @@
 
 Multiple users collaborate on AI conversations in real-time — with built-in tools for querying data warehouses, executing code, and managing files. Each workspace is an isolated container with its own AI, tools, and persistent storage.
 
-Roundtable is designed as a **platform for agent orchestration** — connect your own A2A agents, MCP servers, or custom tools and let the AI route between them. Build agents in any language, deploy them anywhere, and plug them into a shared workspace where your whole team works together.
-
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-315%20passing-brightgreen.svg)](#testing)
+[![License](https://img.shields.io/badge/license-proprietary-red.svg)](#license)
+[![Tests](https://img.shields.io/badge/tests-414%20passing-brightgreen.svg)](#testing)
+[![Node](https://img.shields.io/badge/node-20%2B-blue.svg)](#prerequisites)
 [![CI](https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable-core/actions/workflows/ci.yml/badge.svg)](https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable-core/actions/workflows/ci.yml)
+
+> **Production** — [roundtable.foxtrotcommunications.net](https://roundtable.foxtrotcommunications.net)
+
+---
 
 ## Quick Start
 
@@ -25,152 +28,252 @@ npm run dev
 
 Roundtable auto-detects the environment: if no `DATABASE_URL` is set, it uses SQLite and in-memory sessions for instant local development.
 
-### Three Deployment Paths
+### Deployment Paths
 
-| Path | Database | Command | Time | Use Case |
-|------|----------|---------|------|----------|
-| **Local dev** | SQLite (auto) | `npm run dev` | ~3 min | Development, testing, evaluation |
-| **Docker quickstart** | PostgreSQL (compose) | `docker compose -f docker-compose.quickstart.yml up` | ~3 min | Quick demo on a VM |
-| **Cloud Run** | PostgreSQL (Cloud SQL) | `gcloud run deploy` | ~5 min | Serverless production |
-| **GKE production** | PostgreSQL (Cloud SQL) | `./deploy-gke.sh dev Development` | ~5 min | Enterprise deployment |
+| Path | Database | Command | Use Case |
+|------|----------|---------|----------|
+| **Local dev** | SQLite (auto) | `npm run dev` | Development, testing |
+| **Docker Compose** | PostgreSQL | `docker compose up` | Quick demo on a VM |
+| **Cloud Run** | Cloud SQL (PostgreSQL) | `gcloud run deploy` | Serverless production |
+| **GKE** | Cloud SQL (PostgreSQL) | `./deploy-gke.sh dev Development` | Enterprise deployment |
 
 ### Prerequisites
 
-- **Node.js** 20+ (tested on Node 20, 22)
+- **Node.js** 20+ (tested on 20, 22)
 - **PostgreSQL** — required only for production (local dev uses SQLite automatically)
 
-## Features
+---
 
-- **Multiplayer AI Chat** — Multiple users in the same AI conversation, streaming in real-time
-- **Concurrent Generation** — Each user has an independent AI generation lifecycle; multiple people can prompt AI simultaneously without blocking each other
-- **Multi-Provider AI** — OpenAI, Anthropic (Claude), Google Gemini (via Vertex AI or API key), and Ollama (local models, OpenAI-compatible)
-- **23 Built-in Tools** — Web search, data warehouse queries, file management, shell execution, charts, cross-workspace bridges, intent compilation, A2A agent calls, and more
-- **Model-Aware Tooling** — Tools like web search automatically use the workspace's configured model and endpoint
-- **Configurable Tool Set** — Enable or disable individual tools per workspace via the Settings panel
-- **Configurable Agent** — Set the AI provider, model, and system prompt per workspace — no redeploy needed
-- **Data Warehouse Queries** — AI can query BigQuery, Snowflake, and Databricks in real-time
-- **Workspace-per-Container** — Each workspace is an isolated container with its own identity
-- **Workspace Bridges** — Open cross-workspace channels for AI-mediated collaboration between teams
-- **Bridge Contracts** — Governed communication agreements between workspaces; contracts define allowed actions, approval requirements, and escalation paths at each bridge hop
-- **A2A Agent Protocol** — Plug in external agents built in any language via the A2A standard (JSON-RPC 2.0 over HTTP)
-- **Governance Contracts** — Typed, approved agreements between workspaces that define allowed actions, approval chains, and escalation paths; enforced cryptographically at runtime
-- **E2E Encrypted Communication** — Cross-workspace A2A messages are encrypted with AES-256-GCM using HKDF-derived per-contract keys; only the two workspaces in an active contract can decrypt
-- **Intent Compilation Engine (ICE)** — Compiles structured AI operations into signed, deterministic intent tokens that execute on receiving workspaces without LLM inference. Includes SQL fusion, execution proofs, and result caching
-- **Wake-on-Request** — Sleeping workspaces (scaled to zero) are automatically woken when a bridge call arrives; the caller retries transparently for up to 120s, achieving ~15s cold-start-to-response times
-- **Execution Proofs** — Every compiled execution produces a cryptographic proof (SHA-256 input/output hashes, policy checks applied, HMAC-signed) for audit-grade traceability
-- **Intent Caching** — LRU cache (1000 entries, 60s TTL) for compiled intent results; identical operations return cached results in <1ms
-- **SQL Fusion Compiler** — Merges multiple queries against the same table into a single optimized query, reducing API costs and latency
-- **MCP Server Support** — Connect external Model Context Protocol servers to extend workspace tool capabilities
-- **Multi-Cloud** — Deploy on Cloud Run, GKE, EKS, AKS, or any Kubernetes cluster
-- **BYOK** — Bring Your Own Key; users configure their own API keys, or use server-level defaults
-- **Presence** — See who's online in each workspace
-- **Streaming** — AI responses stream token-by-token to all participants
-- **Parallel Tool Execution** — When the AI emits multiple function calls in a single turn, all calls execute concurrently via `Promise.all`, reducing multi-tool round latency from N×latency to 1×latency
-- **Embeddable** — Embed in other apps via iframe with `EMBED_MODE=true`
-- 🎨 **Theme system** — Light, dark, and system (OS preference) color schemes
-- **React + TypeScript** — Modern frontend with Vite, hot-reload dev server
-- **AI Request Queue** — One AI request at a time per workspace; concurrent requests are queued with position tracking
-- **Monthly Token Credit Pool** — Configurable hard/soft caps per workspace
-- **Mermaid Diagram Rendering** — Interactive SVG diagrams from mermaid code blocks
-- **Collapsible Output Blocks** — Charts, tables, and diagrams are collapsible with download buttons
-- **Downloadable Outputs** — PNG export for charts/diagrams, CSV export for tables
-- **@Mention Autocomplete** — User mentions with pill styling
-- **Schema Auto-Injection** — YAML schema files from `workspace/uploads/` injected into AI context
-- **Documentation Auto-Injection** — Markdown docs from `workspace/docs/` injected into AI context
-- **First-Visit Onboarding** — Tooltip guides new users on how to interact with the AI
+## Architecture
 
-## Deployment
+```mermaid
+graph TB
+    subgraph Client
+        Browser["Browser<br/>React 19 + Vite + Socket.IO"]
+    end
 
-### Docker Quickstart (VM)
+    subgraph Platform ["Cloud Run / GKE"]
+        direction TB
+        subgraph Workspaces
+            W1["rt-dev :3000"]
+            W2["rt-backend :3000"]
+            W3["rt-ops :3000"]
+        end
 
-Pull a pre-built image — no source build required. Port 80, `http://<vm-ip>` just works.
+        W1 & W2 & W3 --- DB["PostgreSQL / SQLite"]
+        W1 <-->|"A2A / ICE"| W2
+        W2 <-->|"A2A / ICE"| W3
+    end
 
-```bash
-curl -O https://raw.githubusercontent.com/foxtrotcommunications/foxtrotcommunications-roundtable-core/main/docker-compose.quickstart.yml
-docker compose -f docker-compose.quickstart.yml up
+    Browser <-->|"WebSocket"| W1
+    Workspaces --- AI["AI Providers<br/>OpenAI · Anthropic<br/>Vertex AI · Google AI · Ollama"]
+    Workspaces --- DW["Data Warehouses<br/>BigQuery · Snowflake · Databricks"]
+    Workspaces --- Ext["External Integrations<br/>A2A Agents · MCP Servers"]
 ```
 
-### Docker (Build from Source)
+### Workspace-per-Container
 
-```bash
-docker build -t roundtable:latest .
-docker run -p 3000:3000 --env-file .env roundtable:latest
+Every workspace runs as an isolated container with its own identity (`WORKSPACE_ID`), AI configuration, and tool surface. All workspaces share a common PostgreSQL instance. Deployments scale independently on Kubernetes.
+
+### Intent Compilation Engine (ICE)
+
+The ICE compiles structured AI operations into signed, deterministic intent tokens that execute on receiving workspaces **without LLM inference**.
+
+```
+LLM → intent_bridge → IntentToken (signed)
+    → POST /a2a intent/execute
+    → Cache check → SQL fusion → Tool dispatch
+    → ExecutionProof (SHA-256) → Signed result
 ```
 
-### Docker Compose (Full Stack)
+| Metric | Value |
+|--------|-------|
+| Hot path latency | ~15 ms |
+| Cold start (wake-on-request) | ~15 s |
+| Token savings per call | ~4,300 vs `bridge_workspace` |
+| Cache | LRU, 1000 entries, 60 s TTL |
 
-```bash
-docker compose up
-```
+---
 
-Starts Roundtable + PostgreSQL. Edit `docker-compose.yml` to configure AI keys and workspace settings.
+## AI Providers
 
-### Local Models (Ollama)
+Multi-provider architecture — switch providers per workspace at runtime, no redeploy.
 
-Run AI models locally with [Ollama](https://ollama.com) — no API keys, no cost, fully offline.
+| Provider | Config | Notes |
+|----------|--------|-------|
+| **OpenAI** | `OPENAI_API_KEY` | GPT-4o, o3, etc. |
+| **Anthropic** | `ANTHROPIC_API_KEY` | Claude Opus, Sonnet, Haiku |
+| **Vertex AI** | `GCP_PROJECT` + ADC | Preview / gemini-3.5+ → global endpoint; GA → regional |
+| **Google AI** | `GOOGLE_AI_API_KEY` | Direct API key access |
+| **Ollama** | `OLLAMA_HOST` | Local models, OpenAI-compatible (vLLM, LM Studio, etc.) |
 
-```bash
-# Start Roundtable + Ollama with GPU support
-docker compose -f docker-compose.yml -f docker-compose.ollama.yml up
+### 429 Auto-Fallback
 
-# Pull a model
-docker compose exec ollama ollama pull llama3.1:8b
-```
+When Vertex AI returns `RESOURCE_EXHAUSTED`, Roundtable automatically:
 
-Then set the provider to **Ollama** in Settings. Works with any OpenAI-compatible endpoint (vLLM, LM Studio, Groq, Together AI, etc.) — just enter the host URL.
+1. Retries the request with `gemini-3.5-flash`
+2. Shows a brief notice to the user
+3. Restores the original model after a **10-minute cooldown**
 
-Each workspace can point at a different Ollama instance, enabling per-team model and GPU isolation.
+### Tool Loop Safety
 
-### GKE (Google Kubernetes Engine)
+All tool-calling conversations enforce a **270-second wall-clock cap** to prevent runaway loops.
 
-```bash
-# First time: creates Autopilot cluster, IAM, secrets, nginx-ingress
-GCP_PROJECT=your-project ./deploy-gke.sh --setup
+---
 
-# Deploy a workspace
-GCP_PROJECT=your-project ./deploy-gke.sh dev Development
-GCP_PROJECT=your-project ./deploy-gke.sh backend "Backend Team"
-```
+## Cross-Workspace Communication
 
-### Any Kubernetes Cluster (EKS, AKS, bare metal)
+Two bridge tools serve different purposes:
 
-```bash
-# Apply shared config
-kubectl apply -f k8s/base/config.yaml
+| | `bridge_workspace` | `intent_bridge` |
+|---|---|---|
+| **Purpose** | AI-to-AI delegation | Compiled intent execution |
+| **LLM on receiver** | ✅ Full inference | ❌ Zero tokens |
+| **Latency** | ~3–5 s | ~15 ms hot / ~15 s cold |
+| **Encryption** | AES-256-GCM E2E | AES-256-GCM E2E |
+| **Operations** | Free-form reasoning | `query`, `tool_call`, `capability`, `discover`, `aggregate` |
 
-# Create secrets
-kubectl create secret generic roundtable-secrets \
-  --from-literal=SESSION_SECRET=$(openssl rand -hex 32) \
-  --from-literal=DATABASE_URL="postgresql://user:pass@host:5432/roundtable"
+### Wake-on-Request
 
-# Deploy a workspace
-./deploy-k8s.sh dev Development
-```
+When `intent_bridge` detects a sleeping workspace (502/503), it automatically scales the K8s deployment from 0 → 1 and retries every 5 seconds for up to **250 seconds**.
 
-See [`k8s/overlays/tls/`](k8s/overlays/tls/) for HTTPS setup with cert-manager + Let's Encrypt.
+| Timeout | Value |
+|---------|-------|
+| Normal intent | 30 s |
+| Wake intent | 90 s |
+| Max wake window | 250 s |
+
+---
+
+## A2A Protocol
+
+JSON-RPC 2.0 over HTTP. Plug in external agents built in any language.
+
+| Endpoint | Methods |
+|----------|---------|
+| `POST /a2a` | `message/send`, `intent/execute`, `intent/discover`, `tasks/get`, `tasks/cancel` |
+| `GET /.well-known/agent.json` | Agent Card (capabilities, skills, auth) |
+
+### Authentication
+
+| Method | Headers | Use Case |
+|--------|---------|----------|
+| **API Key** | `Authorization: Bearer <key>` | Simple integrations |
+| **Contract HKDF** | `X-Contract-Id`, `X-Contract-Signature`, `X-Contract-Timestamp` | Workspace-to-workspace |
+
+> **Domain isolation guard** — Domain workspaces reject `message/send` over contract auth; only `intent/execute` is accepted.
+
+---
+
+## Governance Contracts
+
+Auto-provisioned agreements between workspaces that define and enforce allowed actions at runtime.
+
+### Contract Structure
+
+- **`allowedActions`** — explicit action whitelist (e.g. `capability:plaid.getBalances`, `tool:query_bigquery`)
+- **Transport actions** (`intent_execute`, `discover`) — auto-allowed for active contracts
+- **Storage** — Firestore manifest with 5 s TTL cache, fallback to `RT_CONTRACTS` env
+
+### Action Mapping (`intentOpToAction`)
+
+| Intent Operation | Action Format | Example |
+|-----------------|---------------|---------|
+| `query` | `query:{tool}` | `query:query_bigquery` |
+| `tool_call` | `tool:{tool}` | `tool:read_file` |
+| `capability` | `capability:{name}` | `capability:plaid.getBalances` |
+| `discover` | `discover` | `discover` |
+
+---
+
+## Security
+
+### Cryptographic Controls
+
+| Layer | Mechanism |
+|-------|-----------|
+| Key derivation | HKDF from `ORG_MASTER_SECRET`, per-contract keys |
+| Payload encryption | AES-256-GCM end-to-end |
+| Request signing | HMAC-SHA256 with `timingSafeEqual` |
+| Replay prevention | Nonce store, 10-min window |
+| Execution proofs | SHA-256 input/output hashes, HMAC-signed |
+
+### Application Security
+
+| Control | Detail |
+|---------|--------|
+| Passwords | bcrypt-12 |
+| Headers | Helmet.js |
+| XSS | DOMPurify sanitization |
+| Rate limiting | Per-endpoint limits |
+| SQL safety | Blocklist enforced on all warehouse tools and compiled intents |
+| Shell exec | Command allowlist |
+| Authorization | Dual-layer — transport action + intent action |
+
+### Compliance Docs
+
+- [Incident Response Plan](docs/security/incident-response-plan.md)
+- [Data Classification Policy](docs/security/data-classification-policy.md)
+- [Acceptable Use Policy](docs/security/acceptable-use-policy.md)
+- [Shared Responsibility Model](docs/security/shared-responsibility-model.md)
+
+---
+
+## Built-in Tools (23+)
+
+All tools enabled by default. Toggle individually per workspace via the Settings panel.
+
+| Category | Tools |
+|----------|-------|
+| **Web** | `web_search`, `read_url` |
+| **Code** | `run_code`, `shell_exec`, `calculator` |
+| **Files** | `read_file`, `write_file`, `list_directory`, `search_files` |
+| **Git** | `git_status`, `git_diff`, `git_log` |
+| **Data** | `query_bigquery`, `query_snowflake`, `query_databricks` |
+| **Visualization** | `render_chart` |
+| **Workspace** | `bridge_workspace`, `intent_bridge` |
+| **Agent** | `call_agent` |
+| **Finance** | `get_financial_snapshot`, `list_accounts`, `get_balance`, `get_balance_history`, `get_transactions`, `get_spending_by_category`, `get_spending_by_merchant`, `get_recurring_charges`, `get_income_summary`, `get_cashflow` |
+
+Data warehouse tools enforce **read-only access** — write operations are blocked at the tool level.
+
+---
+
+## Pendragon Tools Plugin (`@pendragon/tools-plaid`)
+
+Domain-isolated Plaid financial tools published to Google Artifact Registry.
+
+### Domain Modules
+
+| Domain | Account Types | Capabilities |
+|--------|--------------|--------------|
+| **Checking / Savings** | depository | `getBalances`, `getTransactions`, `syncData` |
+| **Debt** | credit, loan | `getBalances`, `getTransactions`, `getLiabilities`, `getDebtSummary`, `getCreditUtilization`, `syncData` |
+| **Investments / Retirement** | investment | `getHoldings`, `getSecurities`, `getPortfolioSummary`, `syncData` |
+| **Taxes, Real Estate** | — | Defined, no registrar yet |
+
+- **Chinese Wall filter** — each domain only sees its own account types
+- **Amount normalization** — Plaid signs inverted at sync time (positive = money IN, negative = money OUT)
+
+---
 
 ## Configuration
+
+### Core
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `3000` | Server port |
-| `SESSION_SECRET` | dev default | Secret for session cookies (required in production) |
-| `DATABASE_URL` | (none) | PostgreSQL connection string. If unset, uses SQLite for local dev |
+| `DATABASE_URL` | — | PostgreSQL connection string; unset = SQLite |
 | `WORKSPACE_ID` | `default` | Unique workspace identity |
-| `WORKSPACE_NAME` | `Roundtable` | Display name for the workspace |
+| `WORKSPACE_NAME` | `Roundtable` | Display name |
+| `SESSION_SECRET` | dev default | Session cookie secret (required in production) |
+| `WORKSPACE_URL` | — | Public URL (required for bridges) |
+| `ORG_MASTER_SECRET` | — | HKDF master secret for contract key derivation |
 | `EMBED_MODE` | `false` | Allow iframe embedding |
-| `EMBED_ALLOWED_ORIGINS` | - | Comma-separated origins allowed to embed this workspace (required when `EMBED_MODE=true`) |
-| `DEMO_MODE` | `false` | Enable auto-login guest accounts (`true`/`false`) |
-| `WORKSPACE_URL` | - | Public URL of this workspace (required for cross-workspace bridge) |
-| `PLATFORM_ORG` | - | Organization name shown in system prompt and describe_workspace |
-| `SECURE_COOKIES` | `false` | Force secure cookies in production (`true`/`false`) |
-| `SHELL_EXEC_ENABLED` | `false` | Allow the shell_exec tool (`true`/`false`) |
-| `A2A_SERVER_ENABLED` | `false` | Enable the A2A agent protocol server (`true`/`false`) |
-| `ORG_MASTER_SECRET` | - | HKDF master secret for contract key derivation (injected by provisioner) |
-| `RT_CONTRACTS` | - | JSON manifest of active governance contracts (injected by provisioner) |
-| `RT_BRIDGES` | - | JSON manifest of workspace bridges (injected by provisioner) |
-| `RT_MCP_SERVERS` | - | JSON manifest of MCP server connections (injected by provisioner) |
-| `RT_A2A_AGENTS` | - | JSON manifest of A2A agent connections (injected by provisioner) |
+| `DEMO_MODE` | `false` | Enable auto-login guest accounts |
+| `A2A_SERVER_ENABLED` | `false` | Enable A2A protocol server |
+| `SHELL_EXEC_ENABLED` | `false` | Allow shell_exec tool |
 
 ### AI Providers
 
@@ -179,20 +282,17 @@ See [`k8s/overlays/tls/`](k8s/overlays/tls/) for HTTPS setup with cert-manager +
 | `OPENAI_API_KEY` | Server-level OpenAI key |
 | `ANTHROPIC_API_KEY` | Server-level Anthropic key |
 | `GOOGLE_AI_API_KEY` | Server-level Google AI key |
-| `GCP_PROJECT` | GCP project for Vertex AI (uses ADC, no key needed) |
+| `GCP_PROJECT` | GCP project for Vertex AI (uses ADC) |
 | `GCP_LOCATION` | Vertex AI region (default: `us-central1`) |
-| `OLLAMA_HOST` | Default Ollama host URL (default: `http://localhost:11434`, overridable per-workspace) |
-| `GOOGLE_SEARCH_API_KEY` | Google Custom Search API key (for web_search tool) |
-| `GOOGLE_SEARCH_ENGINE_ID` | Google Custom Search engine ID |
+| `OLLAMA_HOST` | Ollama URL (default: `http://localhost:11434`) |
 
 ### Data Warehouses
 
 | Variable | Description |
 |----------|-------------|
-| `GCP_PROJECT` | BigQuery — uses same ADC as Vertex AI |
-| `BQ_PROJECT` | Override BigQuery billing project (cross-project access, default: `GCP_PROJECT` value) |
-| `BQ_LOCATION` | BigQuery dataset location (default: `US`) |
-| `BQ_MAX_BYTES` | BigQuery — max bytes scanned per query (default: 1GB) |
+| `BQ_PROJECT` | BigQuery billing project (default: `GCP_PROJECT`) |
+| `BQ_LOCATION` | BigQuery location (default: `US`) |
+| `BQ_MAX_BYTES` | Max bytes scanned per query (default: 1 GB) |
 | `SNOWFLAKE_ACCOUNT` | Snowflake account identifier |
 | `SNOWFLAKE_USERNAME` | Snowflake username |
 | `SNOWFLAKE_PASSWORD` | Snowflake password |
@@ -203,156 +303,31 @@ See [`k8s/overlays/tls/`](k8s/overlays/tls/) for HTTPS setup with cert-manager +
 | `DATABRICKS_HTTP_PATH` | SQL warehouse HTTP path |
 | `DATABRICKS_CATALOG` | Default Unity Catalog |
 
+### Runtime Manifests (injected by provisioner)
+
+| Variable | Description |
+|----------|-------------|
+| `RT_CONNECTIONS` | JSON manifest of external connections |
+| `RT_BRIDGES` | JSON manifest of workspace bridges |
+| `RT_CONTRACTS` | JSON manifest of governance contracts |
+| `RT_MCP_SERVERS` | JSON manifest of MCP server connections |
+| `RT_A2A_AGENTS` | JSON manifest of A2A agent connections |
+
 See [`.env.example`](.env.example) for the full list.
 
-## Workspace Settings
-
-Each workspace can be configured at runtime via the **⚙️ Settings panel** (no redeploy required):
-
-### AI Agent tab
-
-| Setting | Description |
-|---------|-------------|
-| **Provider** | `vertexai` \| `openai` \| `anthropic` \| `google` \| `ollama` |
-| **Model** | Any model supported by the selected provider (e.g. `gemini-2.5-flash`, `gpt-4o`, `claude-opus-4-5`) |
-| **System Prompt** | Custom instructions prepended to every AI conversation in this workspace |
-
-### Tools tab
-
-Enable or disable individual tools per workspace. Disabled tools are removed from the AI's context entirely — the model won't attempt to call them. Tools are grouped by category:
-
-- **Web**: `web_search`, `read_url`
-- **Code**: `run_code`, `shell_exec`, `calculator`
-- **Files**: `read_file`, `write_file`, `list_files`, `find_file`
-- **Git**: `git_clone`, `git_commit`, `git_pull`
-- **Data**: `query_bigquery`, `query_snowflake`, `query_databricks`, `download_query_results`
-- **Visualization**: `render_chart`
-- **Workspace**: `describe_workspace`, `bridge_workspace`, `intent_bridge`, `verify_workspace`
-- **Agent**: `call_agent`
-
-> **Tip**: For workspaces focused on data analysis, disable `shell_exec`, `git_clone`, and `git_commit` to reduce the AI's tool surface and improve response focus.
-
-### API Keys tab
-
-Users can configure personal API keys (OpenAI, Anthropic, Google AI) that override server-level defaults for their sessions.
-
-### Embed Mode
-
-Roundtable can be embedded as an iframe in external sites. Set `EMBED_MODE=true` to enable:
-
-- **Cross-origin cookies**: Session cookies use `SameSite=None; Secure`
-- **Stateless guest auth**: When third-party cookies are blocked (e.g., Chrome incognito), requests are auto-assigned ephemeral guest identities — no cookies required
-- **CORS**: Only origins listed in `EMBED_ALLOWED_ORIGINS` are allowed
-- **Socket.IO**: WebSocket connections also support stateless guest auth
-
-```bash
-EMBED_MODE=true
-EMBED_ALLOWED_ORIGINS=https://example.com,https://dashboard.example.com
-```
-
-The parent page can inject prompt text into the embedded workspace using `postMessage`:
-
-```javascript
-iframe.contentWindow.postMessage({ type: 'roundtable:setPrompt', text: 'Your prompt here' }, '*');
-```
-
-### Demo Mode
-
-Set `DEMO_MODE=true` to enable the `/api/auth/demo` endpoint, which creates auto-login guest accounts with random names (e.g., `brave-falcon-a1b2`). Useful for public demos.
-
-## Built-in Tools
-
-All 23 tools are enabled by default. Individual tools can be toggled per workspace via the Settings panel.
-
-| Tool | Description |
-|------|-------------|
-| **web_search** | Search the web via Google Custom Search or Vertex AI grounding (model-aware, supports preview and GA models) |
-| **read_url** | Fetch and extract text from web pages |
-| **calculator** | Evaluate math expressions (powered by mathjs) |
-| **run_code** | Execute JavaScript in a sandboxed environment |
-| **query_bigquery** | Query Google BigQuery (read-only, max 100 rows) |
-| **query_snowflake** | Query Snowflake (read-only, max 100 rows) |
-| **query_databricks** | Query Databricks SQL Warehouse (read-only, max 100 rows) |
-| **shell_exec** | Execute allowlisted shell commands in the workspace |
-| **read_file** | Read files from the workspace directory |
-| **write_file** | Write files to the workspace directory |
-| **list_files** | List files in the workspace directory |
-| **find_file** | Search for files by name |
-| **git_clone** | Clone a git repository into the workspace |
-| **git_commit** | Stage and commit changes |
-| **git_pull** | Pull latest changes from a remote Git repository into the workspace |
-| **describe_workspace** | Self-discovery meta-tool that helps the AI understand what tools and data sources are available in the workspace (always enabled) |
-| **bridge_workspace** | Delegate reasoning tasks to another workspace's AI — used only when the target AI needs to reason (rare). For structured operations, use `intent_bridge` |
-| **render_chart** | Generate interactive charts (bar, line, pie, doughnut, area, scatter) inline in chat from query results |
-| **download_query_results** | Export query results as downloadable CSV/JSON files |
-| **verify_workspace** | Run health checks on tools and data sources |
-| **call_agent** | Delegate a task to an external AI agent via the A2A (Agent-to-Agent) protocol |
-| **intent_bridge** | Compiled intent token bridge — sends cryptographically signed, deterministic operations to other workspaces for direct execution without LLM inference (ICE) |
-
-Data warehouse tools enforce **read-only access** — INSERT, UPDATE, DELETE, DROP, and other write operations are blocked at the tool level.
-
-## Architecture
-
-```
-Browser (React + Socket.IO)
-    ↕ WebSocket
-Express + Socket.IO Server
-    ↕                    ↕                        ↕
-PostgreSQL          AI Providers              Data Warehouses
-(sessions,      (OpenAI / Anthropic /      (BigQuery / Snowflake /
- messages,       Vertex AI Gemini)          Databricks)
- workspaces)
-```
-
-```
-Deployment model (workspace-per-container):
-
-┌─────────────────────────────────────────┐
-│         Cloud Run / GKE / EKS           │
-├─────────────────────────────────────────┤
-│ ┌───────────┐ ┌───────────┐ ┌────────┐ │
-│ │ rt-dev    │ │ rt-backend│ │ rt-ops │ │   Each workspace = 1 container
-│ │ :3000     │ │ :3000     │ │ :3000  │ │   All share the same PostgreSQL
-│ └─────┬─────┘ └─────┬─────┘ └───┬────┘ │
-│       │             │           │       │
-│       └──────┬──────┘───────────┘       │
-│              ▼                          │
-│       ┌────────────┐                    │
-│       │ PostgreSQL │                    │
-│       └────────────┘                    │
-│              ▲                          │
-│       ┌──────┴──────┐                   │
-│       │  A2A Agents │  External agents  │
-│       │  MCP Servers│  plug in here     │
-│       └─────────────┘                   │
-└─────────────────────────────────────────┘
-```
-
-```
-Intent Compilation Engine (ICE):
-  LLM → intent_bridge → IntentToken (signed) → /a2a intent/execute
-  → Cache check → SQL fusion → Tool dispatch → ExecutionProof → Signed result
-  Zero LLM inference on receiving side. ~15ms hot, ~15s cold (wake-on-request).
-```
-
-- **Backend**: Node.js 20, Express, Socket.IO
-- **Database**: PostgreSQL (production) or SQLite (local dev)
-- **Frontend**: React + TypeScript (Vite, `client/dist/`)
-- **Real-time**: Socket.IO for WebSocket communication
-- **Container**: Alpine-based Docker image (~60MB)
+---
 
 ## Testing
 
 ```bash
-npm test                # Unit + ICE tests (315 tests)
-npm run test:integration  # Integration tests (99 tests)
-npm run typecheck       # TypeScript strict mode check
-npm run lint:server     # ESLint (0 errors, warnings only)
+npm test                  # Unit + ICE tests (315 tests, 18 suites)
+npm run test:unit         # Unit tests only
+npm run test:integration  # Integration tests (99 tests, 4 suites)
+npm run typecheck         # TypeScript strict mode
+npm run lint:server       # ESLint
 ```
 
-### Unit Tests (Jest)
-
-315 tests across 18 suites:
+### Unit Tests — 315 tests / 18 suites
 
 | Suite | Tests | Coverage |
 |-------|-------|----------|
@@ -373,44 +348,73 @@ npm run lint:server     # ESLint (0 errors, warnings only)
 | Intent cache | 11 | Hit/miss, TTL, LRU eviction, stats |
 | Intent compiler | 14 | SQL fusion, dedup, LIMIT injection |
 
-### Integration Tests (Jest)
-
-99 tests across 4 suites:
+### Integration Tests — 99 tests / 4 suites
 
 | Suite | Tests | Coverage |
 |-------|-------|----------|
-| Contract crypto (`contractAuth`) | 38 | HKDF key derivation, AES-256-GCM encrypt/decrypt, HMAC signing, timestamp freshness |
-| Bridge communication (`bridgeReceive`) | 11 | HMAC auth validation, contract enforcement, expired timestamps |
-| MCP protocol (`mcpProtocol`) | 19 | JSON-RPC 2.0 compliance, initialize/tools/list/call, error codes |
-| Tool registry (`toolRegistry`) | 31 | All 21+ tools validated, resolveTools filtering, OpenAI/Anthropic/Google format output |
+| Contract crypto | 38 | HKDF key derivation, AES-256-GCM, HMAC signing |
+| Bridge communication | 11 | HMAC auth, contract enforcement, timestamps |
+| MCP protocol | 19 | JSON-RPC 2.0, initialize/tools/list/call |
+| Tool registry | 31 | All tools validated, resolveTools, multi-format output |
 
-### TypeScript Strict Mode
+---
 
-The server TypeScript config has incremental strict flags enabled (`strictNullChecks`, `noImplicitAny`, `strictFunctionTypes`) with 0 errors.
+## Deployment
 
-### ESLint
-
-Flat config with `typescript-eslint` recommended rules. 0 errors, 164 warnings (intentional `no-explicit-any` and `ban-ts-comment` at warn level).
+### Docker Compose
 
 ```bash
-npm run lint:server  # Lint server/ directory
+docker compose up   # Roundtable + PostgreSQL
 ```
 
-## Kubernetes Structure
+### Docker (Build from Source)
+
+```bash
+docker build -t roundtable:latest .
+docker run -p 3000:3000 --env-file .env roundtable:latest
+```
+
+### Local Models (Ollama)
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.ollama.yml up
+docker compose exec ollama ollama pull llama3.1:8b
+```
+
+Set the provider to **Ollama** in Settings. Works with any OpenAI-compatible endpoint.
+
+### GKE
+
+```bash
+GCP_PROJECT=your-project ./deploy-gke.sh --setup   # First time
+GCP_PROJECT=your-project ./deploy-gke.sh dev Development
+```
+
+### Kubernetes Structure
 
 ```
 k8s/
-├── base/                        # Cloud-agnostic (works anywhere)
-│   ├── workspace.yaml           # StatefulSet + Service template
-│   ├── config.yaml              # ConfigMap + secret instructions
-│   └── ingress.yaml             # nginx-ingress with WebSocket support
+├── base/                    # Cloud-agnostic manifests
+│   ├── workspace.yaml       # StatefulSet + Service template
+│   ├── config.yaml          # ConfigMap + secret instructions
+│   └── ingress.yaml         # nginx-ingress with WebSocket support
 └── overlays/
-    ├── gcp/                     # Google Cloud specific
-    │   └── workspace.yaml       # Adds Cloud SQL proxy + Workload Identity
-    └── tls/                     # HTTPS (any cloud)
-        ├── issuer.yaml          # Let's Encrypt ClusterIssuer
-        └── ingress-tls.yaml     # TLS-enabled ingress
+    ├── gcp/                 # GCP-specific (Cloud SQL proxy, Workload Identity)
+    └── tls/                 # TLS termination (cert-manager + Let's Encrypt)
 ```
+
+---
+
+## Changelog
+
+| Version | Date | Highlights |
+|---------|------|------------|
+| **Unreleased** | — | ICE engine, capability registry, HKDF crypto, wake-proxy, 429 auto-fallback to `gemini-3.5-flash` |
+| **v1.0.0** | 2026-05-16 | Initial release |
+
+See [CHANGELOG.md](CHANGELOG.md) for full details.
+
+---
 
 ## Contributing
 
@@ -418,44 +422,12 @@ k8s/
 2. Create a feature branch (`git checkout -b feature/my-feature`)
 3. Run tests (`npm test && npm run test:integration`)
 4. Run typecheck (`npm run typecheck`)
-5. Commit your changes (`git commit -m 'Add my feature'`)
-6. Push to the branch (`git push origin feature/my-feature`)
-7. Open a Pull Request
-
-## Security
-
-Security policies and compliance documentation are maintained in [`docs/security/`](docs/security/):
-
-- [**Incident Response Plan**](docs/security/incident-response-plan.md) — Detection, triage, containment, and post-mortem procedures
-- [**Data Classification Policy**](docs/security/data-classification-policy.md) — Four-level classification (Restricted → Public) for all platform data
-- [**Acceptable Use Policy**](docs/security/acceptable-use-policy.md) — Permitted and prohibited platform usage
-- [**Shared Responsibility Model**](docs/security/shared-responsibility-model.md) — GCP control ownership mapping for SOC 2 auditors
-
-Infrastructure and application security controls include:
-
-- **Workspace Isolation** — Each workspace runs as its own K8s pod with a dedicated database and per-pod NetworkPolicy (ingress restricted to ingress controller only)
-- **Workload Identity** — No static service account keys; pods authenticate via GKE Workload Identity
-- **Encryption in Transit** — TLS 1.2+ for all external communication (HTTPS, WSS)
-- **End-to-End Encryption** — Cross-workspace A2A messages are encrypted with AES-256-GCM using HKDF-derived per-contract keys. The wake proxy, ingress controller, and log pipeline cannot inspect message payloads
-- **Intent Compilation Engine** — Compiled intent tokens carry HMAC-SHA256 signatures, optional AES-256-GCM encryption, nonce-based replay prevention (10-min window), and contract-based action authorization. Every execution produces a signed `ExecutionProof` with SHA-256 hashes of input and output for audit-grade traceability
-- **SQL Safety in Compiled Execution** — The intent executor enforces the same SQL blocklist (INSERT, UPDATE, DELETE, DROP, TRUNCATE, ALTER, CREATE, MERGE, GRANT, REVOKE) as direct tool calls, preventing data mutation through compiled intent tokens
-- **Contract-Based Authentication** — Every bridge request carries a `contractToken` (`HMAC-SHA256(secret, contractId:sortedAllowedActions)`) generated by the control plane and independently re-derived by the pod using `timingSafeEqual`. The full request signature covers `taskId:timestamp:contractId:action`, binding the specific action into the signature so replay attacks against a different action or contract are rejected
-- **Strict Action Authorization** — Contract `allowedActions` are enforced at the HTTP transport layer via `X-Contract-Action` headers. Each intent operation (`discover`, `query:query_bigquery`, `tool:read_file`, etc.) must be explicitly listed in the contract manifest — no wildcard bypass. Transport-level actions (`message`, `delegate`) are auto-allowed for active contracts
-- **Pod-Side Enforcement Gate** — `server/routes/bridgeReceive.js` enforces contracts in four sequential stages: (1) HMAC + timestamp ≤5 min, (2) `contractId` in local `RT_CONTRACTS` manifest, (3) `contractToken` match, (4) action in `allowedActions`. Stages 2–4 use `timingSafeEqual`. A compromised or misconfigured control plane cannot grant permissions not written into the pod's manifest
-- **Handshake Approval Model** — Contracts require explicit approval from the workspace admin of both the source and target workspaces. Proposed amendments are staged in `amendment.proposedChanges` (original terms remain enforced) until both admins re-approve, preventing unilateral privilege escalation
-- **Encryption at Rest** — AES-256 at rest via Cloud SQL and Firestore; API keys and credentials encrypted before database storage
-- **Audit Logging** — Cloud Audit Logs exported to immutable storage (`gs://roundtable-audit-logs`); governance engine flags ungoverned bridges and policy violations
-- **Container Scanning** — Artifact Registry vulnerability scanning enabled on all images
-- **Branch Protection** — PRs require at least one approving review before merge
+5. Open a Pull Request
 
 ## Related
 
-- **[Roundtable Dashboard](https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable)** — Multi-tenant SaaS management console (workspace lifecycle, members, usage, billing)
+- **[Roundtable Dashboard](https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable)** — Multi-tenant SaaS management console
 
 ## License
 
-[Apache License 2.0](LICENSE)
-
----
-
-_Built by [Foxtrot Communications](https://foxtrotcommunications.net)_
+UNLICENSED — Proprietary. © [Foxtrot Communications](https://foxtrotcommunications.net)
