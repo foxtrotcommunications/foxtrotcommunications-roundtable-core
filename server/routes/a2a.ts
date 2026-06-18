@@ -404,7 +404,13 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
         }
 
         // 5. Check contract authorization for this specific operation
-        const contracts = process.env.RT_CONTRACTS ? JSON.parse(process.env.RT_CONTRACTS) : [];
+        let contracts: any[] = [];
+        try {
+          const { fetchManifest } = require('../utils/fetchManifest');
+          contracts = (await fetchManifest()).RT_CONTRACTS || [];
+        } catch {
+          try { contracts = JSON.parse(process.env.RT_CONTRACTS || '[]'); } catch { contracts = []; }
+        }
         const contract = contracts.find((c: any) =>
           c.contractId === token.contractId && c.status === 'active'
         );
