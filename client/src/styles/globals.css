@@ -415,21 +415,24 @@ html, body { height: 100%; font-family: 'Inter', system-ui, sans-serif; backgrou
 .json-punct { color: #6b7280; }
 
 /* ─── JSON Tree View ─── */
-.json-tree { padding: 12px 16px; background: var(--bg-primary); font-family: 'SF Mono', Monaco, 'Fira Code', monospace; font-size: 13px; line-height: 1.6; overflow-x: auto; max-height: 500px; overflow-y: auto; }
+.json-tree { padding: 12px 16px; background: #1e1e2e; font-family: 'SF Mono', Monaco, 'Fira Code', monospace; font-size: 13px; line-height: 1.6; overflow-x: auto; max-height: 500px; overflow-y: auto; width: 100%; box-sizing: border-box; }
 .json-line { white-space: nowrap; padding: 1px 0; }
 .json-toggle { cursor: pointer; user-select: none; border-radius: 3px; transition: background 0.15s ease; }
-.json-toggle:hover { background: rgba(99,102,241,0.08); }
-.json-caret { display: inline-block; width: 16px; text-align: center; font-size: 10px; color: var(--text-muted); margin-right: 2px; transition: transform 0.15s ease; }
-.json-collapsed-hint { color: var(--text-muted); font-style: italic; font-size: 11px; margin: 0 6px; }
+.json-toggle:hover { background: rgba(99,102,241,0.12); }
+.json-caret { display: inline-block; width: 16px; text-align: center; font-size: 10px; color: #6b7280; margin-right: 2px; transition: transform 0.15s ease; }
+.json-collapsed-hint { color: #6b7280; font-style: italic; font-size: 11px; margin: 0 6px; }
 .json-node { }
 
-/* Light theme overrides */
+/* Light theme — json tree uses a light code background */
+[data-theme="light"] .json-tree { background: #f6f8fa; }
 [data-theme="light"] .json-key { color: #0369a1; }
 [data-theme="light"] .json-string { color: #15803d; }
 [data-theme="light"] .json-number { color: #b45309; }
 [data-theme="light"] .json-boolean { color: #7c3aed; }
 [data-theme="light"] .json-null { color: #ea580c; }
 [data-theme="light"] .json-punct { color: #9ca3af; }
+[data-theme="light"] .json-caret { color: #9ca3af; }
+[data-theme="light"] .json-collapsed-hint { color: #9ca3af; }
 
 /* ─── Tool Result Cards ─── */
 .search-results { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; }
