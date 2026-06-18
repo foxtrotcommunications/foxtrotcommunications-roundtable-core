@@ -85,197 +85,204 @@ function extractProvenance(toolResults: Array<{ name: string; result: Record<str
   const intentResults = toolResults.filter(t => t.name === 'intent_bridge');
   if (intentResults.length === 0) return null;
 
-  const domains: { name: string; capability: string }[] = [];
-  const accounts: string[] = [];
+  // ── Collect domain results with provenance ─────────────────
+  const domains: Array<{
+    name: string;
+    capability: string;
+    balance_coverage_pct: number;
+    historical_coverage_pct: number | null;
+    verified_amount: number;
+    inferred_amount: number;
+    accounts: Array<{
+      account_id: string;
+      current_balance: number;
+      current_balance_verified: boolean;
+      historical_series_verified: boolean;
+    }>;
+  }> = [];
+
+  const accountNames: string[] = [];
   let totalExecutionMs = 0;
   let maxRoundTripMs = 0;
   let anyCached = false;
   let accountsAnalyzed = 0;
   let transactionsScanned = 0;
-  let dataFreshness: string | undefined;
 
-  // ── Epistemic analysis ─────────────────────────────────────
-  const assumptions: string[] = [];
-  const missing: string[] = [];
-  const visible: string[] = [];
-  let totalExplanationPct = 0;
-  let explanationSamples = 0;
-  let institutionsConnected = 0;
-  let hasCriticalUnknowns = false;
+  // Aggregate provenance numbers
+  let totalBalanceVerified = 0;
+  let totalHistoricalVerified = 0;
+  let totalBalance = 0;
+  let totalAccounts = 0;
+  let accountsWithHistory = 0;
+  let latestSyncedAt: string | null = null;
+  let isHistorical = false;
 
   for (const tr of intentResults) {
     const r = tr.result as any;
     if (!r?.success) continue;
 
-    // Extract domain and capability from the tool result
-    if (r.toolExecuted) {
-      domains.push({
-        name: r.target || 'Unknown Domain',
-        capability: r.toolExecuted,
-      });
+    // Detect query type from capability name
+    const cap = r.toolExecuted || r.capability || '';
+    if (/getTransactions|getCashflow|getBalanceHistory|getSpending/i.test(cap)) {
+      isHistorical = true;
     }
 
-    // Extract account names from multiple possible locations
+    // Extract domain info
+    if (r.toolExecuted || r.capability) {
+      const domainName = r.target || 'Unknown Domain';
+      const capName = r.toolExecuted || r.capability;
+
+      // Extract provenance from capability result
+      const p = r.data?.provenance;
+      const domainEntry: typeof domains[number] = {
+        name: domainName,
+        capability: capName,
+        balance_coverage_pct: 100,
+        historical_coverage_pct: null,
+        verified_amount: 0,
+        inferred_amount: 0,
+        accounts: [],
+      };
+
+      if (p) {
+        // Use structured provenance from domain tools
+        totalBalanceVerified += p.balance_verified || 0;
+        totalHistoricalVerified += p.historical_verified || 0;
+        totalBalance += p.total_balance || 0;
+
+        if (p.accounts && Array.isArray(p.accounts)) {
+          totalAccounts += p.accounts.length;
+          accountsWithHistory += p.accounts.filter((a: any) => a.historical_series_verified).length;
+          domainEntry.accounts = p.accounts;
+        }
+
+        domainEntry.verified_amount = p.balance_verified || 0;
+        domainEntry.inferred_amount = (p.total_balance || 0) - (p.historical_verified || 0);
+        domainEntry.balance_coverage_pct = p.total_balance > 0
+          ? Math.round((p.balance_verified / p.total_balance) * 100) : 100;
+        domainEntry.historical_coverage_pct = p.total_balance > 0
+          ? Math.round((p.historical_verified / p.total_balance) * 100) : null;
+
+        if (p.last_synced && (!latestSyncedAt || p.last_synced > latestSyncedAt)) {
+          latestSyncedAt = p.last_synced;
+        }
+      }
+
+      domains.push(domainEntry);
+    }
+
+    // Extract account names
     const accountSources = r.data?.accounts || r.data?.balances;
     if (accountSources && Array.isArray(accountSources)) {
       for (const acct of accountSources) {
         const name = acct.name || acct.account_name;
-        if (name && !accounts.includes(name)) {
-          accounts.push(name);
-        }
+        if (name && !accountNames.includes(name)) accountNames.push(name);
       }
     }
 
-    // Also count unique account_id values in any arrays within r.data
+    // Count unique account_ids
     if (r.data && typeof r.data === 'object') {
-      const seenAccountIds = new Set<string>();
+      const seenIds = new Set<string>();
       for (const val of Object.values(r.data as Record<string, unknown>)) {
         if (Array.isArray(val)) {
           for (const item of val) {
             if (item && typeof item === 'object' && 'account_id' in (item as any)) {
-              seenAccountIds.add(String((item as any).account_id));
+              seenIds.add(String((item as any).account_id));
             }
           }
         }
       }
-      if (seenAccountIds.size > 0) {
-        accountsAnalyzed = Math.max(accountsAnalyzed, seenAccountIds.size);
-      }
+      if (seenIds.size > 0) accountsAnalyzed = Math.max(accountsAnalyzed, seenIds.size);
     }
 
-    // Check metadata and coverage for accounts_analyzed
-    if (r.data?.metadata?.accounts_analyzed) {
-      accountsAnalyzed = Math.max(accountsAnalyzed, Number(r.data.metadata.accounts_analyzed));
-    }
-    if (r.data?.coverage?.accounts_visible) {
-      accountsAnalyzed = Math.max(accountsAnalyzed, Number(r.data.coverage.accounts_visible));
-    }
-
-    // Count transactions scanned — check metadata first, then data fields
-    if (r.data?.metadata?.transactions_scanned) {
-      transactionsScanned += Number(r.data.metadata.transactions_scanned);
-    } else if (r.data?.transactions_scanned) {
-      transactionsScanned += Number(r.data.transactions_scanned);
-    } else if (r.data?.total_count) {
-      transactionsScanned += Number(r.data.total_count);
-    } else if (r.data?.transactions && Array.isArray(r.data.transactions)) {
+    // Count transactions
+    if (r.data?.transactions && Array.isArray(r.data.transactions)) {
       transactionsScanned += r.data.transactions.length;
+    } else if (r.data?.count) {
+      transactionsScanned += Number(r.data.count);
     }
 
-    // Accumulate timing
+    // Timing
     if (r.executionMs) totalExecutionMs += r.executionMs;
     if (r.roundTripMs) maxRoundTripMs = Math.max(maxRoundTripMs, r.roundTripMs);
     if (r.cached) anyCached = true;
-
-    // Data freshness
-    if (!dataFreshness) {
-      dataFreshness = r.data?.data_freshness || r.data?.metadata?.data_freshness || r.data?.last_sync || undefined;
-    }
-
-    // ── Coverage analysis from tool results ────────────────
-    const cov = r.data?.coverage;
-    if (cov) {
-      // Institutional coverage
-      if (cov.institutions_connected) {
-        institutionsConnected = Math.max(institutionsConnected, cov.institutions_connected);
-      }
-
-      // Explanation completeness
-      if (typeof cov.explanation_pct === 'number') {
-        totalExplanationPct += cov.explanation_pct;
-        explanationSamples++;
-      }
-
-      // Collect visible evidence
-      if (Array.isArray(cov.visible)) {
-        for (const v of cov.visible) {
-          if (!visible.includes(v)) visible.push(v);
-        }
-      }
-
-      // Collect gaps as assumptions
-      if (Array.isArray(cov.gaps)) {
-        for (const gap of cov.gaps) {
-          if (!assumptions.includes(gap)) assumptions.push(gap);
-        }
-      }
-
-      // Critical unknowns
-      if (cov.has_payroll_pattern === false) {
-        hasCriticalUnknowns = true;
-        if (!missing.includes('Payroll deposit source')) {
-          missing.push('Payroll deposit source');
-          assumptions.push('Income figure may be incomplete — no regular payroll pattern detected');
-        }
-      }
-      if (cov.institutions_connected && cov.institutions_connected <= 1) {
-        if (!missing.includes('Other banking institutions (only 1 connected)')) {
-          missing.push('Other banking institutions (only 1 connected)');
-        }
-      }
-      if (cov.unclassified_large_charges > 0) {
-        const msg = `Purpose of ${cov.unclassified_large_charges} large uncategorized charge(s)`;
-        if (!missing.includes(msg)) missing.push(msg);
-      }
-    }
   }
 
-  // Fall back to roundTripMs when executionMs is 0
-  if (totalExecutionMs === 0 && maxRoundTripMs > 0) {
-    totalExecutionMs = maxRoundTripMs;
+  // Fall back to roundTripMs
+  if (totalExecutionMs === 0 && maxRoundTripMs > 0) totalExecutionMs = maxRoundTripMs;
+  if (accountsAnalyzed === 0 && accountNames.length > 0) accountsAnalyzed = accountNames.length;
+
+  // ── Compute three metrics ─────────────────────────────────
+
+  // 1. Answer Coverage (balance-weighted, query-specific)
+  const answerCoveragePct = totalBalance > 0
+    ? Math.round((totalBalanceVerified / totalBalance) * 100) : 100;
+
+  // 2. Historical Coverage (null for non-historical queries)
+  const historicalCoveragePct = isHistorical && totalBalance > 0
+    ? Math.round((totalHistoricalVerified / totalBalance) * 100) : null;
+
+  // 3. Confidence (multi-factor with renormalization)
+  // Freshness
+  let freshness = 100;
+  if (latestSyncedAt) {
+    const ageMs = Date.now() - new Date(latestSyncedAt).getTime();
+    const ageMinutes = ageMs / 60000;
+    freshness = ageMinutes <= 5 ? 100 : ageMinutes <= 60 ? 90 : ageMinutes <= 360 ? 75 : ageMinutes <= 1440 ? 50 : 25;
   }
 
-  // Use accounts list length if accountsAnalyzed wasn't set from account_id scanning
-  if (accountsAnalyzed === 0 && accounts.length > 0) {
-    accountsAnalyzed = accounts.length;
+  // Historical support
+  const historicalSupport = totalBalance > 0
+    ? Math.round((totalHistoricalVerified / totalBalance) * 100) : 0;
+
+  // Completeness
+  const completeness = totalAccounts > 0
+    ? Math.round((accountsWithHistory / totalAccounts) * 100) : 0;
+
+  // Reconstruction quality (null for non-derived queries)
+  const isReconstructed = isHistorical; // only for trend/cashflow queries
+  const reconstruction: number | null = isReconstructed ? 80 : null; // base score, refined later
+
+  // Weighted confidence with renormalization
+  const factors: Array<{ value: number; weight: number }> = [
+    { value: freshness, weight: 0.30 },
+    { value: historicalSupport, weight: 0.30 },
+    { value: completeness, weight: 0.15 },
+    { value: 100, weight: 0.15 }, // provenance_alignment placeholder (computed post-response)
+  ];
+  if (reconstruction !== null) {
+    factors.push({ value: reconstruction, weight: 0.10 });
   }
-
-  // ── Evidence-based confidence ──────────────────────────────
-  // Derived from three dimensions:
-  //   Coverage Quality (40%): how much institutional breadth
-  //   Explanation Completeness (40%): can we explain observed activity
-  //   Critical Unknowns (20%): are essential inputs (payroll) missing
-  const avgExplanationPct = explanationSamples > 0
-    ? Math.round(totalExplanationPct / explanationSamples)
-    : 50; // default if no explanation data
-
-  const institutionScore = Math.min(institutionsConnected / 2, 1) * 100;
-  const explanationScore = avgExplanationPct;
-  const criticalScore = hasCriticalUnknowns ? 0 : 100;
-
-  const coveragePct = Math.round(
-    institutionScore * 0.4 +
-    explanationScore * 0.4 +
-    criticalScore * 0.2
+  const totalWeight = factors.reduce((s, f) => s + f.weight, 0);
+  const confidencePct = Math.round(
+    factors.reduce((s, f) => s + f.value * (f.weight / totalWeight), 0)
   );
-
-  // Confidence: can I explain what I see?
-  //   High:   >90% coverage
-  //   Medium: 60-90%
-  //   Low:    <60%
-  let confidence: 'high' | 'medium' | 'low';
-  if (coveragePct >= 90) confidence = 'high';
-  else if (coveragePct >= 60) confidence = 'medium';
-  else confidence = 'low';
-
-  // Deduplicate
-  const uniqueMissing = [...new Set(missing)];
-  const uniqueAssumptions = [...new Set(assumptions)];
 
   return {
     domains,
-    accounts,
+    accounts: accountNames,
     accounts_analyzed: accountsAnalyzed,
     transactions_scanned: transactionsScanned,
-    coverage_pct: coveragePct,
-    visible,
+    answer_coverage_pct: answerCoveragePct,
+    portfolio_coverage_pct: totalBalance > 0 ? answerCoveragePct : undefined,
+    historical_coverage_pct: historicalCoveragePct,
+    confidence_pct: confidencePct,
+    confidence_factors: {
+      freshness,
+      historical_support: historicalSupport,
+      completeness,
+      provenance_alignment: 100, // computed post-response by alignment checker
+      reconstruction: reconstruction ?? undefined,
+    },
     executionMs: totalExecutionMs,
     timestamp: new Date().toISOString(),
     cached: anyCached,
-    confidence,
-    assumptions: uniqueAssumptions,
-    missing: uniqueMissing,
-    data_freshness: dataFreshness,
+    // Backwards compat
+    coverage_pct: answerCoveragePct,
+    confidence: confidencePct >= 85 ? 'high' as const : confidencePct >= 60 ? 'medium' as const : 'low' as const,
+    visible: [],
+    assumptions: [],
+    missing: [],
   };
 }
 
