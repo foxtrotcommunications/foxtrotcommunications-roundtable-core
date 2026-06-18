@@ -92,33 +92,43 @@ export function confidenceLabel(score: number): string {
 // ─── Reasoning Comment Parser ──────────────────────────────
 
 const REASONING_RE = /<!--reasoning:([\s\S]*?)-->/;
+// Strip old AI-generated provenance blockquotes (> 📍 Data Provenance ... )
+const OLD_PROVENANCE_RE = /\n*(?:> *📍[^\n]*\n(?:> *[^\n]*\n?)*)$/;
+// Strip AI-generated metadata blocks (Sources, Confidence, Coverage, etc.)
+const OLD_METADATA_RE = /\n*(?:\n🐉[^\n]*\n(?:.*\n)*?(?:Jun|Jan|Feb|Mar|Apr|May|Jul|Aug|Sep|Oct|Nov|Dec) \d+.*$)/m;
 
 export function parseReasoningComment(fullText: string): {
   cleanText: string;
   reasoning: ReasoningProvenance | null;
 } {
   const match = REASONING_RE.exec(fullText);
-  if (!match) {
-    return { cleanText: fullText, reasoning: null };
+  let text = fullText;
+  let reasoning: ReasoningProvenance | null = null;
+
+  if (match) {
+    try {
+      const parsed = JSON.parse(match[1]);
+      reasoning = {
+        assumptions: Array.isArray(parsed.assumptions) ? parsed.assumptions : [],
+        keyCalculations: Array.isArray(parsed.keyCalculations) ? parsed.keyCalculations : [],
+        keyDrivers: Array.isArray(parsed.keyDrivers) ? parsed.keyDrivers : [],
+        limitations: Array.isArray(parsed.limitations) ? parsed.limitations : [],
+        missingDomains: Array.isArray(parsed.missingDomains) ? parsed.missingDomains : [],
+        wouldImprove: Array.isArray(parsed.wouldImprove) ? parsed.wouldImprove : [],
+      };
+      text = text.replace(match[0], '');
+    } catch {
+      // Invalid JSON — keep text as-is
+    }
   }
 
-  try {
-    const parsed = JSON.parse(match[1]);
-    const reasoning: ReasoningProvenance = {
-      assumptions: Array.isArray(parsed.assumptions) ? parsed.assumptions : [],
-      keyCalculations: Array.isArray(parsed.keyCalculations) ? parsed.keyCalculations : [],
-      keyDrivers: Array.isArray(parsed.keyDrivers) ? parsed.keyDrivers : [],
-      limitations: Array.isArray(parsed.limitations) ? parsed.limitations : [],
-      missingDomains: Array.isArray(parsed.missingDomains) ? parsed.missingDomains : [],
-      wouldImprove: Array.isArray(parsed.wouldImprove) ? parsed.wouldImprove : [],
-    };
+  // Strip old-style provenance blockquotes the AI might still generate
+  text = text.replace(OLD_PROVENANCE_RE, '');
 
-    const cleanText = fullText.replace(match[0], '').trimEnd();
-    return { cleanText, reasoning };
-  } catch {
-    // Invalid JSON — return null reasoning, keep text as-is
-    return { cleanText: fullText, reasoning: null };
-  }
+  console.log('[Provenance] reasoning found:', !!reasoning,
+    reasoning ? `assumptions=${reasoning.assumptions.length}` : 'none');
+
+  return { cleanText: text.trimEnd(), reasoning };
 }
 
 // ─── System Provenance Builder ─────────────────────────────

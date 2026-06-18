@@ -797,6 +797,8 @@ When generating Mermaid diagrams (flowcharts, sequence diagrams, etc.):
         const systemProv = buildSystemProvenance(toolTraces, bridgeTraces, domainsAvailable, firstToolTimestamp);
         const provenance = mergeProvenance(systemProv, reasoning);
 
+        console.log(`[Provenance] tools=${toolTraces.length} bridges=${bridgeTraces.length} domains=${domainsAvailable} confidence=${provenance.system.confidence}% (${provenance.system.confidenceLabel})`);
+
         io.to(wsChannel).emit('ai-complete', { fullText: cleanText, userId: socket.userId, provenance });
 
         // ── Process next queued request ──────────────────────────
