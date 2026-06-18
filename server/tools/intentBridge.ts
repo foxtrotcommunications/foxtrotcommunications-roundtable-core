@@ -412,6 +412,10 @@ const intentBridge: Tool = {
                 woke = true;
                 console.log(`[intent_bridge] ${bridge.targetName} is awake after ${elapsed}s`);
                 break;
+              } else if (response.status !== 502 && response.status !== 503) {
+                // Non-retryable error (e.g. 403 Forbidden, 401, 400) — stop immediately
+                console.warn(`[intent_bridge] ${bridge.targetName} returned HTTP ${response.status} — not retryable, aborting wake loop`);
+                break;
               } else {
                 console.log(`[intent_bridge] Retry at ${elapsed}s → HTTP ${response.status}`);
               }
