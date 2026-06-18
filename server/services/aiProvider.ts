@@ -739,7 +739,7 @@ async function* streamVertexAI(model: string, messages: ChatMessage[], enableToo
   const contents: Record<string, unknown>[] = formatGoogleMessages(messages);
   let fullText: string = '';
   const loopStartTime: number = Date.now();
-  const TOOL_LOOP_TIMEOUT_MS: number = 270_000; // 270s wall-clock cap — allows intent_bridge 250s wake cycle
+  const TOOL_LOOP_TIMEOUT_MS: number = 600_000; // 600s wall-clock cap
 
   for (let round: number = 0; round < maxRounds; round++) {
     if (signal?.aborted) { yield { type: 'done', fullText }; return; }
