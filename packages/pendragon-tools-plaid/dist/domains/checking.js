@@ -16,12 +16,12 @@ const DOMAIN_ACCOUNT_TYPES = {
     realestate: ['loan'],
 };
 // ─── Amount Normalization ───────────────────────────────────────────────────
-// Plaid convention: positive = money LEFT the account (debit/expense),
-//                   negative = money ENTERED the account (credit/income).
-// We store amounts as-is from Plaid. The AI layer interprets signs correctly
-// via system prompt instructions.
+// Plaid uses INVERTED signs from standard accounting:
+//   Plaid: positive = money OUT, negative = money IN
+//   Standard: positive = money IN, negative = money OUT
+// Negate all amounts at sync time so the DB uses standard convention.
 function normalizeAmount(amount) {
-    return amount;
+    return -amount;
 }
 // ─── Sync Logic ─────────────────────────────────────────────────────────────
 async function syncCheckingData(config) {
