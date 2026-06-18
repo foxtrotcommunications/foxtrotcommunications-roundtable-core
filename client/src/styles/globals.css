@@ -399,10 +399,37 @@ html, body { height: 100%; font-family: 'Inter', system-ui, sans-serif; backgrou
 /* ─── Code Block Wrapper ─── */
 .code-block-wrapper { margin: 10px 0; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--border-subtle); max-width: 100%; }
 .code-block-header { display: flex; justify-content: space-between; align-items: center; padding: 6px 14px; background: var(--bg-elevated); font-size: 12px; color: var(--text-muted); font-weight: 500; }
-.code-copy-btn { background: none; border: 1px solid var(--border-subtle); color: var(--text-secondary); font-size: 11px; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-family: inherit; transition: var(--transition-fast); }
-.code-copy-btn:hover { background: var(--surface-hover); color: var(--text-primary); border-color: var(--border-accent); }
+.code-block-actions { display: flex; gap: 6px; align-items: center; }
+.code-copy-btn, .code-view-btn { background: none; border: 1px solid var(--border-subtle); color: var(--text-secondary); font-size: 11px; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-family: inherit; transition: var(--transition-fast); }
+.code-copy-btn:hover, .code-view-btn:hover { background: var(--surface-hover); color: var(--text-primary); border-color: var(--border-accent); }
+.code-view-btn.active { background: rgba(99,102,241,0.15); color: var(--accent-primary); border-color: var(--accent-primary); }
 .code-block-wrapper pre { margin: 0; border: none; border-radius: 0; overflow-x: auto; }
 .code-block-wrapper pre code { font-size: 13px; color: #c9d1d9; font-family: 'SF Mono', Monaco, 'Fira Code', monospace; white-space: pre; }
+
+/* ─── JSON Syntax Highlighting ─── */
+.json-key { color: #7dd3fc; }
+.json-string { color: #86efac; }
+.json-number { color: #fbbf24; }
+.json-boolean { color: #c4b5fd; }
+.json-null { color: #fb923c; font-style: italic; }
+.json-punct { color: #6b7280; }
+
+/* ─── JSON Tree View ─── */
+.json-tree { padding: 12px 16px; background: var(--bg-primary); font-family: 'SF Mono', Monaco, 'Fira Code', monospace; font-size: 13px; line-height: 1.6; overflow-x: auto; max-height: 500px; overflow-y: auto; }
+.json-line { white-space: nowrap; padding: 1px 0; }
+.json-toggle { cursor: pointer; user-select: none; border-radius: 3px; transition: background 0.15s ease; }
+.json-toggle:hover { background: rgba(99,102,241,0.08); }
+.json-caret { display: inline-block; width: 16px; text-align: center; font-size: 10px; color: var(--text-muted); margin-right: 2px; transition: transform 0.15s ease; }
+.json-collapsed-hint { color: var(--text-muted); font-style: italic; font-size: 11px; margin: 0 6px; }
+.json-node { }
+
+/* Light theme overrides */
+[data-theme="light"] .json-key { color: #0369a1; }
+[data-theme="light"] .json-string { color: #15803d; }
+[data-theme="light"] .json-number { color: #b45309; }
+[data-theme="light"] .json-boolean { color: #7c3aed; }
+[data-theme="light"] .json-null { color: #ea580c; }
+[data-theme="light"] .json-punct { color: #9ca3af; }
 
 /* ─── Tool Result Cards ─── */
 .search-results { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; }
