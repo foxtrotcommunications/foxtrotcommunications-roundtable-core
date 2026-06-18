@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Wake-on-request (K8s API)** — Bridge tools (`intent_bridge`, `bridge_workspace`) detect sleeping target workspaces (HTTP 503) and automatically scale them from 0→1 replicas via the Kubernetes API, then retry with fresh HMAC signatures every 5s for up to 120s
 - **X-Contract-Action header** — Bridge requests now include an `X-Contract-Action` header carrying the signed action name, allowing the receiver's auth middleware to verify the correct HMAC payload instead of hardcoding `message_send`
 - **Verbose bridge retry logging** — Both `intent_bridge` and `bridge_workspace` log each retry attempt with elapsed time and HTTP status for operational visibility
+- **429 auto-fallback** — When Vertex AI returns `RESOURCE_EXHAUSTED` (429), automatically retries with `gemini-3.5-flash` and restores the original model after a 10-minute cooldown. Streams a brief notice to the user during fallback
+- **Debt domain transaction tools** — `plaid.getBalances` and `plaid.getTransactions` capabilities added to the debt domain module, matching the checking/savings toolset for credit card and loan transaction access
+- **Plaid sign normalization** — Universal `normalizeAmount()` negates all Plaid amounts at sync time, converting from Plaid convention (positive=money out) to standard accounting (positive=money in, negative=money out)
+- **Pendragon tools plugin (v1.0.1)** — `@pendragon/tools-plaid` published to Google Artifact Registry with 3 domain modules (checking, debt, investments), Chinese Wall account-type isolation, and domain-scoped capability registration
 
 ### Changed
 
