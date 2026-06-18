@@ -47,9 +47,15 @@ router.post('/receive', async (req, res) => {
     // independently using the live manifest (fetched from Firestore with 5s TTL
     // cache) and the shared BRIDGE_HMAC_SECRET.
     if (contractId) {
-      const { fetchManifest } = require('../utils/fetchManifest');
-      const manifestData = await fetchManifest();
-      const rtContracts = manifestData.RT_CONTRACTS || [];
+      // Load contracts: prefer live manifest, fall back to env var
+      let rtContracts = [];
+      try {
+        const { fetchManifest } = require('../utils/fetchManifest');
+        const manifestData = await fetchManifest();
+        rtContracts = manifestData.RT_CONTRACTS || [];
+      } catch {
+        try { rtContracts = JSON.parse(process.env.RT_CONTRACTS || '[]'); } catch { rtContracts = []; }
+      }
 
       const manifest = rtContracts.find(c => c.contractId === contractId);
 
