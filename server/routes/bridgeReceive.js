@@ -44,20 +44,18 @@ router.post('/receive', async (req, res) => {
 
     // ── Contract enforcement gate ─────────────────────────────────────────────
     // If a contractId is present, the workspace verifies the contract terms
-    // independently using its locally-cached RT_CONTRACTS manifest and the
-    // shared BRIDGE_HMAC_SECRET. This is self-reinforcing: the same key that
-    // authenticated the request also authenticates the contract terms, so
-    // tampering with allowedActions in transit breaks the contractToken check.
+    // independently using the live manifest (fetched from Firestore with 5s TTL
+    // cache) and the shared BRIDGE_HMAC_SECRET.
     if (contractId) {
-      const rtContracts = (() => {
-        try { return JSON.parse(process.env.RT_CONTRACTS || '[]'); } catch { return []; }
-      })();
+      const { fetchManifest } = require('../utils/fetchManifest');
+      const manifestData = await fetchManifest();
+      const rtContracts = manifestData.RT_CONTRACTS || [];
 
       const manifest = rtContracts.find(c => c.contractId === contractId);
 
-      // 1. Contract must be in the local manifest (prevents unknown contracts)
+      // 1. Contract must be in the manifest (prevents unknown contracts)
       if (!manifest) {
-        console.warn(`[Bridge] Rejected: contract ${contractId} not found in local manifest`);
+        console.warn(`[Bridge] Rejected: contract ${contractId} not found in manifest (${rtContracts.length} contracts loaded)`);
         return res.status(403).json({
           error: 'Contract not recognized by this workspace',
           contractId,
