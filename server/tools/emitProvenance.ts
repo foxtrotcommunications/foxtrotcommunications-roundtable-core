@@ -24,9 +24,13 @@ function getTopology() {
   return { contracts, bridges, availableDomains, totalDomains: availableDomains.length };
 }
 
+// All possible Pendragon financial domains
+const TOTAL_PENDRAGON_DOMAINS = 6; // checking, investments, retirement, debt, taxes, realestate
+
 /**
  * Deterministic confidence scoring.
- * coverage × freshness × assumptionPenalty × missingPenalty
+ * Confidence = data quality: freshness × assumptions × tool calls
+ * Coverage = financial picture breadth: domainsConsulted / total possible domains
  */
 function computeConfidence(args: {
   domainsConsulted: string[];
@@ -35,13 +39,14 @@ function computeConfidence(args: {
   missingDomains: string[];
   dataFreshMinutes: number;
   toolCallCount: number;
-}): { score: number; label: string } {
-  const { domainsConsulted, totalDomains, assumptions, missingDomains, dataFreshMinutes, toolCallCount } = args;
+}): { score: number; label: string; coverage: number; coverageLabel: string } {
+  const { domainsConsulted, assumptions, dataFreshMinutes, toolCallCount } = args;
 
-  // Coverage: what fraction of available domains were consulted
-  const coverageScore = totalDomains > 0
-    ? domainsConsulted.length / totalDomains
-    : (domainsConsulted.length > 0 ? 0.5 : 0);
+  // ── Confidence: how trustworthy is what we're saying? ──
+
+  // Did we actually query real data?
+  const hasRealData = domainsConsulted.length > 0 && toolCallCount > 0;
+  const baseScore = hasRealData ? 1.0 : 0.3;
 
   // Freshness: penalize stale data
   const freshnessScore =
@@ -53,14 +58,11 @@ function computeConfidence(args: {
   // Assumption penalty: each assumption reduces confidence
   const assumptionPenalty = Math.max(0.6, 1.0 - (assumptions.length * 0.08));
 
-  // Missing data penalty
-  const missingPenalty = Math.max(0.5, 1.0 - (missingDomains.length * 0.15));
+  // No tool calls = no real data = low confidence
+  const toolPenalty = toolCallCount === 0 ? 0.4 : 1.0;
 
-  // No tool calls = cached data = big penalty
-  const cachedPenalty = toolCallCount === 0 ? 0.5 : 1.0;
-
-  const raw = coverageScore * freshnessScore * assumptionPenalty * missingPenalty * cachedPenalty * 100;
-  const score = Math.round(Math.min(100, Math.max(0, raw)));
+  const rawConfidence = baseScore * freshnessScore * assumptionPenalty * toolPenalty * 100;
+  const score = Math.round(Math.min(100, Math.max(0, rawConfidence)));
 
   const label =
     score >= 85 ? 'High' :
@@ -68,7 +70,18 @@ function computeConfidence(args: {
     score >= 40 ? 'Low' :
     'Very Low';
 
-  return { score, label };
+  // ── Coverage: how much of the financial picture do we see? ──
+
+  const coverageRaw = Math.round((domainsConsulted.length / TOTAL_PENDRAGON_DOMAINS) * 100);
+  const coverage = Math.min(100, Math.max(0, coverageRaw));
+
+  const coverageLabel =
+    coverage >= 80 ? 'Comprehensive' :
+    coverage >= 50 ? 'Moderate' :
+    coverage >= 25 ? 'Partial' :
+    'Limited';
+
+  return { score, label, coverage, coverageLabel };
 }
 
 const tool: Tool = {
@@ -149,7 +162,7 @@ The system computes confidence deterministically from these inputs. Never comput
     const dataFreshMinutes = args.dataFreshMinutes ?? 0;
     const toolCallCount = args.toolCallCount ?? 0;
 
-    const { score, label } = computeConfidence({
+    const { score, label, coverage, coverageLabel } = computeConfidence({
       domainsConsulted,
       totalDomains: topology.totalDomains,
       assumptions,
@@ -181,8 +194,10 @@ The system computes confidence deterministically from these inputs. Never comput
       success: true,
       type: 'provenance',
       confidence: { score, label },
+      coverage: { score: coverage, label: coverageLabel },
       domainsConsulted,
       domainsAvailable: topology.availableDomains,
+      totalPossibleDomains: TOTAL_PENDRAGON_DOMAINS,
       freshness,
       reasoning: {
         assumptions,
@@ -195,7 +210,7 @@ The system computes confidence deterministically from these inputs. Never comput
         wouldImprove,
         potentialConfidence: potentialConfidence ? `${score}% → ${potentialConfidence.score}%` : null,
       },
-      message: `Provenance recorded. Confidence: ${label} (${score}%). Do NOT output any provenance text or code blocks — the UI renders this automatically.`,
+      message: `Provenance recorded. Confidence: ${label} (${score}%). Coverage: ${coverageLabel} (${coverage}%). Do NOT output any provenance text or code blocks — the UI renders this automatically.`,
     };
   },
 };
