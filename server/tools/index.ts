@@ -14,6 +14,7 @@ import listFiles from './listFiles';
 import findFile from './findFile';
 import shellExec from './shellExec';
 import renderChart from './renderChart';
+import emitProvenance from './emitProvenance';
 
 // Data warehouse tools (loaded conditionally based on config)
 import queryBigQuery from './queryBigQuery';
@@ -68,6 +69,7 @@ const tools = {
   find_file: findFile,
   shell_exec: shellExec,
   render_chart: renderChart,
+  emit_provenance: emitProvenance,
   // Data warehouse tools — always registered, return config error if not set up
   query_bigquery: queryBigQuery,
   query_snowflake: querySnowflake,

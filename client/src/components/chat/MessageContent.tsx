@@ -18,7 +18,6 @@ interface Props {
   streaming?: boolean;
   /** Known mention targets — display names and usernames that should be highlighted */
   knownMentions?: string[];
-  provenance?: ProvenancePayload;
 }
 
 /** Stable reference for remarkPlugins to avoid ReactMarkdown re-parses */
@@ -88,7 +87,7 @@ function processMentions(children: ReactNode, knownMentions: string[]): ReactNod
   return children;
 }
 
-function MessageContent({ content, streaming, knownMentions = [], provenance }: Props) {
+function MessageContent({ content, streaming, knownMentions = [] }: Props) {
   const processed = useMemo(() => content, [content]);
 
   // Always include 'ai' as a known mention
@@ -119,6 +118,43 @@ function MessageContent({ content, streaming, knownMentions = [], provenance }: 
                 <ChartRenderer config={config} />
               </CollapsibleBlock>
             );
+          }
+        } catch {
+          // Fall through to code block if JSON is invalid
+        }
+      }
+
+      // Provenance block: ```provenance { ...json... } ```
+      if (lang === 'provenance' && !streaming) {
+        try {
+          const raw = extractText(children).trim();
+          const config = JSON.parse(raw);
+          if (config.type === 'provenance' && config.confidence) {
+            // Map tool output to ProvenancePayload shape
+            const payload: ProvenancePayload = {
+              system: {
+                confidence: config.confidence.score,
+                confidenceLabel: config.confidence.label,
+                domainsConsulted: config.domainsConsulted || [],
+                domainsAvailable: config.domainsAvailable?.length || 0,
+                accountsAnalyzed: 0,
+                transactionsReviewed: 0,
+                dataAge: config.freshness || '',
+                dataTimestamp: Date.now(),
+                toolsCalled: [],
+                totalDurationMs: 0,
+                bridgeCalls: [],
+              },
+              reasoning: config.reasoning ? {
+                assumptions: config.reasoning.assumptions || [],
+                keyCalculations: config.reasoning.keyCalculations || [],
+                keyDrivers: config.reasoning.keyDrivers || [],
+                limitations: config.reasoning.limitations || [],
+                missingDomains: config.missingData?.missingDomains || [],
+                wouldImprove: config.missingData?.wouldImprove || [],
+              } : null,
+            };
+            return <ProvenanceFooter provenance={payload} />;
           }
         } catch {
           // Fall through to code block if JSON is invalid
@@ -159,16 +195,13 @@ function MessageContent({ content, streaming, knownMentions = [], provenance }: 
   }), [streaming, mentions]);
 
   return (
-    <>
-      <ReactMarkdown
-        remarkPlugins={REMARK_PLUGINS}
-        rehypePlugins={REHYPE_PLUGINS}
-        components={components}
-      >
-        {processed}
-      </ReactMarkdown>
-      {provenance && !streaming && <ProvenanceFooter provenance={provenance} />}
-    </>
+    <ReactMarkdown
+      remarkPlugins={REMARK_PLUGINS}
+      rehypePlugins={REHYPE_PLUGINS}
+      components={components}
+    >
+      {processed}
+    </ReactMarkdown>
   );
 }
 
