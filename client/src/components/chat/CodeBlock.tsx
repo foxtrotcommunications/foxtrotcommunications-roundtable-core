@@ -120,7 +120,7 @@ export default function CodeBlock({ language, children }: Props) {
 
   // Try to parse JSON for the tree view
   const jsonData = useMemo(() => {
-    if (language !== 'json') return null;
+    if (language.toLowerCase() !== 'json') return null;
     try {
       return JSON.parse(children.trim());
     } catch {
@@ -128,7 +128,7 @@ export default function CodeBlock({ language, children }: Props) {
     }
   }, [language, children]);
 
-  const isJson = language === 'json' && jsonData !== null;
+  const isJson = language.toLowerCase() === 'json' && jsonData !== null;
 
   return (
     <div className="code-block-wrapper">
