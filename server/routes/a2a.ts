@@ -75,7 +75,7 @@ router.get('/.well-known/agent.json', async (_req: Request, res: Response) => {
  * 1. x-api-key header (simple API key auth)
  * 2. Contract-based auth (X-Contract-Id + X-Contract-Signature + X-Contract-Timestamp headers)
  */
-function requireA2aAuth(req: Request, res: Response, next: () => void): void {
+async function requireA2aAuth(req: Request, res: Response, next: () => void): Promise<void> {
   // Option 1: API key auth (existing behavior)
   const apiKey = req.headers['x-api-key'] as string | undefined;
   if (apiKey && config.a2aApiKey && apiKey === config.a2aApiKey) {
