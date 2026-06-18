@@ -91,10 +91,17 @@ function requireA2aAuth(req: Request, res: Response, next: () => void): void {
     try {
       const { deriveContractKey, verifyRequest, findAndValidateContract } = require('../utils/contractAuth');
 
-      // Load contract manifest from env
-      const { fetchManifest } = require('../utils/fetchManifest');
-      const manifestData = await fetchManifest();
-      const contracts = manifestData.RT_CONTRACTS || [];
+      // Load contracts: prefer live manifest (Firestore, 5s TTL cache),
+      // fall back to static env var for resilience during outages
+      let contracts: any[] = [];
+      try {
+        const { fetchManifest } = require('../utils/fetchManifest');
+        const manifestData = await fetchManifest();
+        contracts = manifestData.RT_CONTRACTS || [];
+      } catch {
+        // Fallback: use static env var (set at pod startup)
+        try { contracts = JSON.parse(process.env.RT_CONTRACTS || '[]'); } catch { contracts = []; }
+      }
       const masterSecret = process.env.ORG_MASTER_SECRET;
 
       if (!masterSecret) {
