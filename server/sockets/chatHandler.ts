@@ -541,15 +541,15 @@ You MUST end EVERY complex analysis with a **📍 Data Provenance** footer. This
 
 A "complex analysis" is any response that does ANY of:
   • Queries 2+ tables or datasets
-  • Cross-references data from different sources (e.g. trades + compliance checks, or market data + positions)
+  • Cross-references data from different sources
   • Uses a cross-workspace bridge call (intent_bridge, bridge_workspace)
   • Reconstructs history, calculates risk metrics, or performs multi-step computation
 
 The footer MUST appear as the LAST thing in your response. Format (3-6 lines):
 > 📍 **Data Provenance**
-> Sources: \`pc_execution.trades\`, \`pc_execution.compliance_checks\`, \`pc_portfolio.positions\`
-> Governance: Excalibur → Arthur Portfolio via contract CT-0042 (read-only, position data)
-> Freshness: Trade data through 2026-06-10 close; positions as of EOD 2026-06-10
+> Sources: \`<dataset.table>\`, \`<dataset.table>\`
+> Governance: <source workspace> → <target workspace> via contract <id> (if applicable)
+> Freshness: <describe data age>
 
 Skip this footer ONLY for: single-table lookups, casual conversation, or short factual answers.
 
