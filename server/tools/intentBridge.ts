@@ -60,8 +60,12 @@ async function detectSleepingWorkspace(response: Response): Promise<boolean> {
 /**
  * Wake a sleeping workspace by scaling its K8s deployment from 0 → 1.
  * Uses the in-cluster K8s API with the pod's service account token.
+ * Returns:
+ *   'scaled'    — deployment found and scaled to 1 replica
+ *   'not_found' — deployment does not exist (stale bridge)
+ *   'failed'    — K8s API error (permissions, network, etc.)
  */
-async function wakeWorkspace(targetWsId: string): Promise<boolean> {
+async function wakeWorkspace(targetWsId: string): Promise<'scaled' | 'not_found' | 'failed'> {
   try {
     const fs = require('fs');
     const https = require('https');
@@ -98,23 +102,26 @@ async function wakeWorkspace(targetWsId: string): Promise<boolean> {
         res.on('end', () => {
           if (res.statusCode >= 200 && res.statusCode < 300) {
             console.log(`[intent_bridge] Scaled ${depName} → 1 replica in ns=${orgNamespace}`);
-            resolve(true);
+            resolve('scaled');
+          } else if (res.statusCode === 404) {
+            console.warn(`[intent_bridge] Deployment ${depName} not found — bridge is stale`);
+            resolve('not_found');
           } else {
             console.error(`[intent_bridge] Failed to scale ${depName}: ${res.statusCode} ${data.slice(0, 200)}`);
-            resolve(false);
+            resolve('failed');
           }
         });
       });
       req.on('error', (err) => {
         console.error(`[intent_bridge] K8s API error: ${err.message}`);
-        resolve(false);
+        resolve('failed');
       });
       req.write(payload);
       req.end();
     });
   } catch (err: any) {
     console.error(`[intent_bridge] wakeWorkspace error: ${err.message}`);
-    return false;
+    return 'failed';
   }
 }
 
@@ -381,7 +388,17 @@ const intentBridge: Tool = {
           console.log(`[intent_bridge] ${bridge.targetName} is sleeping — waking and retrying (up to ${MAX_WAKE_WAIT_MS / 1000}s)`);
 
           // Scale the target deployment from 0 → 1 via K8s API
-          await wakeWorkspace(bridge.targetWsId);
+          const wakeResult = await wakeWorkspace(bridge.targetWsId);
+
+          // Staleness guard: if deployment doesn't exist, the bridge is stale
+          if (wakeResult === 'not_found') {
+            return {
+              success: false,
+              error: `Bridge to "${bridge.targetName}" is stale — the target workspace no longer exists. Please delete and recreate this domain from the Pendragon dashboard.`,
+              staleBridge: true,
+              permanent: true,
+            };
+          }
 
           const wakeStart = Date.now();
           let woke = false;
