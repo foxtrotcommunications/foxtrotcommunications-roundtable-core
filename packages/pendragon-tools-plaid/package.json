@@ -1,0 +1,30 @@
+{
+  "name": "@pendragon/tools-plaid",
+  "version": "1.0.1",
+  "description": "Domain-isolated Plaid financial tools for Pendragon workspaces",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest",
+    "prepublishOnly": "npm run build"
+  },
+  "publishConfig": {
+    "registry": "https://us-central1-npm.pkg.dev/roundtable-public/pendragon-npm/"
+  },
+  "dependencies": {
+    "pg": "^8.20.0",
+    "plaid": "^42.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0",
+    "typescript": "^5.7.0"
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "UNLICENSED",
+  "private": false
+}
