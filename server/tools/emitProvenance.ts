@@ -174,8 +174,11 @@ The system computes confidence deterministically from these inputs. Never comput
       : dataFreshMinutes < 60 ? `${Math.round(dataFreshMinutes)}m ago`
       : `${Math.round(dataFreshMinutes / 60)}h ago`;
 
-    // Build the provenance block that the AI should include in its response
-    const provBlock = JSON.stringify({
+    // Return structured provenance data.
+    // The chatHandler / ProvenanceFooter component renders this automatically
+    // from the tool result — the AI should NOT echo this as text.
+    return {
+      success: true,
       type: 'provenance',
       confidence: { score, label },
       domainsConsulted,
@@ -192,14 +195,7 @@ The system computes confidence deterministically from these inputs. Never comput
         wouldImprove,
         potentialConfidence: potentialConfidence ? `${score}% → ${potentialConfidence.score}%` : null,
       },
-    });
-
-    const chartBlock = '```provenance\n' + provBlock + '\n```';
-
-    return {
-      success: true,
-      message: `Provenance computed. Confidence: ${label} (${score}%). IMPORTANT: Include the following provenance block at the END of your response to display it:\n\n${chartBlock}`,
-      chartBlock,
+      message: `Provenance recorded. Confidence: ${label} (${score}%). Do NOT output any provenance text or code blocks — the UI renders this automatically.`,
     };
   },
 };
