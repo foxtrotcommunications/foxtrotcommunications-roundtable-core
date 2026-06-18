@@ -662,7 +662,7 @@ let genaiRegionalClient: GoogleGenAIClient | null = null;
 let genaiGlobalClient: GoogleGenAIClient | null = null;
 
 // ─── 429 Fallback State ─────────────────────────────────────────────────────
-const FALLBACK_MODEL = 'gemini-2.5-flash';
+const FALLBACK_MODEL = 'gemini-3.5-flash';
 const FALLBACK_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
 let rateLimitedUntil: number = 0;
 let rateLimitOriginalModel: string | null = null;
