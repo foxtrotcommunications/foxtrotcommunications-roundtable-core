@@ -263,12 +263,13 @@ app.use('/api', apiLimiter);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/bridge', bridgeReceive);  // HMAC-authed, no user session needed
-app.use('/api', requireAuth, fileRoutes);
-app.use('/api/insights', requireAuth, insightRoutes);
 
 // Plaid data-sync endpoint (called by Pendragon during provisioning + periodic refresh)
 const syncRoute = require('./routes/sync').default;
 app.use('/api/sync', syncRoute);
+
+app.use('/api', requireAuth, fileRoutes);
+app.use('/api/insights', requireAuth, insightRoutes);
 
 
 // ─── Protocol Integrations (MCP + A2A) ─────────────────────
