@@ -92,7 +92,9 @@ function requireA2aAuth(req: Request, res: Response, next: () => void): void {
       const { deriveContractKey, verifyRequest, findAndValidateContract } = require('../utils/contractAuth');
 
       // Load contract manifest from env
-      const contracts = process.env.RT_CONTRACTS ? JSON.parse(process.env.RT_CONTRACTS) : [];
+      const { fetchManifest } = require('../utils/fetchManifest');
+      const manifestData = await fetchManifest();
+      const contracts = manifestData.RT_CONTRACTS || [];
       const masterSecret = process.env.ORG_MASTER_SECRET;
 
       if (!masterSecret) {
