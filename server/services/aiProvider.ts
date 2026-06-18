@@ -661,6 +661,35 @@ function formatGoogleMessages(messages: ChatMessage[]): Record<string, unknown>[
 let genaiRegionalClient: GoogleGenAIClient | null = null;
 let genaiGlobalClient: GoogleGenAIClient | null = null;
 
+// ─── 429 Fallback State ─────────────────────────────────────────────────────
+const FALLBACK_MODEL = 'gemini-2.5-flash';
+const FALLBACK_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
+let rateLimitedUntil: number = 0;
+let rateLimitOriginalModel: string | null = null;
+let cooldownTimer: ReturnType<typeof setTimeout> | null = null;
+
+function isRateLimited(): boolean {
+  return Date.now() < rateLimitedUntil;
+}
+
+function activateFallback(originalModel: string): void {
+  rateLimitedUntil = Date.now() + FALLBACK_COOLDOWN_MS;
+  rateLimitOriginalModel = originalModel;
+  console.warn(`[VertexAI] 429 on ${originalModel} — falling back to ${FALLBACK_MODEL} for ${FALLBACK_COOLDOWN_MS / 1000}s`);
+  if (cooldownTimer) clearTimeout(cooldownTimer);
+  cooldownTimer = setTimeout(() => {
+    console.log(`[VertexAI] Cooldown expired — restoring ${rateLimitOriginalModel}`);
+    rateLimitedUntil = 0;
+    rateLimitOriginalModel = null;
+    cooldownTimer = null;
+  }, FALLBACK_COOLDOWN_MS);
+}
+
+function is429Error(err: unknown): boolean {
+  const msg = String((err as Error)?.message || err);
+  return msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('Resource exhausted');
+}
+
 /**
  * Preview models (e.g. gemini-3.1-pro-preview) and newest generation models
  * (gemini-3.5+) are only available on the global Vertex AI endpoint.
@@ -699,7 +728,13 @@ function getGenAIClient(model: string): GoogleGenAIClient {
 }
 
 async function* streamVertexAI(model: string, messages: ChatMessage[], enableTools: boolean, maxRounds: number, signal: AbortSignal | null, enabledToolNames: string[] | null, workspaceConfig: WorkspaceConfig = {}): AsyncGenerator<StreamEvent> {
-  const ai: GoogleGenAIClient = getGenAIClient(model);
+  // Auto-fallback: if currently rate-limited, use Flash immediately
+  let activeModel: string = isRateLimited() ? FALLBACK_MODEL : model;
+  if (activeModel !== model) {
+    console.log(`[VertexAI] Rate-limit cooldown active — using ${FALLBACK_MODEL} instead of ${model}`);
+  }
+
+  const ai: GoogleGenAIClient = getGenAIClient(activeModel);
   const systemInstruction: string = extractGoogleSystemInstruction(messages);
   const contents: Record<string, unknown>[] = formatGoogleMessages(messages);
   let fullText: string = '';
@@ -722,11 +757,29 @@ async function* streamVertexAI(model: string, messages: ChatMessage[], enableToo
       requestConfig.tools = toGoogleTools(enabledToolNames);
     }
 
-    const stream: AsyncIterable<GoogleGenAIChunk> = await ai.models.generateContentStream({
-      model,
-      contents,
-      config: requestConfig,
-    });
+    let stream: AsyncIterable<GoogleGenAIChunk>;
+    try {
+      stream = await ai.models.generateContentStream({
+        model: activeModel,
+        contents,
+        config: requestConfig,
+      });
+    } catch (err: unknown) {
+      // On 429, fall back to Flash and retry this round
+      if (is429Error(err) && activeModel !== FALLBACK_MODEL) {
+        activateFallback(model);
+        activeModel = FALLBACK_MODEL;
+        const fallbackAi = getGenAIClient(FALLBACK_MODEL);
+        yield { type: 'text-delta', content: '⚡ _Switching to faster model due to high demand..._\n\n' };
+        stream = await fallbackAi.models.generateContentStream({
+          model: FALLBACK_MODEL,
+          contents,
+          config: requestConfig,
+        });
+      } else {
+        throw err;
+      }
+    }
 
     let text: string = '';
     const functionCalls: GoogleFunctionCall[] = [];
