@@ -30,7 +30,7 @@ const DOMAIN_CAPS = {
     savings: ['plaid.getBalances', 'plaid.getTransactions', 'plaid.syncData'],
     investments: ['plaid.getHoldings', 'plaid.getSecurities', 'plaid.getPortfolioSummary', 'plaid.syncData'],
     retirement: ['plaid.getHoldings', 'plaid.getSecurities', 'plaid.getPortfolioSummary', 'plaid.syncData'],
-    debt: ['plaid.getLiabilities', 'plaid.getDebtSummary', 'plaid.getCreditUtilization', 'plaid.syncData'],
+    debt: ['plaid.getBalances', 'plaid.getTransactions', 'plaid.getLiabilities', 'plaid.getDebtSummary', 'plaid.getCreditUtilization', 'plaid.syncData'],
 };
 // ─── Plugin Object ──────────────────────────────────────────────────────────
 export const pendragonPlaid = {
