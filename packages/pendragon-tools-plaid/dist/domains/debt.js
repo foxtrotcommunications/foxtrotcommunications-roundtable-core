@@ -4,6 +4,16 @@
 import { ScopedPlaidClient } from '../plaid/client.js';
 import { withPool } from '../db/pool.js';
 import { getSchemaForDomain } from '../db/schemas.js';
+// ─── Domain Account Type Filter (Chinese Wall) ─────────────────────────────
+const DOMAIN_ACCOUNT_TYPES = {
+    checking: ['depository'],
+    savings: ['depository'],
+    debt: ['credit', 'loan'],
+    investments: ['investment'],
+    retirement: ['investment'],
+    taxes: ['depository', 'credit', 'loan'],
+    realestate: ['loan'],
+};
 // ─── Amount Normalization ───────────────────────────────────────────────────
 const CREDIT_PATTERNS = [
     'ach electronic credit',
@@ -40,7 +50,12 @@ async function syncDebtData(config) {
         // 1. Sync accounts
         const accountsRes = await plaid.accountsGet(config.accessToken);
         const accounts = accountsRes.data.accounts;
-        for (const acct of accounts) {
+        // Chinese wall: only store accounts matching this domain's scope
+        const allowedTypes = DOMAIN_ACCOUNT_TYPES[config.domainType] || ['credit', 'loan'];
+        const scopedAccounts = accounts.filter(a => allowedTypes.includes(a.type));
+        const scopedAccountIds = new Set(scopedAccounts.map(a => a.account_id));
+        console.log(`[${config.domainType}-sync] Chinese wall: ${scopedAccounts.length}/${accounts.length} accounts match types [${allowedTypes.join(', ')}]`);
+        for (const acct of scopedAccounts) {
             await pool.query(`INSERT INTO plaid_accounts
            (account_id, name, mask, type, subtype,
             balance_available, balance_current, balance_limit, currency, synced_at)
@@ -66,7 +81,8 @@ async function syncDebtData(config) {
                 acct.balances?.iso_currency_code ?? acct.balances?.unofficial_currency_code ?? null,
             ]);
         }
-        summary.accountsCount = accounts.length;
+        summary.accountsCount = scopedAccounts.length;
+        summary.accountsFiltered = accounts.length - scopedAccounts.length;
         // 2. Sync transactions (cursor-based incremental)
         let cursor;
         if (config.itemId) {
@@ -83,6 +99,8 @@ async function syncDebtData(config) {
             const syncRes = await plaid.transactionsSync(config.accessToken, cursor);
             const data = syncRes.data;
             for (const txn of data.added) {
+                // Chinese wall: skip transactions for accounts outside this domain's scope
+                if (!scopedAccountIds.has(txn.account_id)) continue;
                 await pool.query(`INSERT INTO plaid_transactions
              (transaction_id, account_id, amount, date, name,
               merchant_name, category, payment_channel, pending, synced_at)
@@ -110,6 +128,7 @@ async function syncDebtData(config) {
                 addedCount++;
             }
             for (const txn of data.modified) {
+                if (!scopedAccountIds.has(txn.account_id)) continue;
                 await pool.query(`INSERT INTO plaid_transactions
              (transaction_id, account_id, amount, date, name,
               merchant_name, category, payment_channel, pending, synced_at)
