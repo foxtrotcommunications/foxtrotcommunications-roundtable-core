@@ -102,6 +102,24 @@ Object.assign(tools, {
   get_payoff_projection: getPayoffProjection,
 });
 
+// ─── Plaid Plugin (sync + capabilities) ─────────────────────────────
+// If @pendragon/tools-plaid is installed and RT_CONNECTIONS has a plaid
+// connection, register domain-scoped sync tools + capabilities.
+try {
+  const { registerFromEnv } = require('@pendragon/tools-plaid');
+  const { capabilityRegistry } = require('../protocols/capabilityRegistry');
+  registerFromEnv({
+    register(name: string, tool: any) {
+      tools[name] = tool;
+    },
+  }, capabilityRegistry);
+} catch (err: any) {
+  // Package not installed or no plaid connection — skip silently
+  if (err.code !== 'MODULE_NOT_FOUND') {
+    console.warn('[tools] Plaid plugin error:', err.message);
+  }
+}
+
 // ─── Dynamic Tool Registry (MCP servers inject tools here) ─────────
 // Dynamic tools are stored separately and merged at resolve-time.
 // Key: tool name (e.g. 'mcp_myserver_search'), Value: Tool object
