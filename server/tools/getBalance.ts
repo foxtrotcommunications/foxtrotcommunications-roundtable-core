@@ -2,6 +2,7 @@
 // server/tools/getBalance.ts — Get current balance for one or all accounts
 import { query } from './utils/domainDb';
 import type { Tool } from '../types';
+import { buildProvenance } from './utils/buildProvenance';
 
 const tool: Tool = {
   name: 'get_balance',
@@ -74,7 +75,10 @@ const tool: Tool = {
       const coverageGaps: string[] = [];
       if (connections.length <= 1) coverageGaps.push('Only 1 institution connected — results may be incomplete');
 
+      const provenance = await buildProvenance(false, false);
+
       return {
+        provenance,
         balances: account_id ? balances[0] : balances,
         ...(account_id ? {} : {
           total_current: totalCurrent,

@@ -3,6 +3,7 @@
 // Combines account balances + 30-day transaction analysis into one response
 import { query } from './utils/domainDb';
 import type { Tool } from '../types';
+import { buildProvenance } from './utils/buildProvenance';
 
 const tool: Tool = {
   name: 'get_financial_snapshot',
@@ -214,7 +215,10 @@ const tool: Tool = {
       ];
       if (hasPayroll) coverageVisible.push('Payroll deposit pattern');
 
+      const provenance = await buildProvenance(true, true);
+
       return {
+        provenance,
         summary: {
           total_accounts: totalAccounts,
           total_balance: totalBalance,

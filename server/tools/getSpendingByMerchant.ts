@@ -2,6 +2,7 @@
 // server/tools/getSpendingByMerchant.ts — Group spending by merchant with chart-ready output
 import { query } from './utils/domainDb';
 import type { Tool } from '../types';
+import { buildProvenance } from './utils/buildProvenance';
 
 const tool: Tool = {
   name: 'get_spending_by_merchant',
@@ -104,7 +105,10 @@ const tool: Tool = {
       const coverageGaps: string[] = [];
       if (connections.length <= 1) coverageGaps.push('Only 1 institution connected — results may be incomplete');
 
+      const provenance = await buildProvenance(true, true);
+
       return {
+        provenance,
         merchants,
         grand_total: parseFloat(grandTotal.toFixed(2)),
         showing: merchants.length,

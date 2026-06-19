@@ -2,6 +2,7 @@
 // server/tools/listAccounts.ts — List all linked financial accounts with balances
 import { query } from './utils/domainDb';
 import type { Tool } from '../types';
+import { buildProvenance } from './utils/buildProvenance';
 
 const tool: Tool = {
   name: 'list_accounts',
@@ -50,7 +51,10 @@ const tool: Tool = {
       const coverageGaps: string[] = [];
       if (connections.length <= 1) coverageGaps.push('Only 1 institution connected — results may be incomplete');
 
+      const provenance = await buildProvenance(false, false);
+
       return {
+        provenance,
         accounts,
         total_accounts: accounts.length,
         metadata: {

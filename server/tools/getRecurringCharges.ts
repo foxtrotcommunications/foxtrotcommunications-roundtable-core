@@ -4,6 +4,7 @@
 // date-gap cadence detection + amount std-deviation tolerance.
 import { query } from './utils/domainDb';
 import type { Tool } from '../types';
+import { buildProvenance } from './utils/buildProvenance';
 
 /** Detect cadence from median gap in days */
 function detectCadence(medianGap: number): string | null {
@@ -179,7 +180,10 @@ const tool: Tool = {
       if (connections.length <= 1) coverageGaps.push('Only 1 institution connected — results may be incomplete');
       coverageGaps.push('Recurring detection based on transaction history — actual subscriptions may differ');
 
+      const provenance = await buildProvenance(true, true);
+
       return {
+        provenance,
         recurring,
         summary: {
           total_recurring_found: recurring.length,
