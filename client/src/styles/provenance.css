@@ -28,7 +28,6 @@
 
 .prov-summary-meta {
   color: var(--text-secondary);
-  opacity: 0.7;
 }
 
 /* Section */
@@ -68,7 +67,6 @@
 
 .prov-section-summary {
   color: var(--text-secondary);
-  opacity: 0.6;
   margin-left: auto;
   font-size: 0.72rem;
 }
@@ -76,7 +74,7 @@
 .prov-section-chevron {
   transition: transform 0.2s;
   font-size: 0.65rem;
-  opacity: 0.5;
+  opacity: 0.7;
 }
 
 .prov-chevron-open {
@@ -173,7 +171,6 @@
   color: var(--text-secondary);
   margin-left: auto;
   font-size: 0.7rem;
-  opacity: 0.6;
 }
 
 .prov-tool-total {
