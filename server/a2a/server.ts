@@ -85,6 +85,19 @@ function extractProvenance(toolResults: Array<{ name: string; result: Record<str
   const intentResults = toolResults.filter(t => t.name === 'intent_bridge');
   if (intentResults.length === 0) return null;
 
+  // Build a lookup from workspace ID → friendly bridge name
+  const bridgeNameLookup: Record<string, string> = {};
+  try {
+    const bridges = JSON.parse(process.env.RT_BRIDGES || '[]');
+    for (const b of bridges) {
+      if (b.targetWsId && b.targetName) {
+        bridgeNameLookup[b.targetWsId] = b.targetName;
+        bridgeNameLookup[b.targetWsId.toLowerCase()] = b.targetName;
+        bridgeNameLookup[b.targetName.toLowerCase()] = b.targetName;
+      }
+    }
+  } catch { /* intentionally empty */ }
+
   // ── Collect domain results with provenance ─────────────────
   const domains: Array<{
     name: string;
@@ -129,7 +142,9 @@ function extractProvenance(toolResults: Array<{ name: string; result: Record<str
 
     // Extract domain info
     if (r.toolExecuted || r.capability) {
-      const domainName = r.target || 'Unknown Domain';
+      // Resolve friendly name: try bridge lookup by target, then workspace ID patterns
+      const rawTarget = r.target || '';
+      const domainName = bridgeNameLookup[rawTarget] || bridgeNameLookup[rawTarget.toLowerCase()] || rawTarget || 'Unknown Domain';
       const capName = r.toolExecuted || r.capability;
 
       // Extract provenance from capability result
