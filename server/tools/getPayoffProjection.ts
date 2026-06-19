@@ -2,6 +2,7 @@
 // server/tools/getPayoffProjection.ts — Snowball vs avalanche payoff projections
 import { query } from './utils/domainDb';
 import type { Tool } from '../types';
+import { buildProvenance } from './utils/buildProvenance';
 
 interface Debt {
   account_id: string;
@@ -151,7 +152,10 @@ const tool: Tool = {
       const coverageGaps: string[] = [...metadata.coverage.gaps];
       if (connections.length <= 1) coverageGaps.push('Only 1 institution connected — results may be incomplete');
 
+      const provenance = await buildProvenance(false, false);
+
       return {
+        provenance,
         debts: debts.map(d => ({
           account_id: d.account_id,
           name: d.name,

@@ -2,6 +2,7 @@
 // server/tools/getSpendingByCategory.ts — Group spending by category with chart-ready output
 import { query } from './utils/domainDb';
 import type { Tool } from '../types';
+import { buildProvenance } from './utils/buildProvenance';
 
 const tool: Tool = {
   name: 'get_spending_by_category',
@@ -98,7 +99,10 @@ const tool: Tool = {
       const coverageGaps: string[] = [];
       if (connections.length <= 1) coverageGaps.push('Only 1 institution connected — results may be incomplete');
 
+      const provenance = await buildProvenance(true, true);
+
       return {
+        provenance,
         categories,
         grand_total: parseFloat(grandTotal.toFixed(2)),
         category_count: categories.length,

@@ -2,6 +2,7 @@
 // server/tools/getCashflow.ts — Cashflow analysis over time (daily/weekly/monthly)
 import { query } from './utils/domainDb';
 import type { Tool } from '../types';
+import { buildProvenance } from './utils/buildProvenance';
 
 const tool: Tool = {
   name: 'get_cashflow',
@@ -118,7 +119,10 @@ const tool: Tool = {
       if (connections.length <= 1) coverageGaps.push('Only 1 institution connected — results may be incomplete');
       coverageGaps.push('Income reflects only visible credit transactions');
 
+      const provenance = await buildProvenance(true, true);
+
       return {
+        provenance,
         periods,
         summary: {
           total_income: totalIncome,

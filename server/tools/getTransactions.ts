@@ -3,6 +3,7 @@
 // Dynamic WHERE clause builder with ILIKE search, pagination, and sorting
 import { query } from './utils/domainDb';
 import type { Tool } from '../types';
+import { buildProvenance } from './utils/buildProvenance';
 
 const tool: Tool = {
   name: 'get_transactions',
@@ -179,7 +180,10 @@ const tool: Tool = {
       const coverageGaps: string[] = [];
       if (connections.length <= 1) coverageGaps.push('Only 1 institution connected — results may be incomplete');
 
+      const provenance = await buildProvenance(true, true);
+
       return {
+        provenance,
         transactions,
         total_count: totalCount,
         total_amount: Math.round(totalAmount * 100) / 100,

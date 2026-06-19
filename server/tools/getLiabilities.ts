@@ -2,6 +2,7 @@
 // server/tools/getLiabilities.ts — Get all liabilities with account details
 import { query } from './utils/domainDb';
 import type { Tool } from '../types';
+import { buildProvenance } from './utils/buildProvenance';
 
 const tool: Tool = {
   name: 'get_liabilities',
@@ -91,7 +92,10 @@ const tool: Tool = {
       const coverageGaps: string[] = [...metadata.coverage.gaps];
       if (connections.length <= 1) coverageGaps.push('Only 1 institution connected — results may be incomplete');
 
+      const provenance = await buildProvenance(false, false);
+
       return {
+        provenance,
         liabilities: rows,
         total_liabilities: rows.length,
         filters: { type: liabilityType || null },

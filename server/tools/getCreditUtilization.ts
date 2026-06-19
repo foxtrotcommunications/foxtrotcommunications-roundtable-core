@@ -2,6 +2,7 @@
 // server/tools/getCreditUtilization.ts — Per-card and overall credit utilization
 import { query } from './utils/domainDb';
 import type { Tool } from '../types';
+import { buildProvenance } from './utils/buildProvenance';
 
 const tool: Tool = {
   name: 'get_credit_utilization',
@@ -64,7 +65,10 @@ const tool: Tool = {
       const coverageGaps: string[] = [...metadata.coverage.gaps];
       if (connections.length <= 1) coverageGaps.push('Only 1 institution connected — results may be incomplete');
 
+      const provenance = await buildProvenance(false, false);
+
       return {
+        provenance,
         cards,
         overall: {
           total_balance: parseFloat(totalBalance.toFixed(2)),

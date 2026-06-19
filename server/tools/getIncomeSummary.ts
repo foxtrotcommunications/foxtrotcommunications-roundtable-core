@@ -3,6 +3,7 @@
 // Plaid convention: negative amount = credit/income
 import { query } from './utils/domainDb';
 import type { Tool } from '../types';
+import { buildProvenance } from './utils/buildProvenance';
 
 const tool: Tool = {
   name: 'get_income_summary',
@@ -133,7 +134,10 @@ const tool: Tool = {
       if (connections.length <= 1) coverageGaps.push('Only 1 institution connected — results may be incomplete');
       coverageGaps.push('Income reflects only visible credit transactions');
 
+      const provenance = await buildProvenance(true, true);
+
       return {
+        provenance,
         deposits,
         total_income: parseFloat(totalIncome.toFixed(2)),
         deposit_count: parseInt(stats.deposit_count || '0', 10),

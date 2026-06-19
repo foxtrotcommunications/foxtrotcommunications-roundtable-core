@@ -3,6 +3,7 @@
 // Walks backward from current balance, applying transaction deltas per period
 import { query } from './utils/domainDb';
 import type { Tool } from '../types';
+import { buildProvenance } from './utils/buildProvenance';
 
 const tool: Tool = {
   name: 'get_balance_history',
@@ -129,7 +130,10 @@ const tool: Tool = {
       if (connections.length <= 1) coverageGaps.push('Only 1 institution connected — results may be incomplete');
       coverageGaps.push('Balance estimated by applying transactions backward — may not reflect pending items');
 
+      const provenance = await buildProvenance(true, true);
+
       return {
+        provenance,
         account_id,
         account_name: accountName,
         start_date: startDate,
