@@ -84,6 +84,76 @@ function computeConfidence(args: {
   return { score, label, coverage, coverageLabel };
 }
 
+/**
+ * Compute provenance alignment — did the narrative stay within the evidence?
+ * Validates claim types against evidence strength.
+ */
+function computeAlignment(claims: any[], responseText: string, coveragePct: number): { score: number; penalties: string[] } {
+  let score = 100;
+  const penalties: string[] = [];
+
+  if (!claims || claims.length === 0) {
+    // No claims emitted — check for superlative/historical issues in raw text
+    const strongClaims = /comprehensive|complete|full|thorough|definitive/gi;
+    if (strongClaims.test(responseText) && coveragePct < 80) {
+      score -= 20;
+      penalties.push('Superlative claim with < 80% coverage');
+    }
+    return { score: Math.max(score, 0), penalties };
+  }
+
+  // 1. Observations without evidence
+  const observations = claims.filter((c: any) => c.type === 'observation');
+  for (const obs of observations) {
+    if (!obs.evidence || obs.evidence.length === 0) {
+      score -= 10;
+      penalties.push(`Observation without evidence: "${String(obs.text).slice(0, 60)}..."`);
+    }
+  }
+
+  // 2. Ungrounded inferences
+  const inferences = claims.filter((c: any) => c.type === 'inference');
+  for (const inf of inferences) {
+    if (!inf.based_on || inf.based_on.length === 0) {
+      score -= 8;
+      penalties.push(`Ungrounded inference: "${String(inf.text).slice(0, 60)}..."`);
+    }
+  }
+
+  // 3. Hypothesis stated as fact (missing conditional language)
+  const hypotheses = claims.filter((c: any) => c.type === 'hypothesis');
+  for (const hyp of hypotheses) {
+    const conditional = /may|might|could|possibly|potentially|perhaps|one (possible )?explanation/i;
+    if (!conditional.test(String(hyp.text))) {
+      score -= 15;
+      penalties.push(`Hypothesis stated as fact: "${String(hyp.text).slice(0, 60)}..."`);
+    }
+  }
+
+  // 4. Superlative inflation
+  const strongClaims = /comprehensive|complete|full|thorough|definitive|all.*accounts/gi;
+  if (strongClaims.test(responseText) && coveragePct < 80) {
+    score -= 20;
+    penalties.push('Superlative claim with < 80% coverage');
+  }
+
+  // 5. Historical inflation
+  const historicalClaims = /trend|pattern|historically|over time|trajectory/gi;
+  if (historicalClaims.test(responseText) && coveragePct < 30) {
+    score -= 15;
+    penalties.push('Historical claim with < 30% historical coverage');
+  }
+
+  // 6. Long analysis with few classified claims
+  const analysisLength = responseText.replace(/```[\s\S]*?```/g, '').length;
+  if (analysisLength > 500 && claims.length < 2) {
+    score -= 10;
+    penalties.push('Long analysis with few classified claims');
+  }
+
+  return { score: Math.max(score, 0), penalties };
+}
+
 const tool: Tool = {
   name: 'emit_provenance',
   description: `Emit a structured provenance footer after financial analysis. Call this ONCE at the END of every financial response. Do NOT render provenance yourself — this tool handles it.
@@ -99,7 +169,14 @@ You provide:
 - dataFreshMinutes: approximate age of the data you used (0 = just fetched, 60 = 1 hour old)
 - toolCallCount: how many tool calls you made for this response
 
-The system computes confidence deterministically from these inputs. Never compute or state confidence yourself.`,
+The system computes confidence deterministically from these inputs. Never compute or state confidence yourself.
+
+For claim classification, tag each factual statement in your response:
+- observation: directly read from data. Include evidence.
+- calculation: derived via math. Include formula.
+- inference: conclusion drawn from observations. Include based_on indices.
+- hypothesis: speculative explanation. MUST use conditional language (may, could, might).
+- recommendation: actionable suggestion. Separate from facts.`,
   parameters: {
     type: 'object',
     properties: {
@@ -146,6 +223,40 @@ The system computes confidence deterministically from these inputs. Never comput
         type: 'number',
         description: 'Number of tool calls made for this response',
       },
+      claims: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            type: {
+              type: 'string',
+              enum: ['observation', 'calculation', 'inference', 'hypothesis', 'recommendation'],
+              description: 'The type of claim',
+            },
+            text: { type: 'string', description: 'The claim statement' },
+            evidence: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'For observations/calculations: what data supports this',
+            },
+            formula: {
+              type: 'string',
+              description: 'For calculations: the math expression',
+            },
+            based_on: {
+              type: 'array',
+              items: { type: 'number' },
+              description: 'For inferences/hypotheses: indices of supporting claims',
+            },
+          },
+          required: ['type', 'text'],
+        },
+        description: 'Classified claims from your response. Tag each factual statement.',
+      },
+      responseText: {
+        type: 'string',
+        description: 'Your full response text (for alignment validation)',
+      },
     },
     required: ['domainsConsulted', 'assumptions'],
   },
@@ -161,6 +272,8 @@ The system computes confidence deterministically from these inputs. Never comput
     const wouldImprove = args.wouldImprove || [];
     const dataFreshMinutes = args.dataFreshMinutes ?? 0;
     const toolCallCount = args.toolCallCount ?? 0;
+    const claims = args.claims || [];
+    const responseText = args.responseText || '';
 
     const { score, label, coverage, coverageLabel } = computeConfidence({
       domainsConsulted,
@@ -170,6 +283,9 @@ The system computes confidence deterministically from these inputs. Never comput
       dataFreshMinutes,
       toolCallCount,
     });
+
+    // Compute provenance alignment from claims
+    const alignment = computeAlignment(claims, responseText, coverage);
 
     // Compute potential confidence if missing domains were connected
     const potentialConfidence = missingDomains.length > 0
@@ -193,6 +309,11 @@ The system computes confidence deterministically from these inputs. Never comput
     return {
       success: true,
       type: 'provenance',
+      claims,
+      alignment: {
+        score: alignment.score,
+        penalties: alignment.penalties,
+      },
       confidence: { score, label },
       coverage: { score: coverage, label: coverageLabel },
       domainsConsulted,
@@ -210,7 +331,7 @@ The system computes confidence deterministically from these inputs. Never comput
         wouldImprove,
         potentialConfidence: potentialConfidence ? `${score}% → ${potentialConfidence.score}%` : null,
       },
-      message: `Provenance recorded. Confidence: ${label} (${score}%). Coverage: ${coverageLabel} (${coverage}%). Do NOT output any provenance text or code blocks — the UI renders this automatically.`,
+      message: `Provenance recorded. Confidence: ${label} (${score}%). Coverage: ${coverageLabel} (${coverage}%). Alignment: ${alignment.score}%. Do NOT output any provenance text or code blocks — the UI renders this automatically.`,
     };
   },
 };
