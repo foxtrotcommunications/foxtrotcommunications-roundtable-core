@@ -116,7 +116,7 @@ function findAndValidateContract(contracts, contractId, action) {
 
   // Check allowedActions — only transport/protocol actions are auto-allowed.
   // All other actions (including intent ops) must be explicitly listed in the contract.
-  const transportActions = ['message', 'delegate', 'message_send', 'tasks_get', 'tasks_cancel'];
+  const transportActions = ['message', 'delegate', 'message_send', 'tasks_get', 'tasks_cancel', 'intent_execute', 'discover'];
   if (!transportActions.includes(action)) {
     if (!contract.allowedActions.includes(action)) {
       return { error: `Action "${action}" not permitted by contract ${contractId}. Allowed: ${contract.allowedActions.join(', ')}` };
