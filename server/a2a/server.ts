@@ -362,6 +362,7 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
   try {
     // 4. Stream completion and collect full text + tool provenance
     let fullText = '';
+    let snapshotText = '';  // Captures text before post-response tool calls to prevent duplicates
     const toolResults: Array<{ name: string; result: Record<string, unknown> }> = [];
 
     // Add a 4-minute timeout to prevent indefinite hangs
@@ -385,8 +386,20 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
           fullText += event.content;
         } else if (event.type === 'tool-result') {
           toolResults.push({ name: event.name, result: event.result });
+          // If we already have a substantial response and the model is doing
+          // a follow-up tool call (e.g. emit_provenance after the main response),
+          // snapshot the text so we don't append a duplicate response afterward.
+          if (fullText.trim().length > 100) {
+            snapshotText = fullText;
+          }
         } else if (event.type === 'done') {
-          fullText = event.fullText || fullText;
+          // If we snapshotted text before a tool call, use the snapshot
+          // to avoid duplicated responses from post-tool-call generation.
+          if (snapshotText && event.fullText && event.fullText.length > snapshotText.length * 1.5) {
+            fullText = snapshotText;
+          } else {
+            fullText = event.fullText || fullText;
+          }
         } else if (event.type === 'error') {
           throw new Error(event.error);
         }
