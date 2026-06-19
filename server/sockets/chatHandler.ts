@@ -134,14 +134,12 @@ const { touchActivity } = require('./workspaceHandler') as { touchActivity: () =
         }
 
         // Check if a bridge exists for this workspace
-        const manifest: string | undefined = process.env.RT_BRIDGES;
-        if (!manifest) {
+        const manifestData = await (require('../utils/fetchManifest') as { fetchManifest: () => Promise<any> }).fetchManifest();
+        const bridges: BridgeEntry[] = manifestData.RT_BRIDGES || [];
+        if (!bridges.length) {
           socket.emit('error-message', { error: `No bridges configured. Cannot reach "${targetName}".` });
           return;
         }
-
-        let bridges: BridgeEntry[];
-        try { bridges = JSON.parse(manifest); } catch { bridges = []; }
 
         // Slugify helper: "Executive — C-Suite" → "executive-c-suite"
         const slugify = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -183,7 +181,7 @@ const { touchActivity } = require('./workspaceHandler') as { touchActivity: () =
 
         // Determine action from contracts (not bridge.permissions — bridges are connectivity only)
         let contractManifest: any[];
-        try { contractManifest = JSON.parse(process.env.RT_CONTRACTS || '[]'); } catch { contractManifest = []; }
+        contractManifest = manifestData.RT_CONTRACTS || [];
         const outboundContract = contractManifest.find(
           (c: any) => c.direction === 'outbound' && c.counterparty?.wsId === bridge.targetWsId && c.status === 'active'
         );
@@ -353,11 +351,10 @@ const { touchActivity } = require('./workspaceHandler') as { touchActivity: () =
         const servers = (dataSources as Record<string, unknown>).mcp_servers;
         if (Array.isArray(servers) && servers.length > 0) mcpServerList = servers;
       }
-      if (!mcpServerList && process.env.RT_MCP_SERVERS) {
-        try {
-          const parsed = JSON.parse(process.env.RT_MCP_SERVERS);
-          if (Array.isArray(parsed) && parsed.length > 0) mcpServerList = parsed;
-        } catch { /* intentionally empty */ }
+      if (!mcpServerList) {
+        const mData = await (require('../utils/fetchManifest') as { fetchManifest: () => Promise<any> }).fetchManifest();
+        const parsed = mData.RT_MCP_SERVERS;
+        if (Array.isArray(parsed) && parsed.length > 0) mcpServerList = parsed;
       }
       if (mcpServerList) {
         try {
@@ -383,11 +380,10 @@ const { touchActivity } = require('./workspaceHandler') as { touchActivity: () =
         const agents = (dataSources as Record<string, unknown>).a2a_agents;
         if (Array.isArray(agents) && agents.length > 0) a2aAgentList = agents;
       }
-      if (!a2aAgentList && process.env.RT_A2A_AGENTS) {
-        try {
-          const parsed = JSON.parse(process.env.RT_A2A_AGENTS);
-          if (Array.isArray(parsed) && parsed.length > 0) a2aAgentList = parsed;
-        } catch { /* intentionally empty */ }
+      if (!a2aAgentList) {
+        const mData = await (require('../utils/fetchManifest') as { fetchManifest: () => Promise<any> }).fetchManifest();
+        const parsed = mData.RT_A2A_AGENTS;
+        if (Array.isArray(parsed) && parsed.length > 0) a2aAgentList = parsed;
       }
       if (a2aAgentList) {
         workspaceConfig.a2aAgents = a2aAgentList;
@@ -575,36 +571,34 @@ When generating Mermaid diagrams (flowcharts, sequence diagrams, etc.):
       // Inject active contract info so the AI knows its governance relationships
       let contractCtx: string = '';
       try {
-        const contractManifest: string | undefined = process.env.RT_CONTRACTS;
-        if (contractManifest) {
-          interface ContractEntry {
-            contractId: string;
-            type: string;
-            direction: 'inbound' | 'outbound';
-            counterparty?: { name: string; wsId: string };
-            allowedActions?: string[];
-            escalationTarget?: string;
-          }
-          const contracts: ContractEntry[] = JSON.parse(contractManifest);
-          if (contracts.length > 0) {
-            contractCtx = '\n\n--- GOVERNANCE CONTRACTS ---\n';
-            contractCtx += `You have ${contracts.length} active governance contract(s) governing your communication with other workspaces:\n`;
-            for (const c of contracts) {
-              const dir = c.direction === 'outbound'
-                ? `You → ${c.counterparty?.name || 'Unknown'}`
-                : `${c.counterparty?.name || 'Unknown'} → You`;
-              contractCtx += `\n• **${c.type}** contract (${dir})`;
-              if (c.allowedActions && c.allowedActions.length > 0) {
-                contractCtx += `\n  Allowed actions: ${c.allowedActions.join(', ')}`;
-              }
-              if (c.escalationTarget) {
-                contractCtx += `\n  Escalation target: ${c.escalationTarget}`;
-              }
-            }
-            contractCtx += `\n\n--- CROSS-WORKSPACE EXECUTION MODEL ---\nYou are the reasoning layer. ICE is the execution layer.\n\nWhen a user asks something that involves another workspace:\n1. YOU reason about what the user needs — they should NOT direct traffic\n2. YOU decide the best approach:\n   a. Capability call (intent_bridge op:capability) — if a typed capability exists. PREFER THIS.\n   b. Data query (intent_bridge op:query) — if you need raw data from the other workspace.\n   c. Tool invocation (intent_bridge op:tool_call) — if you need a specific tool on the other side.\n   d. Delegation (bridge_workspace op:delegate) — ONLY when you genuinely need the other AI to reason.\n3. YOU execute it, interpret the results, and respond to the user.\n\nCRITICAL: The user should NEVER need to say "ask pharmacy" or "send this to risk".\nThey just ask their question. YOU know the topology, the bridges, the contracts.\nYOU decide where to get the answer and how.\n\nExample:\n  User: "What's the formulary status for Ozempic?"\n  WRONG: Relay the question to Pharmacy AI as a message\n  RIGHT: Call pharmacy.formularyCheck({drug:"Ozempic"}) via ICE, get structured result, present it\n\n  User: "Draft a P&T committee recommendation for switching to a biosimilar"\n  RIGHT: Delegate to Pharmacy AI — this requires their specialized reasoning\n\nintent_bridge — Your execution tool for cross-workspace operations:\n- Capability calls: op capability with name and typed input (PREFERRED)\n- Data queries: op query with SQL or structured params\n- Tool invocations: op tool_call with tool name and args\n- Discovery: op discover to see what a workspace can do\n\nbridge_workspace — Only when you need the OTHER AI to reason (rare):\n- Subjective analysis requiring judgment on the other side\n- Creative synthesis that no capability covers\n- NEVER use this to relay a user's message verbatim\n\nDefault to intent_bridge. Use bridge_workspace delegate only as a last resort.\nIf unsure what a workspace has, discover first.\n`;
-          }
+        const contractData = await (require('../utils/fetchManifest') as { fetchManifest: () => Promise<any> }).fetchManifest();
+        interface ContractEntry {
+          contractId: string;
+          type: string;
+          direction: 'inbound' | 'outbound';
+          counterparty?: { name: string; wsId: string };
+          allowedActions?: string[];
+          escalationTarget?: string;
         }
-      } catch { /* ignore contract parse errors */ }
+        const contracts: ContractEntry[] = contractData.RT_CONTRACTS || [];
+        if (contracts.length > 0) {
+          contractCtx = '\n\n--- GOVERNANCE CONTRACTS ---\n';
+          contractCtx += `You have ${contracts.length} active governance contract(s) governing your communication with other workspaces:\n`;
+          for (const c of contracts) {
+            const dir = c.direction === 'outbound'
+              ? `You → ${c.counterparty?.name || 'Unknown'}`
+              : `${c.counterparty?.name || 'Unknown'} → You`;
+            contractCtx += `\n• **${c.type}** contract (${dir})`;
+            if (c.allowedActions && c.allowedActions.length > 0) {
+              contractCtx += `\n  Allowed actions: ${c.allowedActions.join(', ')}`;
+            }
+            if (c.escalationTarget) {
+              contractCtx += `\n  Escalation target: ${c.escalationTarget}`;
+            }
+          }
+          contractCtx += `\n\n--- CROSS-WORKSPACE EXECUTION MODEL ---\nYou are the reasoning layer. ICE is the execution layer.\n\nWhen a user asks something that involves another workspace:\n1. YOU reason about what the user needs — they should NOT direct traffic\n2. YOU decide the best approach:\n   a. Capability call (intent_bridge op:capability) — if a typed capability exists. PREFER THIS.\n   b. Data query (intent_bridge op:query) — if you need raw data from the other workspace.\n   c. Tool invocation (intent_bridge op:tool_call) — if you need a specific tool on the other side.\n   d. Delegation (bridge_workspace op:delegate) — ONLY when you genuinely need the other AI to reason.\n3. YOU execute it, interpret the results, and respond to the user.\n\nCRITICAL: The user should NEVER need to say "ask pharmacy" or "send this to risk".\nThey just ask their question. YOU know the topology, the bridges, the contracts.\nYOU decide where to get the answer and how.\n\nExample:\n  User: "What's the formulary status for Ozempic?"\n  WRONG: Relay the question to Pharmacy AI as a message\n  RIGHT: Call pharmacy.formularyCheck({drug:"Ozempic"}) via ICE, get structured result, present it\n\n  User: "Draft a P&T committee recommendation for switching to a biosimilar"\n  RIGHT: Delegate to Pharmacy AI — this requires their specialized reasoning\n\nintent_bridge — Your execution tool for cross-workspace operations:\n- Capability calls: op capability with name and typed input (PREFERRED)\n- Data queries: op query with SQL or structured params\n- Tool invocations: op tool_call with tool name and args\n- Discovery: op discover to see what a workspace can do\n\nbridge_workspace — Only when you need the OTHER AI to reason (rare):\n- Subjective analysis requiring judgment on the other side\n- Creative synthesis that no capability covers\n- NEVER use this to relay a user's message verbatim\n\nDefault to intent_bridge. Use bridge_workspace delegate only as a last resort.\nIf unsure what a workspace has, discover first.\n`;
+        }
+      } catch { /* ignore contract fetch errors */ }
 
       systemPrompt = envCtx + contractCtx + (systemPrompt ? '\n\n' + systemPrompt : '');
 
