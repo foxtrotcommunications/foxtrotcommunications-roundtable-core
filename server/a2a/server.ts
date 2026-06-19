@@ -212,6 +212,22 @@ function extractProvenance(toolResults: Array<{ name: string; result: Record<str
   if (totalExecutionMs === 0 && maxRoundTripMs > 0) totalExecutionMs = maxRoundTripMs;
   if (accountsAnalyzed === 0 && accountNames.length > 0) accountsAnalyzed = accountNames.length;
 
+  // ── Extract alignment from emit_provenance tool results ──
+  const emitResults = toolResults.filter(t => t.name === 'emit_provenance');
+  let alignmentScore = 100; // default
+  let alignmentPenalties: string[] = [];
+  let claims: any[] = [];
+  for (const er of emitResults) {
+    const erResult = er.result as any;
+    if (erResult?.alignment) {
+      alignmentScore = erResult.alignment.score ?? 100;
+      alignmentPenalties = erResult.alignment.penalties ?? [];
+    }
+    if (erResult?.claims) {
+      claims = erResult.claims;
+    }
+  }
+
   // ── Compute three metrics ─────────────────────────────────
 
   // 1. Answer Coverage (balance-weighted, query-specific)
@@ -248,7 +264,7 @@ function extractProvenance(toolResults: Array<{ name: string; result: Record<str
     { value: freshness, weight: 0.30 },
     { value: historicalSupport, weight: 0.30 },
     { value: completeness, weight: 0.15 },
-    { value: 100, weight: 0.15 }, // provenance_alignment placeholder (computed post-response)
+    { value: alignmentScore, weight: 0.15 }, // provenance_alignment from emit_provenance claims
   ];
   if (reconstruction !== null) {
     factors.push({ value: reconstruction, weight: 0.10 });
@@ -271,9 +287,11 @@ function extractProvenance(toolResults: Array<{ name: string; result: Record<str
       freshness,
       historical_support: historicalSupport,
       completeness,
-      provenance_alignment: 100, // computed post-response by alignment checker
+      provenance_alignment: alignmentScore, // from emit_provenance claim classification
       reconstruction: reconstruction ?? undefined,
     },
+    claims,
+    alignment_penalties: alignmentPenalties,
     executionMs: totalExecutionMs,
     timestamp: new Date().toISOString(),
     cached: anyCached,
