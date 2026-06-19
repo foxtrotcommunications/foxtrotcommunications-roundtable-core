@@ -344,6 +344,59 @@ function createSyncDataHandler(config) {
     };
 }
 // ─── Tool Registration ──────────────────────────────────────────────────────
+function createGetDebtTransactionsHandler(config) {
+    return async (input, _ctx) => {
+        return withPool(config.databaseUrl, async (pool) => {
+            // Only query transactions for credit + loan accounts (Chinese wall)
+            const debtTypes = DOMAIN_ACCOUNT_TYPES['debt'] || ['credit', 'loan'];
+            const conditions = [
+                `a.type = ANY($1)`,
+            ];
+            const params = [debtTypes];
+            let paramIdx = 2;
+            if (input.startDate) {
+                conditions.push(`t.date >= $${paramIdx++}`);
+                params.push(input.startDate);
+            }
+            if (input.endDate) {
+                conditions.push(`t.date <= $${paramIdx++}`);
+                params.push(input.endDate);
+            }
+            if (input.category) {
+                conditions.push(`t.category ILIKE $${paramIdx++}`);
+                params.push(`%${input.category}%`);
+            }
+            if (input.merchant) {
+                conditions.push(`t.merchant_name ILIKE $${paramIdx++}`);
+                params.push(`%${input.merchant}%`);
+            }
+            const limit = typeof input.limit === 'number' && input.limit > 0
+                ? Math.min(input.limit, 500)
+                : 50;
+            const whereClause = conditions.length > 0
+                ? `WHERE ${conditions.join(' AND ')}`
+                : '';
+            const sql = `SELECT t.transaction_id, t.account_id, a.name as account_name,
+                          t.amount, t.date, t.name, t.merchant_name,
+                          t.category, t.payment_channel, t.pending, t.synced_at
+                   FROM plaid_transactions t
+                   JOIN plaid_accounts a ON t.account_id = a.account_id
+                   ${whereClause}
+                   ORDER BY t.date DESC
+                   LIMIT $${paramIdx}`;
+            params.push(limit);
+            const { rows } = await pool.query(sql, params);
+            // Build provenance
+            const txAccountIds = [...new Set(rows.map((r) => r.account_id))];
+            const accountsResult = await pool.query(`SELECT account_id, balance_current, synced_at FROM plaid_accounts WHERE account_id = ANY($1)`, [txAccountIds.length > 0 ? txAccountIds : ['__none__']]);
+            const historyMap = Object.fromEntries(txAccountIds.map(id => [id, true]));
+            const accountProvenance = buildAccountProvenance(accountsResult.rows, historyMap);
+            const lastSynced = accountsResult.rows.length > 0 ? accountsResult.rows[0].synced_at : null;
+            const provenance = aggregateProvenance(accountProvenance, lastSynced);
+            return { transactions: rows, count: rows.length, provenance };
+        });
+    };
+}
 export function registerDebtTools(registry, config) {
     registry.register('plaid_sync', {
         name: 'plaid_sync',
@@ -421,7 +474,30 @@ export function registerDebtCapabilities(registry, config) {
         },
         handler: createGetCreditUtilizationHandler(config),
     });
-    // 4. Sync data
+    // 4. Get debt transactions (credit card + loan transactions)
+    registry.register({
+        name: 'plaid.getDebtTransactions',
+        description: 'Get recent credit card and loan transactions with optional date, category, and merchant filters',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                startDate: { type: 'string', description: 'ISO date YYYY-MM-DD' },
+                endDate: { type: 'string', description: 'ISO date YYYY-MM-DD' },
+                category: { type: 'string', description: 'Filter by category (partial match)' },
+                merchant: { type: 'string', description: 'Filter by merchant name (partial match)' },
+                limit: { type: 'number', description: 'Max results (default 50, max 500)' },
+            },
+        },
+        outputSchema: {
+            type: 'object',
+            properties: {
+                transactions: { type: 'array', description: 'Credit/loan transaction records' },
+                count: { type: 'number' },
+            },
+        },
+        handler: createGetDebtTransactionsHandler(config),
+    });
+    // 5. Sync data
     registry.register({
         name: 'plaid.syncData',
         description: 'Trigger a Plaid data sync to refresh debt accounts, transactions, and liabilities',
