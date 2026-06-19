@@ -4,8 +4,8 @@
 import { ScopedPlaidClient } from '../plaid/client.js';
 import { withPool } from '../db/pool.js';
 import { getSchemaForDomain } from '../db/schemas.js';
+import { checkTransactionHistory, buildAccountProvenance, aggregateProvenance } from '../provenance.js';
 // ─── Domain Account Type Filter (Chinese Wall) ─────────────────────────────
-// Each domain only stores accounts matching its scope.
 const DOMAIN_ACCOUNT_TYPES = {
     checking: ['depository'],
     savings: ['depository'],
@@ -16,12 +16,35 @@ const DOMAIN_ACCOUNT_TYPES = {
     realestate: ['loan'],
 };
 // ─── Amount Normalization ───────────────────────────────────────────────────
-// Plaid uses INVERTED signs from standard accounting:
-//   Plaid: positive = money OUT, negative = money IN
-//   Standard: positive = money IN, negative = money OUT
-// Negate all amounts at sync time so the DB uses standard convention.
-function normalizeAmount(amount) {
-    return -amount;
+// Plaid convention: positive = debit (money out), negative = credit (money in).
+// Some institutions (and sandbox) return credits with positive amounts.
+// This function detects known credit patterns and normalizes the sign.
+const CREDIT_PATTERNS = [
+    'ach electronic credit',
+    'ach credit',
+    'direct dep',
+    'direct deposit',
+    'payroll',
+    'gusto pay',
+    'adp payroll',
+    'intuit payroll',
+    'employer',
+    'salary',
+    'wage',
+    'tax refund',
+    'irs treas',
+];
+function normalizeAmount(amount, name) {
+    // Only fix positive amounts that look like credits
+    if (amount <= 0 || !name)
+        return amount;
+    const lower = name.toLowerCase();
+    for (const pattern of CREDIT_PATTERNS) {
+        if (lower.includes(pattern)) {
+            return -amount; // Flip to negative (credit)
+        }
+    }
+    return amount;
 }
 // ─── Sync Logic ─────────────────────────────────────────────────────────────
 async function syncCheckingData(config) {
@@ -35,8 +58,8 @@ async function syncCheckingData(config) {
         const accounts = accountsRes.data.accounts;
         // Chinese wall: only store accounts matching this domain's scope
         const allowedTypes = DOMAIN_ACCOUNT_TYPES[config.domainType] || ['depository'];
-        const scopedAccounts = accounts.filter(a => allowedTypes.includes(a.type));
-        const scopedAccountIds = new Set(scopedAccounts.map(a => a.account_id));
+        const scopedAccounts = accounts.filter((a) => allowedTypes.includes(a.type));
+        const scopedAccountIds = new Set(scopedAccounts.map((a) => a.account_id));
         console.log(`[${config.domainType}-sync] Chinese wall: ${scopedAccounts.length}/${accounts.length} accounts match types [${allowedTypes.join(', ')}]`);
         for (const acct of scopedAccounts) {
             await pool.query(`INSERT INTO plaid_accounts
@@ -84,7 +107,8 @@ async function syncCheckingData(config) {
             // Insert/update added transactions
             for (const txn of data.added) {
                 // Chinese wall: skip transactions for accounts outside this domain's scope
-                if (!scopedAccountIds.has(txn.account_id)) continue;
+                if (!scopedAccountIds.has(txn.account_id))
+                    continue;
                 await pool.query(`INSERT INTO plaid_transactions
              (transaction_id, account_id, amount, date, name,
               merchant_name, category, payment_channel, pending, synced_at)
@@ -101,7 +125,7 @@ async function syncCheckingData(config) {
              synced_at = NOW()`, [
                     txn.transaction_id,
                     txn.account_id,
-                    normalizeAmount(txn.amount),
+                    normalizeAmount(txn.amount, txn.name),
                     txn.date,
                     txn.name,
                     txn.merchant_name ?? null,
@@ -113,7 +137,8 @@ async function syncCheckingData(config) {
             }
             // Update modified transactions
             for (const txn of data.modified) {
-                if (!scopedAccountIds.has(txn.account_id)) continue;
+                if (!scopedAccountIds.has(txn.account_id))
+                    continue;
                 await pool.query(`INSERT INTO plaid_transactions
              (transaction_id, account_id, amount, date, name,
               merchant_name, category, payment_channel, pending, synced_at)
@@ -130,7 +155,7 @@ async function syncCheckingData(config) {
              synced_at = NOW()`, [
                     txn.transaction_id,
                     txn.account_id,
-                    normalizeAmount(txn.amount),
+                    normalizeAmount(txn.amount, txn.name),
                     txn.date,
                     txn.name,
                     txn.merchant_name ?? null,
@@ -171,7 +196,13 @@ function createGetBalancesHandler(config) {
                 currency, synced_at
          FROM plaid_accounts
          ORDER BY name`);
-            return { accounts: rows };
+            // Build provenance metadata
+            const accountIds = rows.map((r) => r.account_id);
+            const historyMap = await checkTransactionHistory(pool, accountIds);
+            const accountProvenance = buildAccountProvenance(rows, historyMap);
+            const lastSynced = rows.length > 0 ? rows[0].synced_at : null;
+            const provenance = aggregateProvenance(accountProvenance, lastSynced);
+            return { accounts: rows, provenance };
         });
     };
 }
@@ -211,7 +242,14 @@ function createGetTransactionsHandler(config) {
                    LIMIT $${paramIdx}`;
             params.push(limit);
             const { rows } = await pool.query(sql, params);
-            return { transactions: rows, count: rows.length };
+            // Build provenance: get accounts involved in these transactions
+            const txAccountIds = [...new Set(rows.map((r) => r.account_id))];
+            const accountsResult = await pool.query(`SELECT account_id, balance_current, synced_at FROM plaid_accounts WHERE account_id = ANY($1)`, [txAccountIds]);
+            const historyMap = Object.fromEntries(txAccountIds.map(id => [id, true])); // Has transactions = historical verified
+            const accountProvenance = buildAccountProvenance(accountsResult.rows, historyMap);
+            const lastSynced = accountsResult.rows.length > 0 ? accountsResult.rows[0].synced_at : null;
+            const provenance = aggregateProvenance(accountProvenance, lastSynced);
+            return { transactions: rows, count: rows.length, provenance };
         });
     };
 }
