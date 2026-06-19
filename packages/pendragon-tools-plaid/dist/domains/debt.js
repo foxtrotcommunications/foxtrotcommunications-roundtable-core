@@ -476,7 +476,7 @@ export function registerDebtCapabilities(registry, config) {
     });
     // 4. Get debt transactions (credit card + loan transactions)
     registry.register({
-        name: 'plaid.getDebtTransactions',
+        name: 'plaid.getTransactions',
         description: 'Get recent credit card and loan transactions with optional date, category, and merchant filters',
         inputSchema: {
             type: 'object',
