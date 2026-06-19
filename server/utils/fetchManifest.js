@@ -4,12 +4,19 @@ const config = require('../config');
 // In-memory cache to prevent spamming the control plane
 let manifestCache = null;
 let lastFetchTime = 0;
+let hasEverFetched = false; // Track whether we've ever successfully fetched
 const CACHE_TTL_MS = 5000; // 5 seconds
 
 /**
  * Fetches the dynamic workspace manifest (bridges, contracts, MCPs) from the control plane.
  * Uses HMAC authentication.
- * Falls back to process.env if network fails.
+ *
+ * Fallback strategy:
+ *   - If we've NEVER successfully fetched, fall back to process.env (first boot).
+ *   - If we HAVE fetched before but the control plane is temporarily down,
+ *     return the last known good manifest (stale cache) instead of env vars.
+ *   - This prevents stale env vars from overriding a control plane that
+ *     deleted a bridge (the exact scenario that caused ghost connections).
  */
 async function fetchManifest() {
   const now = Date.now();
@@ -24,7 +31,8 @@ async function fetchManifest() {
   const timestamp = Date.now().toString();
   const signature = crypto.createHmac('sha256', secret).update(`${wsId}:${timestamp}`).digest('hex');
 
-  const fallbackManifest = {
+  // Env-based fallback — only used if we've NEVER successfully fetched (first boot)
+  const envFallback = {
     RT_BRIDGES: parseEnvJson('RT_BRIDGES', []),
     RT_CONTRACTS: parseEnvJson('RT_CONTRACTS', []),
     RT_MCP_SERVERS: parseEnvJson('RT_MCP_SERVERS', []),
@@ -46,24 +54,32 @@ async function fetchManifest() {
 
     if (!response.ok) {
       console.warn(`[manifest] Failed to fetch dynamic manifest: ${response.status} ${response.statusText}`);
-      return fallbackManifest;
+      // If we've fetched before, return last known good; otherwise env fallback
+      return hasEverFetched ? manifestCache : envFallback;
     }
 
     const data = await response.json();
     
     // Only cache on success
     manifestCache = {
-      RT_BRIDGES: Array.isArray(data.RT_BRIDGES) ? data.RT_BRIDGES : fallbackManifest.RT_BRIDGES,
-      RT_CONTRACTS: Array.isArray(data.RT_CONTRACTS) ? data.RT_CONTRACTS : fallbackManifest.RT_CONTRACTS,
-      RT_MCP_SERVERS: Array.isArray(data.RT_MCP_SERVERS) ? data.RT_MCP_SERVERS : fallbackManifest.RT_MCP_SERVERS,
-      RT_A2A_AGENTS: Array.isArray(data.RT_A2A_AGENTS) ? data.RT_A2A_AGENTS : fallbackManifest.RT_A2A_AGENTS,
+      RT_BRIDGES: Array.isArray(data.RT_BRIDGES) ? data.RT_BRIDGES : [],
+      RT_CONTRACTS: Array.isArray(data.RT_CONTRACTS) ? data.RT_CONTRACTS : [],
+      RT_MCP_SERVERS: Array.isArray(data.RT_MCP_SERVERS) ? data.RT_MCP_SERVERS : [],
+      RT_A2A_AGENTS: Array.isArray(data.RT_A2A_AGENTS) ? data.RT_A2A_AGENTS : [],
     };
     lastFetchTime = now;
+    hasEverFetched = true;
     
     return manifestCache;
   } catch (err) {
-    console.warn(`[manifest] Dynamic manifest fetch error: ${err.message}. Falling back to env vars.`);
-    return fallbackManifest;
+    console.warn(`[manifest] Dynamic manifest fetch error: ${err.message}`);
+    // If we've fetched before, return last known good (not stale env vars)
+    if (hasEverFetched && manifestCache) {
+      console.warn('[manifest] Returning last known good manifest (not env fallback)');
+      return manifestCache;
+    }
+    console.warn('[manifest] First boot — falling back to env vars');
+    return envFallback;
   }
 }
 
