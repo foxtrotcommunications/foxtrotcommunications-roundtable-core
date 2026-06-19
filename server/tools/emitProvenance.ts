@@ -7,15 +7,11 @@ import type { Tool } from '../types';
 /**
  * Reads RT_CONTRACTS and RT_BRIDGES to determine domain topology.
  */
-function getTopology() {
-  const contracts = (() => {
-    try { return JSON.parse(process.env.RT_CONTRACTS || '[]'); }
-    catch { return []; }
-  })();
-  const bridges = (() => {
-    try { return JSON.parse(process.env.RT_BRIDGES || '[]'); }
-    catch { return []; }
-  })();
+async function getTopology() {
+  const { fetchManifest } = require('../utils/fetchManifest');
+  const manifest = await fetchManifest();
+  const contracts = manifest.RT_CONTRACTS || [];
+  const bridges = manifest.RT_BRIDGES || [];
 
   const availableDomains = contracts
     .filter((c: any) => c.direction === 'outbound')
@@ -261,7 +257,7 @@ For claim classification, tag each factual statement in your response:
     required: ['domainsConsulted', 'assumptions'],
   },
   async execute(args: any) {
-    const topology = getTopology();
+    const topology = await getTopology();
 
     const domainsConsulted = args.domainsConsulted || [];
     const assumptions = args.assumptions || [];

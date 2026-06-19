@@ -98,9 +98,9 @@ async function requireA2aAuth(req: Request, res: Response, next: () => void): Pr
         const { fetchManifest } = require('../utils/fetchManifest');
         const manifestData = await fetchManifest();
         contracts = manifestData.RT_CONTRACTS || [];
-      } catch {
-        // Fallback: use static env var (set at pod startup)
-        try { contracts = JSON.parse(process.env.RT_CONTRACTS || '[]'); } catch { contracts = []; }
+      } catch (err) {
+        console.warn('[A2A] fetchManifest failed:', (err as Error).message);
+        contracts = [];
       }
       const masterSecret = process.env.ORG_MASTER_SECRET;
 
@@ -408,8 +408,9 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
         try {
           const { fetchManifest } = require('../utils/fetchManifest');
           contracts = (await fetchManifest()).RT_CONTRACTS || [];
-        } catch {
-          try { contracts = JSON.parse(process.env.RT_CONTRACTS || '[]'); } catch { contracts = []; }
+        } catch (err) {
+          console.warn('[A2A:ICE] fetchManifest failed:', (err as Error).message);
+          contracts = [];
         }
         const contract = contracts.find((c: any) =>
           c.contractId === token.contractId && c.status === 'active'

@@ -53,8 +53,9 @@ router.post('/receive', async (req, res) => {
         const { fetchManifest } = require('../utils/fetchManifest');
         const manifestData = await fetchManifest();
         rtContracts = manifestData.RT_CONTRACTS || [];
-      } catch {
-        try { rtContracts = JSON.parse(process.env.RT_CONTRACTS || '[]'); } catch { rtContracts = []; }
+      } catch (err) {
+        console.warn('[Bridge] fetchManifest failed:', err.message);
+        rtContracts = [];
       }
 
       const manifest = rtContracts.find(c => c.contractId === contractId);
