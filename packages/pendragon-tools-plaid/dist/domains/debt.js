@@ -4,6 +4,7 @@
 import { ScopedPlaidClient } from '../plaid/client.js';
 import { withPool } from '../db/pool.js';
 import { getSchemaForDomain } from '../db/schemas.js';
+import { checkTransactionHistory, buildAccountProvenance, aggregateProvenance } from '../provenance.js';
 // ─── Domain Account Type Filter (Chinese Wall) ─────────────────────────────
 const DOMAIN_ACCOUNT_TYPES = {
     checking: ['depository'],
@@ -15,12 +16,31 @@ const DOMAIN_ACCOUNT_TYPES = {
     realestate: ['loan'],
 };
 // ─── Amount Normalization ───────────────────────────────────────────────────
-// Plaid uses INVERTED signs from standard accounting:
-//   Plaid: positive = money OUT, negative = money IN
-//   Standard: positive = money IN, negative = money OUT
-// Negate all amounts at sync time so the DB uses standard convention.
-function normalizeAmount(amount) {
-    return -amount;
+const CREDIT_PATTERNS = [
+    'ach electronic credit',
+    'ach credit',
+    'direct dep',
+    'direct deposit',
+    'payroll',
+    'gusto pay',
+    'adp payroll',
+    'intuit payroll',
+    'employer',
+    'salary',
+    'wage',
+    'tax refund',
+    'irs treas',
+];
+function normalizeAmount(amount, name) {
+    if (amount <= 0 || !name)
+        return amount;
+    const lower = name.toLowerCase();
+    for (const pattern of CREDIT_PATTERNS) {
+        if (lower.includes(pattern)) {
+            return -amount;
+        }
+    }
+    return amount;
 }
 // ─── Sync Logic ─────────────────────────────────────────────────────────────
 async function syncDebtData(config) {
@@ -33,8 +53,8 @@ async function syncDebtData(config) {
         const accounts = accountsRes.data.accounts;
         // Chinese wall: only store accounts matching this domain's scope
         const allowedTypes = DOMAIN_ACCOUNT_TYPES[config.domainType] || ['credit', 'loan'];
-        const scopedAccounts = accounts.filter(a => allowedTypes.includes(a.type));
-        const scopedAccountIds = new Set(scopedAccounts.map(a => a.account_id));
+        const scopedAccounts = accounts.filter((a) => allowedTypes.includes(a.type));
+        const scopedAccountIds = new Set(scopedAccounts.map((a) => a.account_id));
         console.log(`[${config.domainType}-sync] Chinese wall: ${scopedAccounts.length}/${accounts.length} accounts match types [${allowedTypes.join(', ')}]`);
         for (const acct of scopedAccounts) {
             await pool.query(`INSERT INTO plaid_accounts
@@ -81,7 +101,8 @@ async function syncDebtData(config) {
             const data = syncRes.data;
             for (const txn of data.added) {
                 // Chinese wall: skip transactions for accounts outside this domain's scope
-                if (!scopedAccountIds.has(txn.account_id)) continue;
+                if (!scopedAccountIds.has(txn.account_id))
+                    continue;
                 await pool.query(`INSERT INTO plaid_transactions
              (transaction_id, account_id, amount, date, name,
               merchant_name, category, payment_channel, pending, synced_at)
@@ -98,7 +119,7 @@ async function syncDebtData(config) {
              synced_at = NOW()`, [
                     txn.transaction_id,
                     txn.account_id,
-                    normalizeAmount(txn.amount),
+                    normalizeAmount(txn.amount, txn.name),
                     txn.date,
                     txn.name,
                     txn.merchant_name ?? null,
@@ -109,7 +130,8 @@ async function syncDebtData(config) {
                 addedCount++;
             }
             for (const txn of data.modified) {
-                if (!scopedAccountIds.has(txn.account_id)) continue;
+                if (!scopedAccountIds.has(txn.account_id))
+                    continue;
                 await pool.query(`INSERT INTO plaid_transactions
              (transaction_id, account_id, amount, date, name,
               merchant_name, category, payment_channel, pending, synced_at)
@@ -126,7 +148,7 @@ async function syncDebtData(config) {
              synced_at = NOW()`, [
                     txn.transaction_id,
                     txn.account_id,
-                    normalizeAmount(txn.amount),
+                    normalizeAmount(txn.amount, txn.name),
                     txn.date,
                     txn.name,
                     txn.merchant_name ?? null,
@@ -236,62 +258,6 @@ async function syncDebtData(config) {
     });
 }
 // ─── Capability Handlers ────────────────────────────────────────────────────
-function createGetBalancesHandler(config) {
-    return async (_input, _ctx) => {
-        return withPool(config.databaseUrl, async (pool) => {
-            const { rows } = await pool.query(`SELECT account_id, name, type, subtype,
-                balance_available, balance_current, balance_limit,
-                currency, synced_at
-         FROM plaid_accounts
-         ORDER BY name`);
-            return { accounts: rows };
-        });
-    };
-}
-function createGetTransactionsHandler(config) {
-    return async (input, _ctx) => {
-        return withPool(config.databaseUrl, async (pool) => {
-            const conditions = [];
-            const params = [];
-            let paramIdx = 1;
-            if (input.startDate) {
-                conditions.push(`date >= $${paramIdx++}`);
-                params.push(input.startDate);
-            }
-            if (input.endDate) {
-                conditions.push(`date <= $${paramIdx++}`);
-                params.push(input.endDate);
-            }
-            if (input.category) {
-                conditions.push(`category ILIKE $${paramIdx++}`);
-                params.push(`%${input.category}%`);
-            }
-            if (input.merchant) {
-                conditions.push(`merchant_name ILIKE $${paramIdx++}`);
-                params.push(`%${input.merchant}%`);
-            }
-            if (input.accountId) {
-                conditions.push(`account_id = $${paramIdx++}`);
-                params.push(input.accountId);
-            }
-            const limit = typeof input.limit === 'number' && input.limit > 0
-                ? Math.min(input.limit, 500)
-                : 50;
-            const whereClause = conditions.length > 0
-                ? `WHERE ${conditions.join(' AND ')}`
-                : '';
-            const sql = `SELECT transaction_id, account_id, amount, date, name,
-                          merchant_name, category, payment_channel, pending, synced_at
-                   FROM plaid_transactions
-                   ${whereClause}
-                   ORDER BY date DESC
-                   LIMIT $${paramIdx}`;
-            params.push(limit);
-            const { rows } = await pool.query(sql, params);
-            return { transactions: rows, count: rows.length };
-        });
-    };
-}
 function createGetLiabilitiesHandler(config) {
     return async (_input, _ctx) => {
         return withPool(config.databaseUrl, async (pool) => {
@@ -300,7 +266,12 @@ function createGetLiabilitiesHandler(config) {
          FROM plaid_liabilities l
          LEFT JOIN plaid_accounts a ON a.account_id = l.account_id
          ORDER BY l.principal_balance DESC`);
-            return { liabilities: rows };
+            // Build provenance from liability accounts
+            const accountIds = [...new Set(rows.map((r) => r.account_id).filter(Boolean))];
+            const historyMap = await checkTransactionHistory(pool, accountIds);
+            const accountProvenance = buildAccountProvenance(rows.map((r) => ({ account_id: r.account_id, balance_current: Math.abs(r.balance_current || r.principal_balance || 0) })), historyMap);
+            const provenance = aggregateProvenance(accountProvenance);
+            return { liabilities: rows, provenance };
         });
     };
 }
@@ -324,6 +295,12 @@ function createGetDebtSummaryHandler(config) {
          LEFT JOIN plaid_accounts a ON a.account_id = l.account_id
          GROUP BY l.type
          ORDER BY total_balance DESC`);
+            // Build provenance
+            const acctResult = await pool.query(`SELECT account_id, balance_current, synced_at FROM plaid_accounts WHERE type IN ('credit', 'loan')`);
+            const accountIds = acctResult.rows.map((r) => r.account_id);
+            const historyMap = await checkTransactionHistory(pool, accountIds);
+            const accountProvenance = buildAccountProvenance(acctResult.rows, historyMap);
+            const provenance = aggregateProvenance(accountProvenance);
             return {
                 totalAccounts: parseInt(total_accounts, 10) || 0,
                 totalBalance: parseFloat(total_balance) || 0,
@@ -336,6 +313,7 @@ function createGetDebtSummaryHandler(config) {
                     totalBalance: parseFloat(row.total_balance) || 0,
                     avgRate: parseFloat(row.avg_rate) || 0,
                 })),
+                provenance,
             };
         });
     };
@@ -352,7 +330,11 @@ function createGetCreditUtilizationHandler(config) {
          FROM plaid_accounts a
          WHERE a.type = 'credit'
          ORDER BY utilization_pct DESC`);
-            return { accounts: rows };
+            const accountIds = rows.map((r) => r.account_id);
+            const historyMap = await checkTransactionHistory(pool, accountIds);
+            const accountProvenance = buildAccountProvenance(rows, historyMap);
+            const provenance = aggregateProvenance(accountProvenance);
+            return { accounts: rows, provenance };
         });
     };
 }
@@ -386,47 +368,7 @@ export function registerDebtTools(registry, config) {
 }
 // ─── Capability Registration ────────────────────────────────────────────────
 export function registerDebtCapabilities(registry, config) {
-    // 1. Get balances
-    registry.register({
-        name: 'plaid.getBalances',
-        description: 'Get current debt account balances (credit cards, loans) from local database',
-        inputSchema: { type: 'object', properties: {} },
-        outputSchema: {
-            type: 'object',
-            properties: {
-                accounts: {
-                    type: 'array',
-                    description: 'Debt account records with balance and limit fields',
-                },
-            },
-        },
-        handler: createGetBalancesHandler(config),
-    });
-    // 2. Get transactions
-    registry.register({
-        name: 'plaid.getTransactions',
-        description: 'Get recent debt transactions (credit card charges, loan payments) with optional date, category, merchant, and account filters',
-        inputSchema: {
-            type: 'object',
-            properties: {
-                startDate: { type: 'string', description: 'ISO date YYYY-MM-DD' },
-                endDate: { type: 'string', description: 'ISO date YYYY-MM-DD' },
-                category: { type: 'string' },
-                merchant: { type: 'string' },
-                accountId: { type: 'string', description: 'Filter to a specific account' },
-                limit: { type: 'number', default: 50 },
-            },
-        },
-        outputSchema: {
-            type: 'object',
-            properties: {
-                transactions: { type: 'array' },
-                count: { type: 'number' },
-            },
-        },
-        handler: createGetTransactionsHandler(config),
-    });
-    // 3. Get liabilities
+    // 1. Get liabilities
     registry.register({
         name: 'plaid.getLiabilities',
         description: 'Get liability details joined with account information',
@@ -442,7 +384,7 @@ export function registerDebtCapabilities(registry, config) {
         },
         handler: createGetLiabilitiesHandler(config),
     });
-    // 4. Get debt summary
+    // 2. Get debt summary
     registry.register({
         name: 'plaid.getDebtSummary',
         description: 'Get aggregate debt summary with totals and breakdown by type',
@@ -463,7 +405,7 @@ export function registerDebtCapabilities(registry, config) {
         },
         handler: createGetDebtSummaryHandler(config),
     });
-    // 5. Credit utilization
+    // 3. Credit utilization
     registry.register({
         name: 'plaid.getCreditUtilization',
         description: 'Get credit utilization percentage for all credit accounts',
@@ -479,7 +421,7 @@ export function registerDebtCapabilities(registry, config) {
         },
         handler: createGetCreditUtilizationHandler(config),
     });
-    // 6. Sync data
+    // 4. Sync data
     registry.register({
         name: 'plaid.syncData',
         description: 'Trigger a Plaid data sync to refresh debt accounts, transactions, and liabilities',
@@ -488,7 +430,7 @@ export function registerDebtCapabilities(registry, config) {
             properties: {
                 syncType: {
                     type: 'string',
-                    enum: ['all', 'accounts', 'transactions', 'liabilities'],
+                    enum: ['all', 'accounts', 'liabilities'],
                 },
             },
             required: ['syncType'],
