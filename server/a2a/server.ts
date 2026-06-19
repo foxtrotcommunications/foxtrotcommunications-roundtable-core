@@ -364,26 +364,94 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
     let fullText = '';
     const toolResults: Array<{ name: string; result: Record<string, unknown> }> = [];
 
-    const stream = streamCompletion(
-      provider,
-      model,
-      messages,
-      apiKey,
-      true,       // enableTools
-      null,       // signal
-      enabledToolNames,
-      workspaceConfig
-    );
+    // Add a 4-minute timeout to prevent indefinite hangs
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 240_000);
 
-    for await (const event of stream) {
-      if (event.type === 'text-delta') {
-        fullText += event.content;
-      } else if (event.type === 'tool-result') {
-        toolResults.push({ name: event.name, result: event.result });
-      } else if (event.type === 'done') {
-        fullText = event.fullText || fullText;
-      } else if (event.type === 'error') {
-        throw new Error(event.error);
+    try {
+      const stream = streamCompletion(
+        provider,
+        model,
+        messages,
+        apiKey,
+        true,       // enableTools
+        controller.signal,
+        enabledToolNames,
+        workspaceConfig
+      );
+
+      for await (const event of stream) {
+        if (event.type === 'text-delta') {
+          fullText += event.content;
+        } else if (event.type === 'tool-result') {
+          toolResults.push({ name: event.name, result: event.result });
+        } else if (event.type === 'done') {
+          fullText = event.fullText || fullText;
+        } else if (event.type === 'error') {
+          throw new Error(event.error);
+        }
+      }
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    // ── Retry on empty response ────────────────────────────────
+    // If the AI did tool calls but produced no text (safety filter, model
+    // refusal, or output token exhaustion), retry with a synthesis prompt.
+    if (!fullText.trim() && toolResults.length > 0) {
+      console.warn(`[A2A] Empty response after ${toolResults.length} tool calls — retrying with synthesis prompt`);
+
+      // Build a concise summary of tool results for the retry
+      const toolSummaries = toolResults.map(tr => {
+        const r = tr.result as any;
+        if (tr.name === 'intent_bridge' && r?.success) {
+          const cap = r.toolExecuted || r.capability || 'unknown';
+          const dataPreview = JSON.stringify(r.data).slice(0, 500);
+          return `[${cap}]: ${dataPreview}`;
+        }
+        return `[${tr.name}]: ${JSON.stringify(tr.result).slice(0, 300)}`;
+      }).join('\n\n');
+
+      const retryMessages: ChatMessage[] = [
+        ...messages,
+        {
+          role: 'assistant' as const,
+          content: `I queried the following domains and received data:\n\n${toolSummaries}`,
+        },
+        {
+          role: 'user' as const,
+          content: 'Based on the data you just retrieved, please provide your analysis. Respond directly — do not make additional tool calls.',
+        },
+      ];
+
+      const retryController = new AbortController();
+      const retryTimeoutId = setTimeout(() => retryController.abort(), 60_000);
+
+      try {
+        const retryStream = streamCompletion(
+          provider,
+          model,
+          retryMessages,
+          apiKey,
+          false,      // disable tools on retry
+          retryController.signal,
+          null,       // no tool names needed
+          workspaceConfig
+        );
+
+        for await (const event of retryStream) {
+          if (event.type === 'text-delta') {
+            fullText += event.content;
+          } else if (event.type === 'done') {
+            fullText = event.fullText || fullText;
+          }
+        }
+      } finally {
+        clearTimeout(retryTimeoutId);
+      }
+
+      if (!fullText.trim()) {
+        fullText = '⚠️ I retrieved your financial data but was unable to generate a response. This is typically caused by a temporary issue with the AI model. Please try asking your question again.';
       }
     }
 
