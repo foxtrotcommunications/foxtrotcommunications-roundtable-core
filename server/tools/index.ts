@@ -145,6 +145,185 @@ try {
   }
 }
 
+// ─── Checking/Savings Domain (capabilities from Cloud SQL — no Plaid) ────
+// If this workspace is named "checking", "savings", or similar, register
+// plaid.getBalances / plaid.getTransactions / plaid.syncData capabilities
+// that delegate to the existing domain financial tools (Cloud SQL queries).
+try {
+  const wsName = (process.env.WS_NAME || '').toLowerCase().replace(/[\s&]+/g, '');
+  if (wsName.includes('checking') || wsName.includes('savings')) {
+    const { capabilityRegistry } = require('../protocols/capabilityRegistry');
+    const { query: domainQuery } = require('./utils/domainDb');
+
+    capabilityRegistry.register({
+      name: 'plaid.getBalances',
+      description: 'Get current account balances from Cloud SQL',
+      inputSchema: { type: 'object', properties: {} },
+      outputSchema: { type: 'object', properties: { accounts: { type: 'array' } } },
+      handler: async () => {
+        try {
+          const rows = await domainQuery('SELECT * FROM plaid_accounts ORDER BY name');
+          return { accounts: rows, count: rows.length };
+        } catch (e: any) { return { error: e.message, accounts: [] }; }
+      },
+    });
+
+    capabilityRegistry.register({
+      name: 'plaid.getTransactions',
+      description: 'Get recent transactions with optional filters',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          startDate: { type: 'string' },
+          endDate: { type: 'string' },
+          limit: { type: 'number', default: 50 },
+        },
+      },
+      outputSchema: { type: 'object', properties: { transactions: { type: 'array' }, count: { type: 'number' } } },
+      handler: async (args: any) => {
+        try {
+          const limit = args?.limit || 50;
+          const parts = ['SELECT * FROM plaid_transactions'];
+          const params: any[] = [];
+          const where: string[] = [];
+          if (args?.startDate) { where.push(`date >= $${params.length + 1}`); params.push(args.startDate); }
+          if (args?.endDate) { where.push(`date <= $${params.length + 1}`); params.push(args.endDate); }
+          if (where.length) parts.push('WHERE ' + where.join(' AND '));
+          parts.push('ORDER BY date DESC');
+          parts.push(`LIMIT $${params.length + 1}`); params.push(limit);
+          const rows = await domainQuery(parts.join(' '), params);
+          return { transactions: rows, count: rows.length };
+        } catch (e: any) { return { error: e.message, transactions: [] }; }
+      },
+    });
+
+    capabilityRegistry.register({
+      name: 'plaid.syncData',
+      description: 'Sync data (no-op for demo — data is pre-seeded)',
+      inputSchema: { type: 'object', properties: { syncType: { type: 'string' } } },
+      outputSchema: { type: 'object', properties: { success: { type: 'boolean' } } },
+      handler: async () => ({ success: true, message: 'Demo data is pre-seeded. No sync needed.' }),
+    });
+
+    console.log('[checking] Registered 3 checking/savings capabilities');
+  }
+} catch (err: any) {
+  if (err.code !== 'MODULE_NOT_FOUND') {
+    console.warn('[tools] Checking domain plugin error:', err.message);
+  }
+}
+
+// ─── Debt Domain (capabilities from Cloud SQL — no Plaid) ────────────
+// Same pattern for debt/liabilities workspaces.
+try {
+  const wsName = (process.env.WS_NAME || '').toLowerCase().replace(/[\s&]+/g, '');
+  if (wsName.includes('debt')) {
+    const { capabilityRegistry } = require('../protocols/capabilityRegistry');
+    const { query: domainQuery } = require('./utils/domainDb');
+
+    capabilityRegistry.register({
+      name: 'plaid.getLiabilities',
+      description: 'Get all liabilities (credit cards, loans) from Cloud SQL',
+      inputSchema: { type: 'object', properties: {} },
+      outputSchema: { type: 'object', properties: { liabilities: { type: 'array' } } },
+      handler: async () => {
+        try {
+          const rows = await domainQuery('SELECT * FROM plaid_liabilities ORDER BY name');
+          return { liabilities: rows, count: rows.length };
+        } catch (e: any) { return { error: e.message, liabilities: [] }; }
+      },
+    });
+
+    capabilityRegistry.register({
+      name: 'plaid.getDebtSummary',
+      description: 'Get summary of all debts with total balances and payments',
+      inputSchema: { type: 'object', properties: {} },
+      outputSchema: { type: 'object', properties: { debts: { type: 'array' }, totalBalance: { type: 'number' } } },
+      handler: async () => {
+        try {
+          const rows = await domainQuery('SELECT * FROM plaid_liabilities ORDER BY balance_current DESC');
+          const total = rows.reduce((s: number, r: any) => s + (parseFloat(r.balance_current) || 0), 0);
+          return { debts: rows, totalBalance: total, count: rows.length };
+        } catch (e: any) { return { error: e.message, debts: [], totalBalance: 0 }; }
+      },
+    });
+
+    capabilityRegistry.register({
+      name: 'plaid.getCreditUtilization',
+      description: 'Calculate credit utilization ratio across all credit accounts',
+      inputSchema: { type: 'object', properties: {} },
+      outputSchema: { type: 'object', properties: { utilization: { type: 'number' } } },
+      handler: async () => {
+        try {
+          const rows = await domainQuery("SELECT * FROM plaid_liabilities WHERE type = 'credit'");
+          const totalBalance = rows.reduce((s: number, r: any) => s + (parseFloat(r.balance_current) || 0), 0);
+          const totalLimit = rows.reduce((s: number, r: any) => s + (parseFloat(r.credit_limit) || 0), 0);
+          const utilization = totalLimit > 0 ? Math.round((totalBalance / totalLimit) * 10000) / 100 : 0;
+          return { utilization, totalBalance, totalLimit, accounts: rows };
+        } catch (e: any) { return { error: e.message, utilization: 0 }; }
+      },
+    });
+
+    capabilityRegistry.register({
+      name: 'plaid.getBalances',
+      description: 'Get balances for debt accounts',
+      inputSchema: { type: 'object', properties: {} },
+      outputSchema: { type: 'object', properties: { accounts: { type: 'array' } } },
+      handler: async () => {
+        try {
+          const rows = await domainQuery('SELECT * FROM plaid_accounts ORDER BY name');
+          return { accounts: rows, count: rows.length };
+        } catch (e: any) { return { error: e.message, accounts: [] }; }
+      },
+    });
+
+    capabilityRegistry.register({
+      name: 'plaid.getTransactions',
+      description: 'Get debt-related transactions',
+      inputSchema: { type: 'object', properties: { limit: { type: 'number', default: 50 } } },
+      outputSchema: { type: 'object', properties: { transactions: { type: 'array' } } },
+      handler: async (args: any) => {
+        try {
+          const limit = args?.limit || 50;
+          const rows = await domainQuery('SELECT * FROM plaid_transactions ORDER BY date DESC LIMIT $1', [limit]);
+          return { transactions: rows, count: rows.length };
+        } catch (e: any) { return { error: e.message, transactions: [] }; }
+      },
+    });
+
+    capabilityRegistry.register({
+      name: 'plaid.getDebtTransactions',
+      description: 'Get transactions specific to debt payments',
+      inputSchema: { type: 'object', properties: { limit: { type: 'number', default: 50 } } },
+      outputSchema: { type: 'object', properties: { transactions: { type: 'array' } } },
+      handler: async (args: any) => {
+        try {
+          const limit = args?.limit || 50;
+          const rows = await domainQuery(
+            "SELECT * FROM plaid_transactions WHERE category ILIKE '%payment%' OR category ILIKE '%credit%' ORDER BY date DESC LIMIT $1",
+            [limit]
+          );
+          return { transactions: rows, count: rows.length };
+        } catch (e: any) { return { error: e.message, transactions: [] }; }
+      },
+    });
+
+    capabilityRegistry.register({
+      name: 'plaid.syncData',
+      description: 'Sync data (no-op for demo — data is pre-seeded)',
+      inputSchema: { type: 'object', properties: { syncType: { type: 'string' } } },
+      outputSchema: { type: 'object', properties: { success: { type: 'boolean' } } },
+      handler: async () => ({ success: true, message: 'Demo data is pre-seeded. No sync needed.' }),
+    });
+
+    console.log('[debt] Registered 7 debt management capabilities');
+  }
+} catch (err: any) {
+  if (err.code !== 'MODULE_NOT_FOUND') {
+    console.warn('[tools] Debt domain plugin error:', err.message);
+  }
+}
+
 // ─── Dynamic Tool Registry (MCP servers inject tools here) ─────────
 // Dynamic tools are stored separately and merged at resolve-time.
 // Key: tool name (e.g. 'mcp_myserver_search'), Value: Tool object
