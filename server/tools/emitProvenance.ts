@@ -226,7 +226,7 @@ For claim classification, tag each factual statement in your response:
           properties: {
             type: {
               type: 'string',
-              enum: ['observation', 'calculation', 'inference', 'hypothesis', 'recommendation'],
+              enum: ['observation', 'calculation', 'inference', 'hypothesis', 'recommendation', 'unknown'],
               description: 'The type of claim',
             },
             text: { type: 'string', description: 'The claim statement' },
