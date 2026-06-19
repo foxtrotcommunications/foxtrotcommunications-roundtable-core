@@ -455,6 +455,7 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
         for await (const event of retryStream) {
           if (event.type === 'text-delta') {
             fullText += event.content;
+            yield { type: 'text-delta', content: event.content };
           } else if (event.type === 'done') {
             fullText = event.fullText || fullText;
           }
@@ -465,6 +466,7 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
 
       if (!fullText.trim()) {
         fullText = '⚠️ I retrieved your financial data but was unable to generate a response. This is typically caused by a temporary issue with the AI model. Please try asking your question again.';
+        yield { type: 'text-delta', content: fullText };
       }
     }
 
