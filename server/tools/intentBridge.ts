@@ -516,10 +516,18 @@ const intentBridge: Tool = {
 
       const roundTripMs = Date.now() - startTime;
 
+      let finalData = result.data;
+      if (op === 'discover' && Array.isArray(finalData)) {
+        finalData = finalData.map((t: any) => ({
+          name: t.name,
+          description: t.description,
+        }));
+      }
+
       return {
         success: true,
         target,
-        data: result.data,
+        data: finalData,
         executionMs: result.executionMs,
         roundTripMs,
         toolExecuted: result.toolExecuted,
