@@ -122,6 +122,29 @@ try {
   }
 }
 
+// ─── Real Estate Domain (property capabilities — no Plaid needed) ────
+// If this workspace's domain is "realestate", register property capabilities
+// directly from Cloud SQL. Does not require Plaid credentials.
+try {
+  const wsName = (process.env.WS_NAME || '').toLowerCase().replace(/[\s&]+/g, '');
+  if (wsName.includes('realestate') || wsName.includes('property')) {
+    const { registerRealEstateCapabilities } = require('@pendragon/tools-plaid/dist/domains/realEstate.js');
+    const { capabilityRegistry } = require('../protocols/capabilityRegistry');
+    registerRealEstateCapabilities(capabilityRegistry, {
+      domainType: 'realestate',
+      databaseUrl: process.env.DATABASE_URL || '',
+      accessToken: '',
+      clientId: '',
+      secret: '',
+      env: 'sandbox',
+    });
+  }
+} catch (err: any) {
+  if (err.code !== 'MODULE_NOT_FOUND') {
+    console.warn('[tools] Real estate plugin error:', err.message);
+  }
+}
+
 // ─── Dynamic Tool Registry (MCP servers inject tools here) ─────────
 // Dynamic tools are stored separately and merged at resolve-time.
 // Key: tool name (e.g. 'mcp_myserver_search'), Value: Tool object

@@ -4,6 +4,7 @@
 import { registerCheckingTools, registerCheckingCapabilities } from './domains/checking.js';
 import { registerInvestmentTools, registerInvestmentCapabilities } from './domains/investments.js';
 import { registerDebtTools, registerDebtCapabilities } from './domains/debt.js';
+import { registerRealEstateTools, registerRealEstateCapabilities } from './domains/realEstate.js';
 export { ScopedPlaidClient } from './plaid/client.js';
 export * from './types.js';
 // ─── Domain → Registrars Mapping ────────────────────────────────────────────
@@ -13,6 +14,7 @@ const DOMAIN_REGISTRARS = {
     investments: { tools: registerInvestmentTools, capabilities: registerInvestmentCapabilities },
     retirement: { tools: registerInvestmentTools, capabilities: registerInvestmentCapabilities },
     debt: { tools: registerDebtTools, capabilities: registerDebtCapabilities },
+    realestate: { tools: registerRealEstateTools, capabilities: registerRealEstateCapabilities },
 };
 // ─── Allowed Operations (static mapping — no runtime client needed) ─────────
 const DOMAIN_ALLOWED_OPS = {
@@ -31,6 +33,7 @@ const DOMAIN_CAPS = {
     investments: ['plaid.getHoldings', 'plaid.getSecurities', 'plaid.getPortfolioSummary', 'plaid.syncData'],
     retirement: ['plaid.getHoldings', 'plaid.getSecurities', 'plaid.getPortfolioSummary', 'plaid.syncData'],
     debt: ['plaid.getLiabilities', 'plaid.getDebtSummary', 'plaid.getCreditUtilization', 'plaid.syncData'],
+    realestate: ['property.getPropertySummary', 'property.getMortgageDetails', 'property.getEquityAnalysis'],
 };
 // ─── Plugin Object ──────────────────────────────────────────────────────────
 export const pendragonPlaid = {
