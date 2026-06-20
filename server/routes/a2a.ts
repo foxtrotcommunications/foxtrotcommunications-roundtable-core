@@ -425,6 +425,7 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
         const requiredAction = intentOpToAction(executableToken.intent);
         const TRANSPORT_ACTIONS = ['intent_execute', 'discover'];
         if (!TRANSPORT_ACTIONS.includes(requiredAction) &&
+            !contract.allowedActions?.includes('*') &&
             !contract.allowedActions?.includes(requiredAction) &&
             !contract.allowedActions?.includes('intent_execute')) {
           console.warn(`[A2A:ICE] Action '${requiredAction}' not permitted by contract ${token.contractId}`);
