@@ -274,16 +274,27 @@ function extractProvenance(toolResults: Array<{ name: string; result: Record<str
   const isReconstructed = isHistorical; // only for trend/cashflow queries
   const reconstruction: number | null = isReconstructed ? 80 : null; // base score, refined later
 
-  // Weighted confidence with renormalization
-  const factors: Array<{ value: number; weight: number }> = [
-    { value: freshness, weight: 0.30 },
-    { value: historicalSupport, weight: 0.30 },
-    { value: completeness, weight: 0.15 },
-    { value: alignmentScore, weight: 0.15 }, // provenance_alignment from emit_provenance claims
+  // Weighted confidence — only include factors relevant to the query
+  const factors: Array<{ value: number; weight: number; key: string }> = [
+    { value: freshness, weight: 0.35, key: 'freshness' },
+    { value: alignmentScore, weight: 0.25, key: 'alignment' },
   ];
-  if (reconstruction !== null) {
-    factors.push({ value: reconstruction, weight: 0.10 });
+
+  // Only include historical support if this is a historical query OR accounts have history
+  if (isHistorical || accountsWithHistory > 0) {
+    factors.push({ value: historicalSupport, weight: 0.25, key: 'historical' });
   }
+
+  // Only include completeness if we actually have accounts to measure against
+  if (totalAccounts > 0 && isHistorical) {
+    factors.push({ value: completeness, weight: 0.15, key: 'completeness' });
+  }
+
+  // Reconstruction quality only for derived/trend queries
+  if (reconstruction !== null) {
+    factors.push({ value: reconstruction, weight: 0.10, key: 'reconstruction' });
+  }
+
   const totalWeight = factors.reduce((s, f) => s + f.weight, 0);
   const confidencePct = Math.round(
     factors.reduce((s, f) => s + f.value * (f.weight / totalWeight), 0)
