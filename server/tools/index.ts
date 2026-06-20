@@ -228,7 +228,12 @@ try {
       outputSchema: { type: 'object', properties: { liabilities: { type: 'array' } } },
       handler: async () => {
         try {
-          const rows = await domainQuery('SELECT * FROM plaid_liabilities ORDER BY name');
+          const rows = await domainQuery(`
+            SELECT l.*, a.name, a.balance_current, a.balance_limit as credit_limit
+            FROM plaid_liabilities l
+            LEFT JOIN plaid_accounts a ON l.account_id = a.account_id
+            ORDER BY l.principal_balance DESC
+          `);
           return { liabilities: rows, count: rows.length };
         } catch (e: any) { return { error: e.message, liabilities: [] }; }
       },
@@ -241,8 +246,13 @@ try {
       outputSchema: { type: 'object', properties: { debts: { type: 'array' }, totalBalance: { type: 'number' } } },
       handler: async () => {
         try {
-          const rows = await domainQuery('SELECT * FROM plaid_liabilities ORDER BY balance_current DESC');
-          const total = rows.reduce((s: number, r: any) => s + (parseFloat(r.balance_current) || 0), 0);
+          const rows = await domainQuery(`
+            SELECT l.*, a.name, a.balance_current, a.balance_limit as credit_limit
+            FROM plaid_liabilities l
+            LEFT JOIN plaid_accounts a ON l.account_id = a.account_id
+            ORDER BY l.principal_balance DESC
+          `);
+          const total = rows.reduce((s: number, r: any) => s + (parseFloat(r.principal_balance) || 0), 0);
           return { debts: rows, totalBalance: total, count: rows.length };
         } catch (e: any) { return { error: e.message, debts: [], totalBalance: 0 }; }
       },
@@ -255,9 +265,14 @@ try {
       outputSchema: { type: 'object', properties: { utilization: { type: 'number' } } },
       handler: async () => {
         try {
-          const rows = await domainQuery("SELECT * FROM plaid_liabilities WHERE type = 'credit'");
-          const totalBalance = rows.reduce((s: number, r: any) => s + (parseFloat(r.balance_current) || 0), 0);
-          const totalLimit = rows.reduce((s: number, r: any) => s + (parseFloat(r.credit_limit) || 0), 0);
+          const rows = await domainQuery(`
+            SELECT l.*, a.name, a.balance_current, a.balance_limit as credit_limit
+            FROM plaid_liabilities l
+            LEFT JOIN plaid_accounts a ON l.account_id = a.account_id
+            WHERE l.type = 'credit'
+          `);
+          const totalBalance = rows.reduce((s: number, r: any) => s + (parseFloat(r.principal_balance) || 0), 0);
+          const totalLimit = rows.reduce((s: number, r: any) => s + (parseFloat(r.credit_limit) || parseFloat(r.balance_limit) || 0), 0);
           const utilization = totalLimit > 0 ? Math.round((totalBalance / totalLimit) * 10000) / 100 : 0;
           return { utilization, totalBalance, totalLimit, accounts: rows };
         } catch (e: any) { return { error: e.message, utilization: 0 }; }
