@@ -23,7 +23,8 @@ COPY packages/ ./packages/
 RUN npm ci --omit=dev --omit=optional && \
     npm install tsx
 
-# Copy source
+# Copy source (ARG invalidates cache when build arg changes)
+ARG CACHEBUST=1
 COPY server/ ./server/
 COPY public/ ./public/
 
