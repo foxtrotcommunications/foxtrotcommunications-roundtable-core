@@ -50,11 +50,18 @@ export async function flush(): Promise<void> {
     const bq = new BigQuery({ projectId: BQ_PROJECT });
     const table = bq.dataset(BQ_DATASET).table(BQ_TABLE);
 
-    await table.insert(rows);
-    console.log(`[trace] Flushed ${rows.length} spans to BigQuery`);
+    // Stringify metadata for BQ STRING column
+    const bqRows = rows.map(r => ({
+      ...r,
+      metadata: r.metadata ? JSON.stringify(r.metadata) : null,
+    }));
+
+    await table.insert(bqRows);
+    console.log(`[trace] Flushed ${bqRows.length} spans to BigQuery`);
   } catch (err: any) {
     // BigQuery unavailable — fall back to structured console output
-    console.warn(`[trace] BigQuery flush failed (${err.message}), falling back to console`);
+    const msg = err.message || err.errors?.[0]?.message || JSON.stringify(err.errors || err).slice(0, 200);
+    console.warn(`[trace] BigQuery flush failed (${msg}), falling back to console`);
     for (const row of rows) {
       console.log(JSON.stringify(row));
     }
