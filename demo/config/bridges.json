@@ -1,0 +1,26 @@
+[
+  {
+    "bridgeId": "bridge-arthur-realestate",
+    "sourceWsId": "FY6M0lU0katTXza3Yo1r",
+    "sourceName": "Arthur",
+    "targetWsId": "Qy339ASoBmooIBKdw9mH",
+    "targetName": "Real Estate",
+    "permissions": ["message", "delegate"]
+  },
+  {
+    "bridgeId": "bridge-arthur-debt",
+    "sourceWsId": "FY6M0lU0katTXza3Yo1r",
+    "sourceName": "Arthur",
+    "targetWsId": "jmdsbwMzZqelAnliJcGQ",
+    "targetName": "Debt Management",
+    "permissions": ["message", "delegate"]
+  },
+  {
+    "bridgeId": "bridge-arthur-cs",
+    "sourceWsId": "FY6M0lU0katTXza3Yo1r",
+    "sourceName": "Arthur",
+    "targetWsId": "Narv6OBjpk50aJla6eED",
+    "targetName": "Checking & Savings",
+    "permissions": ["message", "delegate"]
+  }
+]

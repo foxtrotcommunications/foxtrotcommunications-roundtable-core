@@ -1,0 +1,14 @@
+{
+  "orgId": "kyrbKRYXptDQTCeCa9lG",
+  "orgSlug": "pendragon-demo",
+  "orgName": "Pendragon Capital",
+  "defaultModel": {
+    "arthur": { "provider": "openai", "model": "gpt-5.5" },
+    "domains": { "provider": "gemini-enterprise", "model": "gemini-3.5-flash" }
+  },
+  "firebaseProject": "roundtable-public",
+  "gcpProject": "roundtable-public",
+  "clusterNamespace": "rt-pendragon-demo",
+  "redisUrl": "redis://10.253.40.203:6379",
+  "dockerImage": "us-central1-docker.pkg.dev/roundtable-public/roundtable/roundtable-core:latest"
+}
