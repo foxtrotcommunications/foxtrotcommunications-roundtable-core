@@ -13,6 +13,8 @@ import {  fetchManifest  } from '../utils/fetchManifest';
 
 import type { Tool } from '../types';
 // @ts-ignore
+const { startSpan, endSpan, injectTraceHeaders, preview } = require('../tracing') as typeof import('../tracing');
+const { recordSpan } = require('../tracing/collector') as typeof import('../tracing/collector');
 
 
 const bridgeWorkspace: Tool = {
@@ -46,8 +48,24 @@ const bridgeWorkspace: Tool = {
 
   async execute(args: any, _workspaceConfig: any = {}, _context?: any) {
     const { target, action, content } = args;
+    const startTime = Date.now();
+
+    // ── Distributed tracing ──────────────────────────────────────
+    const traceCtx = _workspaceConfig?.traceContext;
+    const span = startSpan({
+      traceId: traceCtx?.traceId,
+      parentSpanId: traceCtx?.spanId || null,
+      workspaceId: _workspaceConfig?.workspaceId || '',
+      workspaceName: _workspaceConfig?.workspaceName || '',
+      operation: 'bridge_workspace',
+      toolName: args.target,
+      inputPreview: preview(args.content || args.message),
+      sampled: traceCtx?.sampled,
+    });
 
     if (!target || !action || !content) {
+      endSpan(span, 'error', { outputPreview: 'target, action, and content are required' });
+      recordSpan(span);
       return { error: 'target, action, and content are required' };
     }
 
@@ -56,6 +74,8 @@ const bridgeWorkspace: Tool = {
     const bridges = manifest.RT_BRIDGES;
 
     if (!bridges || !bridges.length) {
+      endSpan(span, 'error', { outputPreview: 'No bridges configured' });
+      recordSpan(span);
       return {
         error: 'No bridges configured for this workspace. Ask an admin to create a bridge in the dashboard.',
       };
@@ -71,6 +91,8 @@ const bridgeWorkspace: Tool = {
 
     if (!bridge) {
       const available = bridges.map((b) => b.targetName).join(', ');
+      endSpan(span, 'error', { outputPreview: `No bridge found for "${target}"` });
+      recordSpan(span);
       return {
         error: `No bridge found for "${target}". Available bridges: ${available || 'none'}`,
       };
@@ -92,6 +114,8 @@ const bridgeWorkspace: Tool = {
     }
 
     if (!contract) {
+      endSpan(span, 'error', { outputPreview: `No active contract with "${bridge.targetName}"` });
+      recordSpan(span);
       return {
         error: `No active governance contract with "${bridge.targetName}". A contract must be approved before any cross-workspace activity.`,
       };
@@ -99,6 +123,8 @@ const bridgeWorkspace: Tool = {
 
     // Verify the action is allowed by the contract
     if (!contract.allowedActions || !contract.allowedActions.includes(action)) {
+      endSpan(span, 'error', { outputPreview: `Action "${action}" not permitted by contract` });
+      recordSpan(span);
       return {
         error: `Action "${action}" is not permitted by the contract with "${bridge.targetName}". Allowed: ${(contract.allowedActions || []).join(', ')}`,
       };
@@ -107,6 +133,8 @@ const bridgeWorkspace: Tool = {
     // Resolve target workspace URL for direct A2A communication
     const targetUrl = bridge.targetUrl;
     if (!targetUrl) {
+      endSpan(span, 'error', { outputPreview: `No A2A endpoint for "${bridge.targetName}"` });
+      recordSpan(span);
       return {
         error: `No A2A endpoint configured for "${bridge.targetName}". Contact an administrator.`,
       };
@@ -123,6 +151,7 @@ const bridgeWorkspace: Tool = {
     try {
       const a2aEndpoint = `${targetUrl.replace(/\/$/, '')}/a2a`;
       const headers = { 'Content-Type': 'application/json' };
+      injectTraceHeaders(headers, span);
 
       if (contract && process.env.ORG_MASTER_SECRET) {
         // Contract-based HKDF auth — cryptographic proof of valid contract
@@ -177,7 +206,7 @@ const bridgeWorkspace: Tool = {
         };
 
         const response = await doFetch();
-        return await this._handleA2aResponse(response, bridge, action, content, taskId, doFetch);
+        return await this._handleA2aResponse(response, bridge, action, content, taskId, doFetch, span, startTime);
       }
 
       if (bridge.a2aApiKey) {
@@ -204,11 +233,15 @@ const bridgeWorkspace: Tool = {
 
       const response = await doFetch();
 
-      return await this._handleA2aResponse(response, bridge, action, content, taskId, doFetch);
+      return await this._handleA2aResponse(response, bridge, action, content, taskId, doFetch, span, startTime);
     } catch (err: any) {
       if (err.name === 'AbortError') {
+        endSpan(span, 'timeout', { outputPreview: `Timed out after ${action === 'delegate' ? '120' : '30'}s` });
+        recordSpan(span);
         return { error: `Bridge communication timed out after ${action === 'delegate' ? '120' : '30'} seconds` };
       }
+      endSpan(span, 'error', { outputPreview: preview(err.message) });
+      recordSpan(span);
       return { error: `Bridge communication failed: ${err.message}` };
     }
   },
@@ -216,13 +249,14 @@ const bridgeWorkspace: Tool = {
   /**
    * Handle A2A response — shared by encrypted and unencrypted paths.
    */
-  async _handleA2aResponse(response, bridge, action, content, taskId, fetchFn?: () => Promise<Response>) {
+  async _handleA2aResponse(response, bridge, action, content, taskId, fetchFn?: () => Promise<Response>, span?: any, startTime?: number) {
     // ── Wake-on-request: retry if workspace is sleeping ──────
     if ((response.status === 502 || response.status === 503) && fetchFn) {
       const isSleeping = await this._detectSleepingWorkspace(response);
 
       if (isSleeping) {
         console.log(`[bridge_workspace] ${bridge.targetName} is sleeping — waking and retrying (up to 120s)`);
+        if (span) span.metadata = { ...span.metadata, wokeFromSleep: true };
 
         // Scale the target deployment from 0 → 1 via K8s API
         try {
@@ -276,6 +310,8 @@ const bridgeWorkspace: Tool = {
           try {
             response = await fetchFn();
             const elapsed = Math.round((Date.now() - wakeStart) / 1000);
+            const attempt = Math.round(elapsed / 5);
+            if (span) span.metadata = { ...span.metadata, retryCount: attempt };
             if (response.ok) {
               console.log(`[bridge_workspace] ${bridge.targetName} is awake after ${elapsed}s`);
               break;
@@ -289,6 +325,10 @@ const bridgeWorkspace: Tool = {
         }
 
         if (!response.ok) {
+          if (span) {
+            endSpan(span, 'timeout', { outputPreview: `Wake timeout after ${MAX_WAKE_WAIT / 1000}s`, metadata: { ...span.metadata, workspaceWaking: true } });
+            recordSpan(span);
+          }
           return {
             error: `${bridge.targetName} did not respond after ${MAX_WAKE_WAIT / 1000}s. The workspace may still be starting up — try again in a moment.`,
             workspaceWaking: true,
@@ -299,6 +339,10 @@ const bridgeWorkspace: Tool = {
 
     if (!response.ok) {
       const body = await response.text();
+      if (span) {
+        endSpan(span, 'error', { outputPreview: `HTTP ${response.status}: ${body.slice(0, 200)}` });
+        recordSpan(span);
+      }
       return { error: `Bridge communication failed: ${response.status} ${body.slice(0, 200)}` };
     }
 
@@ -323,24 +367,41 @@ const bridgeWorkspace: Tool = {
     }
 
     if (action === 'message') {
-      return {
+      const result = {
         success: true,
         message: `Message delivered to ${bridge.targetName} via A2A`,
         taskId,
         protocol: 'a2a',
       };
+      if (span) {
+        const roundTripMs = startTime ? Date.now() - startTime : undefined;
+        endSpan(span, 'completed', { outputPreview: preview(JSON.stringify(result)), metadata: { ...span.metadata, roundTripMs } });
+        recordSpan(span);
+      }
+      return result;
     }
 
     if (action === 'delegate') {
-      return {
+      const delegateResult = {
         success: true,
         message: `Task completed by ${bridge.targetName}`,
         taskId,
         response: responseText || 'Task completed (no text response)',
         protocol: 'a2a',
       };
+      if (span) {
+        const roundTripMs = startTime ? Date.now() - startTime : undefined;
+        endSpan(span, 'completed', { outputPreview: preview(JSON.stringify(delegateResult)), metadata: { ...span.metadata, roundTripMs } });
+        recordSpan(span);
+      }
+      return delegateResult;
     }
 
+    if (span) {
+      const roundTripMs = startTime ? Date.now() - startTime : undefined;
+      endSpan(span, 'completed', { outputPreview: preview(JSON.stringify(result)), metadata: { ...span.metadata, roundTripMs } });
+      recordSpan(span);
+    }
     return result;
   },
 
@@ -372,14 +433,16 @@ const bridgeWorkspace: Tool = {
     const signature = crypto.createHmac('sha256', secret).update(`${wsId}:${timestamp}`).digest('hex');
 
     try {
-      const response = await fetch(`${controlPlaneUrl}/api/bridges/relay`, {
-        method: 'POST',
-        headers: {
+      const legacyHeaders: Record<string, string> = {
           'Content-Type': 'application/json',
           'X-Bridge-Signature': signature,
           'X-Bridge-Timestamp': timestamp,
           'X-Bridge-WsId': wsId,
-        },
+        };
+
+      const response = await fetch(`${controlPlaneUrl}/api/bridges/relay`, {
+        method: 'POST',
+        headers: legacyHeaders,
         body: JSON.stringify({
           bridgeId: bridge.bridgeId,
           action,

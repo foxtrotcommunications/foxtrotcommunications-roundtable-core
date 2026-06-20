@@ -16,6 +16,8 @@ import { buildIntentToken, verifyIntentResult } from '../protocols/intentTokenCo
 import { validateIntent, intentOpToAction } from '../protocols/intentToken';
 import type { IntentOperation, IntentResult } from '../protocols/intentToken';
 import type { Tool } from '../types';
+const { startSpan, endSpan, injectTraceHeaders, preview } = require('../tracing') as typeof import('../tracing');
+const { recordSpan } = require('../tracing/collector') as typeof import('../tracing/collector');
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -205,7 +207,22 @@ const intentBridge: Tool = {
   async execute(args: any, _workspaceConfig: any = {}) {
     const { target, op, tool, params, args: toolArgs, responseFormat, scope, name, input } = args;
 
+    // ── Distributed tracing ──────────────────────────────────────
+    const traceCtx = _workspaceConfig?.traceContext;
+    const span = startSpan({
+      traceId: traceCtx?.traceId,
+      parentSpanId: traceCtx?.spanId || null,
+      workspaceId: _workspaceConfig?.workspaceId || '',
+      workspaceName: _workspaceConfig?.workspaceName || '',
+      operation: 'intent_bridge',
+      toolName: `${args.target}.${args.op}`,
+      inputPreview: preview(JSON.stringify(args)),
+      sampled: traceCtx?.sampled,
+    });
+
     if (!target || !op) {
+      endSpan(span, 'error', { outputPreview: 'target and op are required' });
+      recordSpan(span);
       return { success: false, error: 'target and op are required' };
     }
 
@@ -214,6 +231,8 @@ const intentBridge: Tool = {
     const bridges = manifest.RT_BRIDGES;
 
     if (!bridges || !bridges.length) {
+      endSpan(span, 'error', { outputPreview: 'No bridges configured' });
+      recordSpan(span);
       return {
         success: false,
         error: 'No bridges configured for this workspace. Ask an admin to create a bridge in the dashboard.',
@@ -229,6 +248,8 @@ const intentBridge: Tool = {
 
     if (!bridge) {
       const available = bridges.map((b) => b.targetName).join(', ');
+      endSpan(span, 'error', { outputPreview: `No bridge found for "${target}"` });
+      recordSpan(span);
       return {
         success: false,
         error: `No bridge found for "${target}". Available bridges: ${available || 'none'}`,
@@ -250,6 +271,8 @@ const intentBridge: Tool = {
     }
 
     if (!contract) {
+      endSpan(span, 'error', { outputPreview: `No active contract with "${bridge.targetName}"` });
+      recordSpan(span);
       return {
         success: false,
         error: `No active governance contract with "${bridge.targetName}". A contract must be approved before any cross-workspace activity. Do NOT retry — this requires administrator action to establish a contract.`,
@@ -259,6 +282,8 @@ const intentBridge: Tool = {
 
     const targetUrl = bridge.targetUrl;
     if (!targetUrl) {
+      endSpan(span, 'error', { outputPreview: `No A2A endpoint for "${bridge.targetName}"` });
+      recordSpan(span);
       return {
         success: false,
         error: `No A2A endpoint configured for "${bridge.targetName}". Contact an administrator.`,
@@ -311,18 +336,24 @@ const intentBridge: Tool = {
         break;
 
       default:
+        endSpan(span, 'error', { outputPreview: `Unknown operation type: "${op}"` });
+        recordSpan(span);
         return { success: false, error: `Unknown operation type: "${op}"` };
     }
 
     // ── 4. Validate the intent ───────────────────────────────────
     const validation = validateIntent(intent);
     if (!validation.valid) {
+      endSpan(span, 'error', { outputPreview: `Invalid intent: ${validation.error}` });
+      recordSpan(span);
       return { success: false, error: `Invalid intent: ${validation.error}` };
     }
 
     // ── 5. Check ORG_MASTER_SECRET ───────────────────────────────
     const masterSecret = process.env.ORG_MASTER_SECRET;
     if (!masterSecret) {
+      endSpan(span, 'error', { outputPreview: 'ORG_MASTER_SECRET not configured' });
+      recordSpan(span);
       return {
         success: false,
         error: 'ORG_MASTER_SECRET not configured. Intent bridge requires contract-based authentication.',
@@ -372,6 +403,7 @@ const intentBridge: Tool = {
         'X-Contract-Timestamp': timestamp,
         'X-Contract-Action': action,
       };
+      injectTraceHeaders(requestHeaders, span);
 
       let response = await fetch(a2aEndpoint, {
         method: 'POST',
@@ -386,12 +418,15 @@ const intentBridge: Tool = {
 
         if (isSleeping) {
           console.log(`[intent_bridge] ${bridge.targetName} is sleeping — waking and retrying (up to ${MAX_WAKE_WAIT_MS / 1000}s)`);
+          span.metadata = { ...span.metadata, wokeFromSleep: true };
 
           // Scale the target deployment from 0 → 1 via K8s API
           const wakeResult = await wakeWorkspace(bridge.targetWsId);
 
           // Staleness guard: if deployment doesn't exist, the bridge is stale
           if (wakeResult === 'not_found') {
+            endSpan(span, 'error', { outputPreview: `Stale bridge — ${bridge.targetName} not found`, metadata: { staleBridge: true } });
+            recordSpan(span);
             return {
               success: false,
               error: `Bridge to "${bridge.targetName}" is stale — the target workspace no longer exists. Please delete and recreate this domain from the Pendragon dashboard.`,
@@ -411,20 +446,25 @@ const intentBridge: Tool = {
             const retrySignature = signRequest(contractKey, contract.contractId, retryTimestamp, action);
 
             try {
-              response = await fetch(a2aEndpoint, {
-                method: 'POST',
-                headers: {
+              const retryHeaders = {
                   'Content-Type': 'application/json',
                   'X-Contract-Id': contract.contractId,
                   'X-Contract-Signature': retrySignature,
                   'X-Contract-Timestamp': retryTimestamp,
                   'X-Contract-Action': action,
-                },
+                };
+              injectTraceHeaders(retryHeaders, span);
+
+              response = await fetch(a2aEndpoint, {
+                method: 'POST',
+                headers: retryHeaders,
                 body: requestBody,
                 signal: AbortSignal.timeout(INTENT_TIMEOUT_MS),
               });
 
               const elapsed = Math.round((Date.now() - wakeStart) / 1000);
+              const attempt = Math.round(elapsed / (WAKE_RETRY_INTERVAL_MS / 1000));
+              span.metadata = { ...span.metadata, retryCount: attempt };
               if (response.ok) {
                 woke = true;
                 console.log(`[intent_bridge] ${bridge.targetName} is awake after ${elapsed}s`);
@@ -443,6 +483,18 @@ const intentBridge: Tool = {
           }
 
           if (!woke && !response.ok) {
+            if (response.status !== 502 && response.status !== 503) {
+              const body = await response.text().catch(() => '');
+              endSpan(span, 'error', { outputPreview: `HTTP ${response.status}: ${body.slice(0, 200)}` });
+              recordSpan(span);
+              return {
+                success: false,
+                error: `${bridge.targetName} returned HTTP ${response.status}: ${body.slice(0, 200)}`,
+                permanent: true,
+              };
+            }
+            endSpan(span, 'timeout', { outputPreview: `Wake timeout after ${MAX_WAKE_WAIT_MS / 1000}s`, metadata: { ...span.metadata, workspaceWaking: true } });
+            recordSpan(span);
             return {
               success: false,
               error: `${bridge.targetName} did not respond after ${MAX_WAKE_WAIT_MS / 1000}s. The workspace may still be starting up — try again in a moment.`,
@@ -452,6 +504,8 @@ const intentBridge: Tool = {
         } else {
           // Non-wake 503 — return error immediately
           const body = await response.text();
+          endSpan(span, 'error', { outputPreview: `HTTP ${response.status}: ${body.slice(0, 200)}` });
+          recordSpan(span);
           return {
             success: false,
             error: `Intent execution failed: ${response.status} ${body.slice(0, 200)}`,
@@ -461,6 +515,8 @@ const intentBridge: Tool = {
 
       if (!response.ok) {
         const body = await response.text();
+        endSpan(span, 'error', { outputPreview: `HTTP ${response.status}: ${body.slice(0, 200)}` });
+        recordSpan(span);
         return {
           success: false,
           error: `Intent execution failed: ${response.status} ${body.slice(0, 200)}`,
@@ -471,15 +527,20 @@ const intentBridge: Tool = {
 
       // ── 9. Parse and verify the IntentResult ─────────────────
       if (rpcResponse.error) {
+        const rpcErr = `Remote error: ${rpcResponse.error.message || JSON.stringify(rpcResponse.error)}`;
+        endSpan(span, 'error', { outputPreview: preview(rpcErr) });
+        recordSpan(span);
         return {
           success: false,
-          error: `Remote error: ${rpcResponse.error.message || JSON.stringify(rpcResponse.error)}`,
+          error: rpcErr,
         };
       }
 
       const result = rpcResponse.result as IntentResult;
 
       if (!result || !result.signature) {
+        endSpan(span, 'error', { outputPreview: 'Missing intent result or signature' });
+        recordSpan(span);
         return {
           success: false,
           error: 'Invalid response: missing intent result or signature',
@@ -489,6 +550,8 @@ const intentBridge: Tool = {
       // Verify the result signature from the receiving workspace
       const resultValid = verifyIntentResult(result, contractKey);
       if (!resultValid) {
+        endSpan(span, 'error', { outputPreview: 'Signature verification failed' });
+        recordSpan(span);
         return {
           success: false,
           error: 'Intent result signature verification failed — response may have been tampered with',
@@ -497,6 +560,8 @@ const intentBridge: Tool = {
 
       // ── 10. Handle result status ─────────────────────────────
       if (result.status === 'error') {
+        endSpan(span, 'error', { outputPreview: preview(result.error || 'Remote execution failed'), metadata: { executionMs: result.executionMs } });
+        recordSpan(span);
         return {
           success: false,
           error: result.error || 'Intent execution failed on remote workspace',
@@ -506,6 +571,8 @@ const intentBridge: Tool = {
       }
 
       if (result.status === 'denied') {
+        endSpan(span, 'error', { outputPreview: preview(result.error || 'Intent denied'), metadata: { denied: true, executionMs: result.executionMs } });
+        recordSpan(span);
         return {
           success: false,
           error: result.error || 'Intent was denied by the remote workspace',
@@ -524,7 +591,7 @@ const intentBridge: Tool = {
         }));
       }
 
-      return {
+      const returnValue = {
         success: true,
         target,
         data: finalData,
@@ -537,13 +604,25 @@ const intentBridge: Tool = {
         ...(result.proof ? { proof: { inputHash: result.proof.inputHash, outputHash: result.proof.outputHash } } : {}),
         ...(result.compilation ? { compilation: result.compilation } : {}),
       };
+
+      endSpan(span, 'completed', {
+        outputPreview: preview(JSON.stringify(returnValue)),
+        metadata: { ...span.metadata, roundTripMs, executionMs: result.executionMs },
+      });
+      recordSpan(span);
+
+      return returnValue;
     } catch (err: any) {
       if (err.name === 'AbortError' || err.name === 'TimeoutError') {
+        endSpan(span, 'timeout', { outputPreview: `Timed out after ${INTENT_TIMEOUT_MS / 1000}s` });
+        recordSpan(span);
         return {
           success: false,
           error: `Intent execution timed out after ${INTENT_TIMEOUT_MS / 1000} seconds`,
         };
       }
+      endSpan(span, 'error', { outputPreview: preview(err.message) });
+      recordSpan(span);
       return {
         success: false,
         error: `Intent bridge failed: ${err.message}`,

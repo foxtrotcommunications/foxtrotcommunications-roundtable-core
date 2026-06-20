@@ -89,6 +89,15 @@ export interface WorkspaceConfig {
   model?: string;
   mcpServers?: McpServerConfig[];
   a2aAgents?: A2aAgentConfig[];
+  workspaceId?: string;
+  workspaceName?: string;
+  traceContext?: {
+    traceId: string;
+    spanId: string;
+    sampled?: boolean;
+  };
+  /** @internal — tracing parent span, not persisted */
+  _llmSpan?: any;
 }
 
 export interface McpServerConfig {

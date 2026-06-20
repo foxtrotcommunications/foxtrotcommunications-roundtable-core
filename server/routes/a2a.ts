@@ -305,6 +305,7 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
           enabledToolNames,
           workspaceConfig,
           systemPrompt: workspace.system_prompt || undefined,
+          headers: req.headers,
         });
 
         return res.json(jsonRpcSuccess(id, task));
