@@ -24,6 +24,75 @@ const config = require('../config') as import('../types').AppConfig;
 const { startSpan, endSpan, preview } = require('../tracing') as typeof import('../tracing');
 const { recordSpan } = require('../tracing/collector') as typeof import('../tracing/collector');
 
+// ─── Fail-fast constants and helpers ────────────────────
+const MAX_TOOL_FAILURES = 3;
+const PERM_FAIL = 999;
+
+/** Patterns that indicate a non-transient (permanent) error — retrying won't help. */
+const NON_TRANSIENT_PATTERNS = [
+  'Contract signature invalid',
+  'Contract rejected',
+  'contract_rejected',
+  'signature_invalid',
+];
+const NON_TRANSIENT_STATUS_CODES = [401, 403];
+
+function isNonTransientError(resultStr: string): boolean {
+  for (const pat of NON_TRANSIENT_PATTERNS) {
+    if (resultStr.includes(pat)) return true;
+  }
+  // Check for HTTP status codes in common error shapes
+  for (const code of NON_TRANSIENT_STATUS_CODES) {
+    if (resultStr.includes(`"status":${code}`) || resultStr.includes(`"status": ${code}`)
+        || resultStr.includes(`"statusCode":${code}`) || resultStr.includes(`"statusCode": ${code}`)
+        || resultStr.includes(`(${code})`) || resultStr.includes(`status ${code}`)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isToolError(result: Record<string, unknown>): boolean {
+  return !!(result.error || result.errors || (result as Record<string, unknown>).message?.toString().toLowerCase().includes('error'));
+}
+
+/**
+ * Check a tool result for errors and update the failure map.
+ * Returns the number of failures for this tool after the check.
+ */
+function checkToolResult(toolName: string, result: Record<string, unknown>, toolFailures: Map<string, { count: number; lastError: string }>): number {
+  const resultStr = JSON.stringify(result);
+  if (!isToolError(result)) return 0; // success — don't reset count, just don't increment
+
+  const entry = toolFailures.get(toolName) || { count: 0, lastError: '' };
+
+  if (isNonTransientError(resultStr)) {
+    // Permanent failure — never retry
+    entry.count = PERM_FAIL;
+    entry.lastError = resultStr.slice(0, 500);
+    toolFailures.set(toolName, entry);
+    console.warn(`[aiProvider] Tool '${toolName}' permanently failed (non-transient): ${entry.lastError.slice(0, 200)}`);
+    return PERM_FAIL;
+  }
+
+  entry.count += 1;
+  entry.lastError = resultStr.slice(0, 500);
+  toolFailures.set(toolName, entry);
+  if (entry.count >= MAX_TOOL_FAILURES) {
+    console.warn(`[aiProvider] Tool '${toolName}' has failed ${entry.count} times — will not be retried`);
+  }
+  return entry.count;
+}
+
+/** Build a human-readable error message to inject as a tool result when a tool is blocked. */
+function blockedToolMessage(toolName: string, toolFailures: Map<string, { count: number; lastError: string }>): string {
+  const entry = toolFailures.get(toolName);
+  const reason = entry && entry.count >= PERM_FAIL
+    ? `permanently failed due to a non-transient error`
+    : `failed ${entry?.count ?? '?'} times (max ${MAX_TOOL_FAILURES})`;
+  return `Tool "${toolName}" has been disabled because it ${reason}. Last error: ${entry?.lastError || 'unknown'}. Do NOT call this tool again — answer the user with the information you already have, or explain what went wrong.`;
+}
+
 // Minimal type for the @google/genai client
 interface GoogleGenAIClient {
   models: {
@@ -62,7 +131,7 @@ interface GoogleGenAIChunk {
  * @param {object} [workspaceConfig] — per-workspace config { dataSources: {...} }
  */
 async function* streamCompletion(provider: string, model: string, messages: ChatMessage[], apiKey: string, enableTools: boolean = true, signal: AbortSignal | null = null, enabledToolNames: string[] | null = null, workspaceConfig: WorkspaceConfig = {}): AsyncGenerator<StreamEvent> {
-  const maxToolRounds: number = 50;
+  const maxToolRounds: number = 10;
 
   // ── Distributed tracing: parent span for full LLM interaction ──
   const traceCtx = workspaceConfig?.traceContext;
@@ -117,6 +186,7 @@ async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: str
   const llmSpan = workspaceConfig?._llmSpan || null;
   const currentMessages: Array<Record<string, unknown> | ChatMessage> = [...messages];
   let fullText: string = '';
+  const toolFailures = new Map<string, { count: number; lastError: string }>();
 
   for (let round: number = 0; round < maxRounds; round++) {
     if (signal?.aborted) { yield { type: 'done', fullText }; return; }
@@ -176,6 +246,16 @@ async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: str
 
     // Execute tools and add results
     for (const tc of toolCalls) {
+      // ── Fail-fast: skip tools that have exceeded the failure threshold ──
+      const priorFailures = toolFailures.get(tc.name);
+      if (priorFailures && priorFailures.count >= MAX_TOOL_FAILURES) {
+        const errorMsg = blockedToolMessage(tc.name, toolFailures);
+        yield { type: 'tool-call', name: tc.name, args: JSON.parse(tc.arguments), callId: tc.id };
+        yield { type: 'tool-result', name: tc.name, callId: tc.id, result: { error: errorMsg } };
+        currentMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify({ error: errorMsg }) });
+        continue;
+      }
+
       yield { type: 'tool-call', name: tc.name, args: JSON.parse(tc.arguments), callId: tc.id };
 
       const toolStart = Date.now();
@@ -189,6 +269,9 @@ async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: str
       }
       yield { type: 'tool-result', name: tc.name, callId: tc.id, result };
 
+      // ── Track failures ──
+      checkToolResult(tc.name, result, toolFailures);
+
       currentMessages.push({
         role: 'tool',
         tool_call_id: tc.id,
@@ -197,8 +280,9 @@ async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: str
     }
   }
 
+  console.warn(`[OpenAI] Exhausted ${maxRounds} tool rounds`);
   if (llmSpan) { endSpan(llmSpan, 'completed', { metadata: { rounds: maxRounds, provider: 'openai', model } }); recordSpan(llmSpan); }
-  yield { type: 'done', fullText };
+  yield { type: 'done', fullText: fullText || `I was unable to complete your request after ${maxRounds} tool-call rounds. Some tools may have encountered errors. Please try again or simplify your query.` };
 }
 
 async function* parseOpenAIStream(response: NodeFetchResponse, signal: AbortSignal | null): AsyncGenerator<StreamEvent, { toolCalls: OpenAIToolCall[]; text: string; usage: OpenAIUsage | null }> {
@@ -266,6 +350,7 @@ async function* streamAnthropic(model: string, messages: ChatMessage[], apiKey: 
   const currentMessages: Record<string, unknown>[] = formatAnthropicMessages(messages);
   const systemPrompt: string = extractSystemPrompt(messages);
   let fullText: string = '';
+  const toolFailures = new Map<string, { count: number; lastError: string }>();
 
   for (let round: number = 0; round < maxRounds; round++) {
     if (signal?.aborted) { yield { type: 'done', fullText }; return; }
@@ -332,6 +417,16 @@ async function* streamAnthropic(model: string, messages: ChatMessage[], apiKey: 
     // Execute tools
     const toolResults: Record<string, unknown>[] = [];
     for (const tu of toolUses) {
+      // ── Fail-fast: skip tools that have exceeded the failure threshold ──
+      const priorFailures = toolFailures.get(tu.name);
+      if (priorFailures && priorFailures.count >= MAX_TOOL_FAILURES) {
+        const errorMsg = blockedToolMessage(tu.name, toolFailures);
+        yield { type: 'tool-call', name: tu.name, args: tu.input, callId: tu.id };
+        yield { type: 'tool-result', name: tu.name, callId: tu.id, result: { error: errorMsg } };
+        toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify({ error: errorMsg }) });
+        continue;
+      }
+
       yield { type: 'tool-call', name: tu.name, args: tu.input, callId: tu.id };
 
       const toolStart = Date.now();
@@ -345,6 +440,9 @@ async function* streamAnthropic(model: string, messages: ChatMessage[], apiKey: 
       }
       yield { type: 'tool-result', name: tu.name, callId: tu.id, result };
 
+      // ── Track failures ──
+      checkToolResult(tu.name, result, toolFailures);
+
       toolResults.push({
         type: 'tool_result',
         tool_use_id: tu.id,
@@ -355,8 +453,9 @@ async function* streamAnthropic(model: string, messages: ChatMessage[], apiKey: 
     currentMessages.push({ role: 'user', content: toolResults });
   }
 
+  console.warn(`[Anthropic] Exhausted ${maxRounds} tool rounds`);
   if (llmSpan) { endSpan(llmSpan, 'completed', { metadata: { rounds: maxRounds, provider: 'anthropic', model } }); recordSpan(llmSpan); }
-  yield { type: 'done', fullText };
+  yield { type: 'done', fullText: fullText || `I was unable to complete your request after ${maxRounds} tool-call rounds. Some tools may have encountered errors. Please try again or simplify your query.` };
 }
 
 async function* parseAnthropicStream(response: NodeFetchResponse, signal: AbortSignal | null): AsyncGenerator<StreamEvent, { toolUses: AnthropicToolUse[]; text: string; stopReason: string; usage: AnthropicUsage | null }> {
@@ -450,6 +549,7 @@ async function* streamGoogle(model: string, messages: ChatMessage[], apiKey: str
   const contents: Record<string, unknown>[] = formatGoogleMessages(messages);
   const systemInstruction: string = extractGoogleSystemInstruction(messages);
   let fullText: string = '';
+  const toolFailures = new Map<string, { count: number; lastError: string }>();
 
   for (let round: number = 0; round < maxRounds; round++) {
     if (signal?.aborted) { yield { type: 'done', fullText }; return; }
@@ -509,14 +609,21 @@ async function* streamGoogle(model: string, messages: ChatMessage[], apiKey: str
       return callId;
     });
 
-    // Yield all tool-call events first
+    // Yield all tool-call events first — but mark blocked tools
     for (let i = 0; i < functionCalls.length; i++) {
       yield { type: 'tool-call', name: functionCalls[i].name, args: functionCalls[i].args, callId: callIds[i] };
     }
 
-    // Execute all tools in parallel
+    // Execute tools in parallel, skipping blocked ones
     const toolResults = await Promise.all(
       functionCalls.map(async (fc: GoogleFunctionCall, i: number) => {
+        // ── Fail-fast: skip tools that have exceeded the failure threshold ──
+        const priorFailures = toolFailures.get(fc.name);
+        if (priorFailures && priorFailures.count >= MAX_TOOL_FAILURES) {
+          const errorMsg = blockedToolMessage(fc.name, toolFailures);
+          return { fc, callId: callIds[i], result: { error: errorMsg } as Record<string, unknown> };
+        }
+
         const toolStart = Date.now();
         const result = await executeTool(fc.name, fc.args, { ...workspaceConfig, model });
         const toolDurationMs = Date.now() - toolStart;
@@ -526,6 +633,10 @@ async function* streamGoogle(model: string, messages: ChatMessage[], apiKey: str
           endSpan(toolSpan, 'completed', { outputPreview: preview(JSON.stringify(result)), metadata: { durationMs: toolDurationMs } });
           recordSpan(toolSpan);
         }
+
+        // ── Track failures ──
+        checkToolResult(fc.name, result, toolFailures);
+
         return { fc, callId: callIds[i], result };
       })
     );
@@ -542,8 +653,9 @@ async function* streamGoogle(model: string, messages: ChatMessage[], apiKey: str
     contents.push({ role: 'user', parts: functionResponses });
   }
 
+  console.warn(`[Google] Exhausted ${maxRounds} tool rounds`);
   if (llmSpan) { endSpan(llmSpan, 'completed', { metadata: { rounds: maxRounds, provider: 'google', model } }); recordSpan(llmSpan); }
-  yield { type: 'done', fullText };
+  yield { type: 'done', fullText: fullText || `I was unable to complete your request after ${maxRounds} tool-call rounds. Some tools may have encountered errors. Please try again or simplify your query.` };
 }
 
 async function* parseGoogleStream(response: NodeFetchResponse, signal: AbortSignal | null): AsyncGenerator<StreamEvent, { functionCalls: GoogleFunctionCall[]; text: string; usage: GoogleUsageMetadata | null }> {
@@ -604,6 +716,7 @@ async function* streamOllama(model: string, messages: ChatMessage[], enableTools
   const host: string = (workspaceConfig.ollamaHost || config.ollama.host || 'http://localhost:11434').replace(/\/+$/, '');
   const currentMessages: Array<Record<string, unknown> | ChatMessage> = [...messages];
   let fullText: string = '';
+  const toolFailures = new Map<string, { count: number; lastError: string }>();
 
   for (let round: number = 0; round < maxRounds; round++) {
     if (signal?.aborted) { yield { type: 'done', fullText }; return; }
@@ -670,6 +783,16 @@ async function* streamOllama(model: string, messages: ChatMessage[], enableTools
 
     // Execute tools and add results
     for (const tc of toolCalls) {
+      // ── Fail-fast: skip tools that have exceeded the failure threshold ──
+      const priorFailures = toolFailures.get(tc.name);
+      if (priorFailures && priorFailures.count >= MAX_TOOL_FAILURES) {
+        const errorMsg = blockedToolMessage(tc.name, toolFailures);
+        yield { type: 'tool-call', name: tc.name, args: JSON.parse(tc.arguments), callId: tc.id };
+        yield { type: 'tool-result', name: tc.name, callId: tc.id, result: { error: errorMsg } };
+        currentMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify({ error: errorMsg }) });
+        continue;
+      }
+
       yield { type: 'tool-call', name: tc.name, args: JSON.parse(tc.arguments), callId: tc.id };
 
       const toolStart = Date.now();
@@ -683,6 +806,9 @@ async function* streamOllama(model: string, messages: ChatMessage[], enableTools
       }
       yield { type: 'tool-result', name: tc.name, callId: tc.id, result };
 
+      // ── Track failures ──
+      checkToolResult(tc.name, result, toolFailures);
+
       currentMessages.push({
         role: 'tool',
         tool_call_id: tc.id,
@@ -691,8 +817,9 @@ async function* streamOllama(model: string, messages: ChatMessage[], enableTools
     }
   }
 
+  console.warn(`[Ollama] Exhausted ${maxRounds} tool rounds`);
   if (llmSpan) { endSpan(llmSpan, 'completed', { metadata: { rounds: maxRounds, provider: 'ollama', model } }); recordSpan(llmSpan); }
-  yield { type: 'done', fullText };
+  yield { type: 'done', fullText: fullText || `I was unable to complete your request after ${maxRounds} tool-call rounds. Some tools may have encountered errors. Please try again or simplify your query.` };
 }
 
 // ─── Helpers ────────────────────────────────────────────
@@ -806,8 +933,9 @@ async function* streamVertexAI(model: string, messages: ChatMessage[], enableToo
   const systemInstruction: string = extractGoogleSystemInstruction(messages);
   const contents: Record<string, unknown>[] = formatGoogleMessages(messages);
   let fullText: string = '';
+  const toolFailures = new Map<string, { count: number; lastError: string }>();
   const loopStartTime: number = Date.now();
-  const TOOL_LOOP_TIMEOUT_MS: number = 600_000; // 600s wall-clock cap
+  const TOOL_LOOP_TIMEOUT_MS: number = 120_000; // 120s wall-clock cap (fail-fast)
 
   for (let round: number = 0; round < maxRounds; round++) {
     if (signal?.aborted) { yield { type: 'done', fullText }; return; }
@@ -922,9 +1050,16 @@ async function* streamVertexAI(model: string, messages: ChatMessage[], enableToo
       yield { type: 'tool-call', name: functionCalls[i].name, args: functionCalls[i].args, callId: callIds[i] };
     }
 
-    // Execute all tools in parallel
+    // Execute all tools in parallel, skipping blocked ones
     const toolResults = await Promise.all(
       functionCalls.map(async (fc: GoogleFunctionCall, i: number) => {
+        // ── Fail-fast: skip tools that have exceeded the failure threshold ──
+        const priorFailures = toolFailures.get(fc.name);
+        if (priorFailures && priorFailures.count >= MAX_TOOL_FAILURES) {
+          const errorMsg = blockedToolMessage(fc.name, toolFailures);
+          return { fc, callId: callIds[i], result: { error: errorMsg } as Record<string, unknown> };
+        }
+
         console.log(`[aiProvider] Executing tool '${fc.name}' with args: ${JSON.stringify(fc.args)}`);
         const toolStart = Date.now();
         const result = await executeTool(fc.name, fc.args, { ...workspaceConfig, model });
@@ -936,6 +1071,10 @@ async function* streamVertexAI(model: string, messages: ChatMessage[], enableToo
           endSpan(toolSpan, 'completed', { outputPreview: preview(JSON.stringify(result)), metadata: { durationMs: toolDurationMs } });
           recordSpan(toolSpan);
         }
+
+        // ── Track failures ──
+        checkToolResult(fc.name, result, toolFailures);
+
         return { fc, callId: callIds[i], result };
       })
     );
@@ -952,8 +1091,9 @@ async function* streamVertexAI(model: string, messages: ChatMessage[], enableToo
     contents.push({ role: 'user', parts: functionResponses });
   }
 
+  console.warn(`[VertexAI] Exhausted ${maxRounds} tool rounds`);
   if (llmSpan) { endSpan(llmSpan, 'completed', { metadata: { rounds: maxRounds, provider: 'vertexai', model: activeModel } }); recordSpan(llmSpan); }
-  yield { type: 'done', fullText };
+  yield { type: 'done', fullText: fullText || `I was unable to complete your request after ${maxRounds} tool-call rounds. Some tools may have encountered errors. Please try again or simplify your query.` };
 }
 
 module.exports = { streamCompletion };
