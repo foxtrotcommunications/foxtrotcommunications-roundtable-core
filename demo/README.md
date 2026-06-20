@@ -4,7 +4,7 @@
 
 ## Overview
 
-Pendragon Capital is the reference demo for the Roundtable multi-agent platform. It showcases a financial orchestration scenario with four workspaces:
+Pendragon Capital is the reference demo for the Roundtable multi-agent platform. It showcases a financial orchestration scenario with seven workspaces:
 
 | Workspace | Role | AI Model | Domain |
 |---|---|---|---|
@@ -12,6 +12,9 @@ Pendragon Capital is the reference demo for the Roundtable multi-agent platform.
 | **Checking & Savings** | Domain Agent | Gemini 3.5 Flash | `checking` |
 | **Debt Management** | Domain Agent | Gemini 3.5 Flash | `debt` |
 | **Real Estate** | Domain Agent | Gemini 3.5 Flash | `realestate` |
+| **Investments** | Domain Agent | Gemini 3.5 Flash | `investments` |
+| **Retirement** | Domain Agent | Gemini 3.5 Flash | `retirement` |
+| **Taxes** | Domain Agent | Gemini 3.5 Flash | `taxes` |
 
 Arthur delegates user queries to domain workspaces over A2A bridges, governed by contracts that restrict which capabilities each domain may expose.
 
@@ -24,16 +27,20 @@ demo/
 ├── README.md                        # This file
 ├── config/
 │   ├── org.json                     # Organization-level configuration
-│   ├── workspaces.json              # All 4 workspace definitions
+│   ├── workspaces.json              # All 7 workspace definitions
 │   ├── bridges.json                 # A2A bridge definitions (Arthur → domains)
 │   └── contracts.json               # Governance contracts (allowed actions)
 ├── sql/
 │   ├── 00-schema-core.sql           # Core schema (users, messages, audit, etc.)
 │   ├── 01-schema-plaid.sql          # Plaid domain schema (accounts, txns, liabilities)
 │   ├── 02-schema-realestate.sql     # Real estate schema (properties, mortgages, valuations)
+│   ├── 03-schema-investments.sql    # Investment domain schema (holdings, securities)
 │   ├── seed-checking.sql            # Seed data for Checking & Savings workspace
 │   ├── seed-debt.sql                # Seed data for Debt Management workspace
-│   └── seed-realestate.sql          # Seed data for Real Estate workspace
+│   ├── seed-realestate.sql          # Seed data for Real Estate workspace
+│   ├── seed-investments.sql         # Seed data for Investments workspace
+│   ├── seed-retirement.sql          # Seed data for Retirement workspace
+│   └── seed-taxes.sql               # Seed data for Taxes workspace
 └── scripts/
     ├── setup.sh                     # Full end-to-end setup (k8s, SQL, Firestore)
     ├── seed-db.sh                   # Seed only the Cloud SQL databases
@@ -59,6 +66,7 @@ demo/
 - `roles/container.developer` — manage GKE resources
 - `roles/datastore.user` — write to Firestore
 - `roles/artifactregistry.reader` — pull Docker images
+- `roles/bigquery.dataEditor` — create BigQuery tables for telemetry
 
 ---
 
@@ -99,7 +107,7 @@ kubectl create namespace rt-pendragon-demo
 Create one database per workspace:
 
 ```bash
-for db in ws_fy6m0lu0kattxza3yo1r ws_narv6objpk50ajla6eed ws_jmdsbwmzzqelanlijcgq ws_qy339asobmooibkdw9mh; do
+for db in ws_fy6m0lu0kattxza3yo1r ws_narv6objpk50ajla6eed ws_jmdsbwmzzqelanlijcgq ws_qy339asobmooibkdw9mh ws_pk7mwxr2nq5vjbys8dfe ws_hn3clzv9st6wmgxa4bki ws_er8fdyu1kp4qjnzm7wco; do
   gcloud sql databases create "$db" --instance=roundtable-public-pg --project=roundtable-public
 done
 ```
@@ -109,18 +117,23 @@ done
 Apply the core schema to all workspaces, then domain-specific schemas:
 
 ```bash
-# Core schema → all 4 databases
-for db in ws_fy6m0lu0kattxza3yo1r ws_narv6objpk50ajla6eed ws_jmdsbwmzzqelanlijcgq ws_qy339asobmooibkdw9mh; do
+# Core schema → all 7 databases
+for db in ws_fy6m0lu0kattxza3yo1r ws_narv6objpk50ajla6eed ws_jmdsbwmzzqelanlijcgq ws_qy339asobmooibkdw9mh ws_pk7mwxr2nq5vjbys8dfe ws_hn3clzv9st6wmgxa4bki ws_er8fdyu1kp4qjnzm7wco; do
   psql -h 127.0.0.1 -U roundtable -d "$db" -f sql/00-schema-core.sql
 done
 
-# Plaid schema → Checking & Savings + Debt Management
-for db in ws_narv6objpk50ajla6eed ws_jmdsbwmzzqelanlijcgq; do
+# Plaid schema → Checking & Savings + Debt Management + Taxes
+for db in ws_narv6objpk50ajla6eed ws_jmdsbwmzzqelanlijcgq ws_er8fdyu1kp4qjnzm7wco; do
   psql -h 127.0.0.1 -U roundtable -d "$db" -f sql/01-schema-plaid.sql
 done
 
 # Real Estate schema → Real Estate only
 psql -h 127.0.0.1 -U roundtable -d ws_qy339asobmooibkdw9mh -f sql/02-schema-realestate.sql
+
+# Investment schema → Investments + Retirement
+for db in ws_pk7mwxr2nq5vjbys8dfe ws_hn3clzv9st6wmgxa4bki; do
+  psql -h 127.0.0.1 -U roundtable -d "$db" -f sql/03-schema-investments.sql
+done
 ```
 
 ### Phase 4 — Seed Data
@@ -129,6 +142,9 @@ psql -h 127.0.0.1 -U roundtable -d ws_qy339asobmooibkdw9mh -f sql/02-schema-real
 psql -h 127.0.0.1 -U roundtable -d ws_narv6objpk50ajla6eed -f sql/seed-checking.sql
 psql -h 127.0.0.1 -U roundtable -d ws_jmdsbwmzzqelanlijcgq -f sql/seed-debt.sql
 psql -h 127.0.0.1 -U roundtable -d ws_qy339asobmooibkdw9mh -f sql/seed-realestate.sql
+psql -h 127.0.0.1 -U roundtable -d ws_pk7mwxr2nq5vjbys8dfe -f sql/seed-investments.sql
+psql -h 127.0.0.1 -U roundtable -d ws_hn3clzv9st6wmgxa4bki -f sql/seed-retirement.sql
+psql -h 127.0.0.1 -U roundtable -d ws_er8fdyu1kp4qjnzm7wco -f sql/seed-taxes.sql
 ```
 
 ### Phase 5 — Kubernetes Deployments
@@ -141,7 +157,38 @@ The `setup.sh` script generates deployments from `config/workspaces.json`. Each 
 - `REDIS_URL` — shared Redis instance
 - `A2A_API_KEY` — workspace-to-workspace auth token
 
-### Phase 6 — Firestore Seeding
+### Phase 6 — ConfigMaps
+
+Apply Kustomize patches as ConfigMaps for infrastructure layering:
+
+```bash
+kubectl apply -f k8s/configmaps/a2a-server-patch.yaml      -n rt-pendragon-demo
+kubectl apply -f k8s/configmaps/intent-bridge-patch.yaml   -n rt-pendragon-demo
+kubectl apply -f k8s/configmaps/contract-auth-patch.yaml   -n rt-pendragon-demo
+kubectl apply -f k8s/configmaps/aiprovider-patch.yaml      -n rt-pendragon-demo
+```
+
+### Phase 7 — Ingress
+
+Apply the Ingress resource with one host rule per workspace:
+
+```bash
+kubectl apply -f k8s/ingress.yaml -n rt-pendragon-demo
+```
+
+Each workspace gets a subdomain under `pendragon-demo.ws.roundtable.foxtrotcommunications.net`.
+
+### Phase 8 — Tracing (BigQuery)
+
+Create the BigQuery dataset and table for request tracing:
+
+```bash
+bq mk --dataset roundtable-public:roundtable_telemetry
+bq mk --table roundtable-public:roundtable_telemetry.request_traces \
+  trace_id:STRING,workspace_id:STRING,request_type:STRING,duration_ms:INTEGER,created_at:TIMESTAMP
+```
+
+### Phase 9 — Firestore Seeding
 
 ```bash
 node scripts/seed-firestore.js
@@ -149,7 +196,7 @@ node scripts/seed-firestore.js
 
 This writes workspace, bridge, and contract documents under the org path in Firestore.
 
-### Phase 7 — Verification
+### Phase 10 — Verification
 
 ```bash
 ./scripts/verify.sh
@@ -179,9 +226,13 @@ To completely remove the demo:
 | Checking & Savings WS | `Narv6OBjpk50aJla6eED` |
 | Debt Management WS | `jmdsbwMzZqelAnliJcGQ` |
 | Real Estate WS | `Qy339ASoBmooIBKdw9mH` |
+| Investments WS | `pK7mWxR2nQ5vJbYs8dFe` |
+| Retirement WS | `hN3cLzV9sT6wMgXa4bKi` |
+| Taxes WS | `eR8fDyU1kP4qJnZm7wCo` |
 | K8s Namespace | `rt-pendragon-demo` |
 | GCP Project | `roundtable-public` |
 | Redis | `redis://10.253.40.203:6379` |
+| BigQuery Dataset | `roundtable_telemetry` |
 
 ---
 
