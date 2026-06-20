@@ -37,5 +37,41 @@
       "capability:plaid.syncData"
     ],
     "status": "active"
+  },
+  {
+    "contractId": "contract-investments",
+    "type": "DataQuery",
+    "source": { "wsId": "FY6M0lU0katTXza3Yo1r", "name": "Arthur" },
+    "target": { "wsId": "pK7mWxR2nQ5vJbYs8dFe", "name": "Investments" },
+    "allowedActions": [
+      "delegate", "discover", "query:plaid_sync",
+      "capability:plaid.getHoldings", "capability:plaid.getSecurities",
+      "capability:plaid.getPortfolioSummary", "capability:plaid.syncData"
+    ],
+    "status": "active"
+  },
+  {
+    "contractId": "contract-retirement",
+    "type": "DataQuery",
+    "source": { "wsId": "FY6M0lU0katTXza3Yo1r", "name": "Arthur" },
+    "target": { "wsId": "hN3cLzV9sT6wMgXa4bKi", "name": "Retirement" },
+    "allowedActions": [
+      "delegate", "discover", "query:plaid_sync",
+      "capability:plaid.getHoldings", "capability:plaid.getSecurities",
+      "capability:plaid.getPortfolioSummary", "capability:plaid.syncData"
+    ],
+    "status": "active"
+  },
+  {
+    "contractId": "contract-taxes",
+    "type": "DataQuery",
+    "source": { "wsId": "FY6M0lU0katTXza3Yo1r", "name": "Arthur" },
+    "target": { "wsId": "eR8fDyU1kP4qJnZm7wCo", "name": "Taxes" },
+    "allowedActions": [
+      "delegate", "discover", "query:plaid_sync",
+      "capability:plaid.getBalances", "capability:plaid.getTransactions",
+      "capability:plaid.syncData"
+    ],
+    "status": "active"
   }
 ]

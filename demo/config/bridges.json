@@ -22,5 +22,29 @@
     "targetWsId": "Narv6OBjpk50aJla6eED",
     "targetName": "Checking & Savings",
     "permissions": ["message", "delegate"]
+  },
+  {
+    "bridgeId": "bridge-arthur-investments",
+    "sourceWsId": "FY6M0lU0katTXza3Yo1r",
+    "sourceName": "Arthur",
+    "targetWsId": "pK7mWxR2nQ5vJbYs8dFe",
+    "targetName": "Investments",
+    "permissions": ["message", "delegate"]
+  },
+  {
+    "bridgeId": "bridge-arthur-retirement",
+    "sourceWsId": "FY6M0lU0katTXza3Yo1r",
+    "sourceName": "Arthur",
+    "targetWsId": "hN3cLzV9sT6wMgXa4bKi",
+    "targetName": "Retirement",
+    "permissions": ["message", "delegate"]
+  },
+  {
+    "bridgeId": "bridge-arthur-taxes",
+    "sourceWsId": "FY6M0lU0katTXza3Yo1r",
+    "sourceName": "Arthur",
+    "targetWsId": "eR8fDyU1kP4qJnZm7wCo",
+    "targetName": "Taxes",
+    "permissions": ["message", "delegate"]
   }
 ]
