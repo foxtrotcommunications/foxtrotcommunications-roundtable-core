@@ -50,9 +50,21 @@ export async function flush(): Promise<void> {
     const bq = new BigQuery({ projectId: BQ_PROJECT });
     const table = bq.dataset(BQ_DATASET).table(BQ_TABLE);
 
-    // Stringify metadata for BQ STRING column
+    // Convert camelCase spans to snake_case BQ columns
     const bqRows = rows.map(r => ({
-      ...r,
+      trace_id: r.traceId,
+      span_id: r.spanId,
+      parent_span_id: r.parentSpanId || null,
+      workspace_id: r.workspaceId || null,
+      workspace_name: r.workspaceName || null,
+      org_id: r.orgId || null,
+      operation: r.operation,
+      tool_name: r.toolName || null,
+      status: r.status,
+      started_at: r.startedAt,
+      duration_ms: r.durationMs,
+      input_preview: r.inputPreview || null,
+      output_preview: r.outputPreview || null,
       metadata: r.metadata ? JSON.stringify(r.metadata) : null,
     }));
 
