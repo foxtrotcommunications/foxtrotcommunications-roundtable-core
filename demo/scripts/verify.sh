@@ -8,6 +8,9 @@
 #   3. Seed data is present in each domain database
 #   4. Workspace health endpoints respond
 #   5. Firestore documents exist
+#   6. ConfigMaps are applied (a2a-server, intent-bridge, contract-auth, aiprovider)
+#   7. Ingress exists and has correct host rules
+#   8. BigQuery telemetry table exists
 #
 # Usage:
 #   ./scripts/verify.sh           # Full output
@@ -145,6 +148,26 @@ for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
         fi
       done
       ;;
+    investments|retirement)
+      for table in plaid_holdings plaid_securities; do
+        RESULT=$(table_exists "$DB_NAME" "$table" || echo "f")
+        if [[ "$RESULT" == "t" ]]; then
+          check_pass "$WS_NAME: table '$table' exists"
+        else
+          check_fail "$WS_NAME: table '$table' missing"
+        fi
+      done
+      ;;
+    taxes)
+      for table in plaid_accounts plaid_transactions; do
+        RESULT=$(table_exists "$DB_NAME" "$table" || echo "f")
+        if [[ "$RESULT" == "t" ]]; then
+          check_pass "$WS_NAME: table '$table' exists"
+        else
+          check_fail "$WS_NAME: table '$table' missing"
+        fi
+      done
+      ;;
   esac
 done
 
@@ -213,6 +236,42 @@ for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
         check_pass "$WS_NAME: $COUNT valuations seeded"
       else
         check_fail "$WS_NAME: expected ≥9 valuations, found $COUNT"
+      fi
+      ;;
+    investments)
+      COUNT=$(row_count "$DB_NAME" "plaid_holdings")
+      if [[ "$COUNT" -ge 10 ]]; then
+        check_pass "$WS_NAME: $COUNT holdings seeded"
+      else
+        check_fail "$WS_NAME: expected ≥10 holdings, found $COUNT"
+      fi
+      COUNT=$(row_count "$DB_NAME" "plaid_securities")
+      if [[ "$COUNT" -ge 10 ]]; then
+        check_pass "$WS_NAME: $COUNT securities seeded"
+      else
+        check_fail "$WS_NAME: expected ≥10 securities, found $COUNT"
+      fi
+      ;;
+    retirement)
+      COUNT=$(row_count "$DB_NAME" "plaid_holdings")
+      if [[ "$COUNT" -ge 7 ]]; then
+        check_pass "$WS_NAME: $COUNT holdings seeded"
+      else
+        check_fail "$WS_NAME: expected ≥7 holdings, found $COUNT"
+      fi
+      COUNT=$(row_count "$DB_NAME" "plaid_securities")
+      if [[ "$COUNT" -ge 7 ]]; then
+        check_pass "$WS_NAME: $COUNT securities seeded"
+      else
+        check_fail "$WS_NAME: expected ≥7 securities, found $COUNT"
+      fi
+      ;;
+    taxes)
+      COUNT=$(row_count "$DB_NAME" "plaid_transactions")
+      if [[ "$COUNT" -ge 18 ]]; then
+        check_pass "$WS_NAME: $COUNT transactions seeded"
+      else
+        check_fail "$WS_NAME: expected ≥18 transactions, found $COUNT"
       fi
       ;;
   esac
@@ -287,6 +346,51 @@ for i in $(seq 0 $((CONTRACT_COUNT - 1))); do
   TARGET_NAME=$(jq -r ".[$i].target.name" "$CONFIG_DIR/contracts.json")
   check_firestore_doc "organizations/$ORG_ID/contracts" "$CONTRACT_ID" "Contract: Arthur → $TARGET_NAME"
 done
+
+# ---------------------------------------------------------------------------
+# Check 6: ConfigMaps
+# ---------------------------------------------------------------------------
+log_step "Check 6: ConfigMaps"
+
+CONFIGMAPS=("a2a-server-patch" "intent-bridge-patch" "contract-auth-patch" "aiprovider-patch")
+for cm in "${CONFIGMAPS[@]}"; do
+  if kubectl get configmap "$cm" -n "$NAMESPACE" &> /dev/null; then
+    check_pass "ConfigMap '$cm' exists"
+  else
+    check_fail "ConfigMap '$cm' not found"
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# Check 7: Ingress
+# ---------------------------------------------------------------------------
+log_step "Check 7: Ingress"
+
+INGRESS_NAME=$(kubectl get ingress -n "$NAMESPACE" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+if [[ -n "$INGRESS_NAME" ]]; then
+  check_pass "Ingress '$INGRESS_NAME' exists"
+  HOST_COUNT=$(kubectl get ingress "$INGRESS_NAME" -n "$NAMESPACE" \
+    -o jsonpath='{.spec.rules[*].host}' 2>/dev/null | wc -w | tr -d ' ')
+  if [[ "$HOST_COUNT" -ge "$WORKSPACE_COUNT" ]]; then
+    check_pass "Ingress has $HOST_COUNT host rule(s) (≥ $WORKSPACE_COUNT workspaces)"
+  else
+    check_warn "Ingress has $HOST_COUNT host rule(s), expected ≥ $WORKSPACE_COUNT"
+  fi
+else
+  check_fail "No Ingress found in namespace $NAMESPACE"
+fi
+
+# ---------------------------------------------------------------------------
+# Check 8: BigQuery Telemetry
+# ---------------------------------------------------------------------------
+log_step "Check 8: BigQuery Telemetry"
+
+BQ_TABLE="roundtable_telemetry.request_traces"
+if bq show --project_id="$GCP_PROJECT" "$BQ_TABLE" &> /dev/null; then
+  check_pass "BigQuery table '$BQ_TABLE' exists"
+else
+  check_fail "BigQuery table '$BQ_TABLE' not found"
+fi
 
 # ---------------------------------------------------------------------------
 # Summary
