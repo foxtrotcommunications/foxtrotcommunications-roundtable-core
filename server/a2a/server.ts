@@ -6,8 +6,13 @@
 //   POST /a2a                     → JSON-RPC methods: message/send, tasks/get, tasks/cancel
 //
 import type { StreamEvent, ChatMessage, WorkspaceConfig } from '../types';
+import type { Span } from '../tracing';
+
+const { startSpan, endSpan, spanFromHeaders, generateTraceId, preview } = require('../tracing') as typeof import('../tracing');
+const { recordSpan } = require('../tracing/collector') as typeof import('../tracing/collector');
 
 const crypto = require('crypto');
+const config = require('../config') as import('../types').AppConfig;
 const { streamCompletion } = require('../services/aiProvider') as {
   streamCompletion: (
     provider: string,
@@ -75,6 +80,8 @@ interface ProcessMessageOptions {
   enabledToolNames: string[] | null;
   workspaceConfig: WorkspaceConfig;
   systemPrompt?: string;
+  /** Incoming HTTP request headers for trace context propagation */
+  headers?: Record<string, string | string[] | undefined>;
 }
 
 /**
@@ -334,10 +341,36 @@ function extractProvenance(toolResults: Array<{ name: string; result: Record<str
  * Process an incoming A2A message: create a task, run AI completion, return result.
  */
 async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> {
-  const { message, provider, model, apiKey, enabledToolNames, workspaceConfig, systemPrompt } = options;
+  const { message, provider, model, apiKey, enabledToolNames, workspaceConfig, systemPrompt, headers } = options;
 
   const taskId = crypto.randomUUID();
   const now = new Date().toISOString();
+
+  // ── Distributed tracing: extract incoming context or start a new trace ──
+  const traceCtx = headers ? spanFromHeaders(headers) : null;
+  const messageText = message.parts
+    .filter((p) => p.type === 'text')
+    .map((p) => p.text)
+    .join('\n');
+  const rootSpan = startSpan({
+    traceId: traceCtx?.traceId || generateTraceId(),
+    parentSpanId: traceCtx?.parentSpanId || null,
+    workspaceId: config.workspaceId || '',
+    workspaceName: config.workspaceName || '',
+    operation: 'a2a.message_send',
+    inputPreview: preview(messageText),
+    sampled: traceCtx?.sampled,
+  });
+
+  // Attach trace context to workspaceConfig so tools can propagate it
+  const tracedWorkspaceConfig = {
+    ...workspaceConfig,
+    traceContext: {
+      traceId: rootSpan.traceId,
+      spanId: rootSpan.spanId,
+      sampled: rootSpan._sampled,
+    },
+  };
 
   // 1. Create task with status 'submitted'
   const task: A2aTask = {
@@ -370,6 +403,9 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
 
   messages.push({ role: 'user', content: userText });
 
+  // Track tool call count at function scope so it's available in the catch block
+  let toolCallCount = 0;
+
   try {
     // 4. Stream completion and collect full text + tool provenance
     let fullText = '';
@@ -389,14 +425,28 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
         true,       // enableTools
         controller.signal,
         enabledToolNames,
-        workspaceConfig
+        tracedWorkspaceConfig
       );
 
       for await (const event of stream) {
         if (event.type === 'text-delta') {
           fullText += event.content;
         } else if (event.type === 'tool-result') {
+          // ── Distributed tracing: record child span for each tool result ──
+          const toolSpan = startSpan({
+            traceId: rootSpan.traceId,
+            parentSpanId: rootSpan.spanId,
+            workspaceId: rootSpan.workspaceId,
+            workspaceName: rootSpan.workspaceName,
+            operation: 'tool_call',
+            toolName: event.name,
+            sampled: rootSpan._sampled,
+          });
+          endSpan(toolSpan, 'completed', { outputPreview: preview(event.result) });
+          recordSpan(toolSpan);
+
           toolResults.push({ name: event.name, result: event.result });
+          toolCallCount++;
           // If we already have a substantial response and the model is doing
           // a follow-up tool call (e.g. emit_provenance after the main response),
           // snapshot the text so we don't append a duplicate response afterward.
@@ -460,7 +510,7 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
           false,      // disable tools on retry
           retryController.signal,
           null,       // no tool names needed
-          workspaceConfig
+          tracedWorkspaceConfig
         );
 
         for await (const event of retryStream) {
@@ -514,6 +564,13 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
     if (task.history) {
       task.history.push(agentMessage);
     }
+
+    // ── Distributed tracing: end root span on success ──
+    endSpan(rootSpan, 'completed', {
+      outputPreview: preview(fullText),
+      metadata: { toolCallCount: toolResults.length, provider, model },
+    });
+    recordSpan(rootSpan);
   } catch (err: unknown) {
     const error = err as Error;
     task.status = {
@@ -524,6 +581,13 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
       },
       timestamp: new Date().toISOString(),
     };
+
+    // ── Distributed tracing: end root span on error (always recorded) ──
+    endSpan(rootSpan, 'error', {
+      outputPreview: preview(error.message),
+      metadata: { toolCallCount },
+    });
+    recordSpan(rootSpan);
   }
 
   return task;

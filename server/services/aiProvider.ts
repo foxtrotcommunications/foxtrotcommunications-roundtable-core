@@ -21,6 +21,8 @@ const { executeTool, toOpenAITools, toAnthropicTools, toGoogleTools } = require(
   toGoogleTools: (enabledToolNames?: string[] | null) => Record<string, unknown>[];
 };
 const config = require('../config') as import('../types').AppConfig;
+const { startSpan, endSpan, preview } = require('../tracing') as typeof import('../tracing');
+const { recordSpan } = require('../tracing/collector') as typeof import('../tracing/collector');
 
 // Minimal type for the @google/genai client
 interface GoogleGenAIClient {
@@ -62,6 +64,19 @@ interface GoogleGenAIChunk {
 async function* streamCompletion(provider: string, model: string, messages: ChatMessage[], apiKey: string, enableTools: boolean = true, signal: AbortSignal | null = null, enabledToolNames: string[] | null = null, workspaceConfig: WorkspaceConfig = {}): AsyncGenerator<StreamEvent> {
   const maxToolRounds: number = 50;
 
+  // ── Distributed tracing: parent span for full LLM interaction ──
+  const traceCtx = workspaceConfig?.traceContext;
+  const llmSpan = traceCtx ? startSpan({
+    traceId: traceCtx.traceId,
+    parentSpanId: traceCtx.spanId || null,
+    workspaceId: workspaceConfig?.workspaceId || '',
+    workspaceName: workspaceConfig?.workspaceName || '',
+    operation: 'llm.completion',
+    toolName: `${provider}/${model}`,
+    sampled: traceCtx.sampled,
+  }) : null;
+  if (llmSpan) workspaceConfig._llmSpan = llmSpan;
+
   try {
     switch (provider) {
       case 'openai':
@@ -86,8 +101,10 @@ async function* streamCompletion(provider: string, model: string, messages: Chat
   } catch (err: unknown) {
     const error = err as Error & { name: string };
     if (error.name === 'AbortError') {
+      if (llmSpan) { endSpan(llmSpan, 'completed', { metadata: { aborted: true, provider, model } }); recordSpan(llmSpan); }
       yield { type: 'done', fullText: '' };
     } else {
+      if (llmSpan) { endSpan(llmSpan, 'error', { outputPreview: preview(error.message), metadata: { provider, model } }); recordSpan(llmSpan); }
       yield { type: 'error', error: error.message };
     }
   }
@@ -96,6 +113,8 @@ async function* streamCompletion(provider: string, model: string, messages: Chat
 // ─── OpenAI ─────────────────────────────────────────────
 
 async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: string, enableTools: boolean, maxRounds: number, signal: AbortSignal | null, enabledToolNames: string[] | null, workspaceConfig: WorkspaceConfig = {}): AsyncGenerator<StreamEvent> {
+  const traceCtx = workspaceConfig?.traceContext;
+  const llmSpan = workspaceConfig?._llmSpan || null;
   const currentMessages: Array<Record<string, unknown> | ChatMessage> = [...messages];
   let fullText: string = '';
 
@@ -139,6 +158,7 @@ async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: str
     }
 
     if (toolCalls.length === 0) {
+      if (llmSpan) { endSpan(llmSpan, 'completed', { metadata: { rounds: round + 1, provider: 'openai', model } }); recordSpan(llmSpan); }
       yield { type: 'done', fullText };
       return;
     }
@@ -158,7 +178,15 @@ async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: str
     for (const tc of toolCalls) {
       yield { type: 'tool-call', name: tc.name, args: JSON.parse(tc.arguments), callId: tc.id };
 
+      const toolStart = Date.now();
       const result: Record<string, unknown> = await executeTool(tc.name, JSON.parse(tc.arguments), { ...workspaceConfig, model });
+      const toolDurationMs = Date.now() - toolStart;
+      if (traceCtx) {
+        const toolSpan = startSpan({ traceId: traceCtx.traceId, parentSpanId: llmSpan?.spanId || traceCtx.spanId, workspaceId: workspaceConfig?.workspaceId || '', workspaceName: workspaceConfig?.workspaceName || '', operation: 'tool_execution', toolName: tc.name, inputPreview: preview(tc.arguments), sampled: traceCtx.sampled });
+        toolSpan._startTime = toolStart;
+        endSpan(toolSpan, 'completed', { outputPreview: preview(JSON.stringify(result)), metadata: { durationMs: toolDurationMs } });
+        recordSpan(toolSpan);
+      }
       yield { type: 'tool-result', name: tc.name, callId: tc.id, result };
 
       currentMessages.push({
@@ -169,6 +197,7 @@ async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: str
     }
   }
 
+  if (llmSpan) { endSpan(llmSpan, 'completed', { metadata: { rounds: maxRounds, provider: 'openai', model } }); recordSpan(llmSpan); }
   yield { type: 'done', fullText };
 }
 
@@ -232,6 +261,8 @@ async function* parseOpenAIStream(response: NodeFetchResponse, signal: AbortSign
 // ─── Anthropic ──────────────────────────────────────────
 
 async function* streamAnthropic(model: string, messages: ChatMessage[], apiKey: string, enableTools: boolean, maxRounds: number, signal: AbortSignal | null, enabledToolNames: string[] | null, workspaceConfig: WorkspaceConfig = {}): AsyncGenerator<StreamEvent> {
+  const traceCtx = workspaceConfig?.traceContext;
+  const llmSpan = workspaceConfig?._llmSpan || null;
   const currentMessages: Record<string, unknown>[] = formatAnthropicMessages(messages);
   const systemPrompt: string = extractSystemPrompt(messages);
   let fullText: string = '';
@@ -280,6 +311,7 @@ async function* streamAnthropic(model: string, messages: ChatMessage[], apiKey: 
     }
 
     if (toolUses.length === 0 || stopReason !== 'tool_use') {
+      if (llmSpan) { endSpan(llmSpan, 'completed', { metadata: { rounds: round + 1, provider: 'anthropic', model } }); recordSpan(llmSpan); }
       yield { type: 'done', fullText };
       return;
     }
@@ -302,7 +334,15 @@ async function* streamAnthropic(model: string, messages: ChatMessage[], apiKey: 
     for (const tu of toolUses) {
       yield { type: 'tool-call', name: tu.name, args: tu.input, callId: tu.id };
 
+      const toolStart = Date.now();
       const result: Record<string, unknown> = await executeTool(tu.name, tu.input, { ...workspaceConfig, model });
+      const toolDurationMs = Date.now() - toolStart;
+      if (traceCtx) {
+        const toolSpan = startSpan({ traceId: traceCtx.traceId, parentSpanId: llmSpan?.spanId || traceCtx.spanId, workspaceId: workspaceConfig?.workspaceId || '', workspaceName: workspaceConfig?.workspaceName || '', operation: 'tool_execution', toolName: tu.name, inputPreview: preview(JSON.stringify(tu.input)), sampled: traceCtx.sampled });
+        toolSpan._startTime = toolStart;
+        endSpan(toolSpan, 'completed', { outputPreview: preview(JSON.stringify(result)), metadata: { durationMs: toolDurationMs } });
+        recordSpan(toolSpan);
+      }
       yield { type: 'tool-result', name: tu.name, callId: tu.id, result };
 
       toolResults.push({
@@ -315,6 +355,7 @@ async function* streamAnthropic(model: string, messages: ChatMessage[], apiKey: 
     currentMessages.push({ role: 'user', content: toolResults });
   }
 
+  if (llmSpan) { endSpan(llmSpan, 'completed', { metadata: { rounds: maxRounds, provider: 'anthropic', model } }); recordSpan(llmSpan); }
   yield { type: 'done', fullText };
 }
 
@@ -404,6 +445,8 @@ async function* parseAnthropicStream(response: NodeFetchResponse, signal: AbortS
 // ─── Google / Gemini ────────────────────────────────────
 
 async function* streamGoogle(model: string, messages: ChatMessage[], apiKey: string, enableTools: boolean, maxRounds: number, signal: AbortSignal | null, enabledToolNames: string[] | null, workspaceConfig: WorkspaceConfig = {}): AsyncGenerator<StreamEvent> {
+  const traceCtx = workspaceConfig?.traceContext;
+  const llmSpan = workspaceConfig?._llmSpan || null;
   const contents: Record<string, unknown>[] = formatGoogleMessages(messages);
   const systemInstruction: string = extractGoogleSystemInstruction(messages);
   let fullText: string = '';
@@ -447,6 +490,7 @@ async function* streamGoogle(model: string, messages: ChatMessage[], apiKey: str
     }
 
     if (functionCalls.length === 0) {
+      if (llmSpan) { endSpan(llmSpan, 'completed', { metadata: { rounds: round + 1, provider: 'google', model } }); recordSpan(llmSpan); }
       yield { type: 'done', fullText };
       return;
     }
@@ -472,9 +516,18 @@ async function* streamGoogle(model: string, messages: ChatMessage[], apiKey: str
 
     // Execute all tools in parallel
     const toolResults = await Promise.all(
-      functionCalls.map((fc: GoogleFunctionCall, i: number) =>
-        executeTool(fc.name, fc.args, { ...workspaceConfig, model }).then(result => ({ fc, callId: callIds[i], result }))
-      )
+      functionCalls.map(async (fc: GoogleFunctionCall, i: number) => {
+        const toolStart = Date.now();
+        const result = await executeTool(fc.name, fc.args, { ...workspaceConfig, model });
+        const toolDurationMs = Date.now() - toolStart;
+        if (traceCtx) {
+          const toolSpan = startSpan({ traceId: traceCtx.traceId, parentSpanId: llmSpan?.spanId || traceCtx.spanId, workspaceId: workspaceConfig?.workspaceId || '', workspaceName: workspaceConfig?.workspaceName || '', operation: 'tool_execution', toolName: fc.name, inputPreview: preview(JSON.stringify(fc.args)), sampled: traceCtx.sampled });
+          toolSpan._startTime = toolStart;
+          endSpan(toolSpan, 'completed', { outputPreview: preview(JSON.stringify(result)), metadata: { durationMs: toolDurationMs } });
+          recordSpan(toolSpan);
+        }
+        return { fc, callId: callIds[i], result };
+      })
     );
 
     // Yield results and build response parts
@@ -489,6 +542,7 @@ async function* streamGoogle(model: string, messages: ChatMessage[], apiKey: str
     contents.push({ role: 'user', parts: functionResponses });
   }
 
+  if (llmSpan) { endSpan(llmSpan, 'completed', { metadata: { rounds: maxRounds, provider: 'google', model } }); recordSpan(llmSpan); }
   yield { type: 'done', fullText };
 }
 
@@ -545,6 +599,8 @@ async function* parseGoogleStream(response: NodeFetchResponse, signal: AbortSign
 // ─── Ollama / OpenAI-compatible ─────────────────────────
 
 async function* streamOllama(model: string, messages: ChatMessage[], enableTools: boolean, maxRounds: number, signal: AbortSignal | null, enabledToolNames: string[] | null, workspaceConfig: WorkspaceConfig = {}): AsyncGenerator<StreamEvent> {
+  const traceCtx = workspaceConfig?.traceContext;
+  const llmSpan = workspaceConfig?._llmSpan || null;
   const host: string = (workspaceConfig.ollamaHost || config.ollama.host || 'http://localhost:11434').replace(/\/+$/, '');
   const currentMessages: Array<Record<string, unknown> | ChatMessage> = [...messages];
   let fullText: string = '';
@@ -596,6 +652,7 @@ async function* streamOllama(model: string, messages: ChatMessage[], enableTools
     }
 
     if (toolCalls.length === 0) {
+      if (llmSpan) { endSpan(llmSpan, 'completed', { metadata: { rounds: round + 1, provider: 'ollama', model } }); recordSpan(llmSpan); }
       yield { type: 'done', fullText };
       return;
     }
@@ -615,7 +672,15 @@ async function* streamOllama(model: string, messages: ChatMessage[], enableTools
     for (const tc of toolCalls) {
       yield { type: 'tool-call', name: tc.name, args: JSON.parse(tc.arguments), callId: tc.id };
 
+      const toolStart = Date.now();
       const result: Record<string, unknown> = await executeTool(tc.name, JSON.parse(tc.arguments), { ...workspaceConfig, model });
+      const toolDurationMs = Date.now() - toolStart;
+      if (traceCtx) {
+        const toolSpan = startSpan({ traceId: traceCtx.traceId, parentSpanId: llmSpan?.spanId || traceCtx.spanId, workspaceId: workspaceConfig?.workspaceId || '', workspaceName: workspaceConfig?.workspaceName || '', operation: 'tool_execution', toolName: tc.name, inputPreview: preview(tc.arguments), sampled: traceCtx.sampled });
+        toolSpan._startTime = toolStart;
+        endSpan(toolSpan, 'completed', { outputPreview: preview(JSON.stringify(result)), metadata: { durationMs: toolDurationMs } });
+        recordSpan(toolSpan);
+      }
       yield { type: 'tool-result', name: tc.name, callId: tc.id, result };
 
       currentMessages.push({
@@ -626,6 +691,7 @@ async function* streamOllama(model: string, messages: ChatMessage[], enableTools
     }
   }
 
+  if (llmSpan) { endSpan(llmSpan, 'completed', { metadata: { rounds: maxRounds, provider: 'ollama', model } }); recordSpan(llmSpan); }
   yield { type: 'done', fullText };
 }
 
@@ -728,6 +794,8 @@ function getGenAIClient(model: string): GoogleGenAIClient {
 }
 
 async function* streamVertexAI(model: string, messages: ChatMessage[], enableTools: boolean, maxRounds: number, signal: AbortSignal | null, enabledToolNames: string[] | null, workspaceConfig: WorkspaceConfig = {}): AsyncGenerator<StreamEvent> {
+  const traceCtx = workspaceConfig?.traceContext;
+  const llmSpan = workspaceConfig?._llmSpan || null;
   // Auto-fallback: if currently rate-limited, use Flash immediately
   let activeModel: string = isRateLimited() ? FALLBACK_MODEL : model;
   if (activeModel !== model) {
@@ -830,6 +898,7 @@ async function* streamVertexAI(model: string, messages: ChatMessage[], enableToo
     }
 
     if (functionCalls.length === 0) {
+      if (llmSpan) { endSpan(llmSpan, 'completed', { metadata: { rounds: round + 1, provider: 'vertexai', model: activeModel } }); recordSpan(llmSpan); }
       yield { type: 'done', fullText };
       return;
     }
@@ -855,9 +924,20 @@ async function* streamVertexAI(model: string, messages: ChatMessage[], enableToo
 
     // Execute all tools in parallel
     const toolResults = await Promise.all(
-      functionCalls.map((fc: GoogleFunctionCall, i: number) =>
-        executeTool(fc.name, fc.args, { ...workspaceConfig, model }).then(result => ({ fc, callId: callIds[i], result }))
-      )
+      functionCalls.map(async (fc: GoogleFunctionCall, i: number) => {
+        console.log(`[aiProvider] Executing tool '${fc.name}' with args: ${JSON.stringify(fc.args)}`);
+        const toolStart = Date.now();
+        const result = await executeTool(fc.name, fc.args, { ...workspaceConfig, model });
+        const toolDurationMs = Date.now() - toolStart;
+        console.log(`[aiProvider] Tool '${fc.name}' completed with length ${JSON.stringify(result)?.length || 0}`);
+        if (traceCtx) {
+          const toolSpan = startSpan({ traceId: traceCtx.traceId, parentSpanId: llmSpan?.spanId || traceCtx.spanId, workspaceId: workspaceConfig?.workspaceId || '', workspaceName: workspaceConfig?.workspaceName || '', operation: 'tool_execution', toolName: fc.name, inputPreview: preview(JSON.stringify(fc.args)), sampled: traceCtx.sampled });
+          toolSpan._startTime = toolStart;
+          endSpan(toolSpan, 'completed', { outputPreview: preview(JSON.stringify(result)), metadata: { durationMs: toolDurationMs } });
+          recordSpan(toolSpan);
+        }
+        return { fc, callId: callIds[i], result };
+      })
     );
 
     // Yield results and build response parts
@@ -872,6 +952,7 @@ async function* streamVertexAI(model: string, messages: ChatMessage[], enableToo
     contents.push({ role: 'user', parts: functionResponses });
   }
 
+  if (llmSpan) { endSpan(llmSpan, 'completed', { metadata: { rounds: maxRounds, provider: 'vertexai', model: activeModel } }); recordSpan(llmSpan); }
   yield { type: 'done', fullText };
 }
 

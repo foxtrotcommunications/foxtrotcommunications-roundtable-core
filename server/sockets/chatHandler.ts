@@ -25,6 +25,8 @@ const { streamCompletion } = require('../services/aiProvider') as {
   streamCompletion: (provider: string, model: string, messages: Record<string, unknown>[], apiKey: string, enableTools?: boolean, signal?: AbortSignal | null, enabledToolNames?: string[] | null, workspaceConfig?: WorkspaceConfig) => AsyncGenerator<StreamEvent>;
 };
 const config = require('../config') as AppConfig;
+const { startSpan, endSpan, generateTraceId, preview } = require('../tracing') as typeof import('../tracing');
+const { recordSpan } = require('../tracing/collector') as typeof import('../tracing/collector');
 
 // ─── Workspace-level AI request queue ─────────────────────────────────
 // Only one AI request runs at a time per workspace to prevent
@@ -95,6 +97,16 @@ const { touchActivity } = require('./workspaceHandler') as { touchActivity: () =
         socket.emit('error-message', { error: `Message too long (${content.length.toLocaleString()} chars). Maximum is ${MAX_MESSAGE_LENGTH.toLocaleString()} characters.` });
         return;
       }
+
+      // ── Distributed tracing: root span for this chat message ──
+      const traceId = generateTraceId();
+      const rootSpan = startSpan({
+        traceId,
+        workspaceId: config.workspaceId || '',
+        workspaceName: config.workspaceName || '',
+        operation: 'chat.message',
+        inputPreview: preview(content),
+      });
 
       // Save and broadcast every message (skip for queued re-processing)
       if (!_fromQueue) {
@@ -332,7 +344,7 @@ const { touchActivity } = require('./workspaceHandler') as { touchActivity: () =
             : workspace.data_sources;
         } catch { /* intentionally empty */ }
       }
-      const workspaceConfig: WorkspaceConfig = { dataSources };
+      const workspaceConfig: WorkspaceConfig = { dataSources, workspaceId: config.workspaceId, workspaceName: config.workspaceName };
 
       // Resolve enabled tool names from workspace config (null = all tools)
       let enabledToolNames: string[] | null = null;
@@ -715,9 +727,10 @@ When generating Mermaid diagrams (flowcharts, sequence diagrams, etc.):
       const toolNamesUsed: string[] = [];
 
       try {
+        const tracedConfig = { ...workspaceConfig, traceContext: { traceId: rootSpan.traceId, spanId: rootSpan.spanId, sampled: rootSpan._sampled } };
         for await (const event of streamCompletion(
           aiProvider, aiModel, messages, apiKey, toolsEnabled,
-          abortController.signal, enabledToolNames, workspaceConfig
+          abortController.signal, enabledToolNames, tracedConfig
         )) {
           if (abortController.signal.aborted) break;
 
@@ -776,12 +789,18 @@ When generating Mermaid diagrams (flowcharts, sequence diagrams, etc.):
         const error = err as Error & { name: string };
         if (error.name !== 'AbortError') {
           console.error(`[Chat] AI stream error in workspace ${config.workspaceId}:`, error);
+          endSpan(rootSpan, 'error', { outputPreview: preview(error.message) });
+          recordSpan(rootSpan);
           io.to(wsChannel).emit('ai-error', { error: `AI generation failed: ${error.message}` });
         }
       } finally {
         socket.isGenerating = false;
         socket.abortController = null;
-        io.to(wsChannel).emit('ai-complete', { fullText, userId: socket.userId });
+        if (rootSpan.status === 'started') {
+          endSpan(rootSpan, 'completed', { metadata: { toolCallCount, provider: aiProvider, model: aiModel } });
+          recordSpan(rootSpan);
+        }
+        io.to(wsChannel).emit('ai-complete', { fullText, userId: socket.userId, traceId: rootSpan.traceId });
 
         // ── Process next queued request ──────────────────────────
         workspaceProcessing.set(config.workspaceId, false);
