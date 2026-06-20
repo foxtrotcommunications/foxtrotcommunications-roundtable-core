@@ -1,0 +1,41 @@
+[
+  {
+    "contractId": "contract-arthur-realestate",
+    "type": "DataQuery",
+    "source": { "wsId": "FY6M0lU0katTXza3Yo1r", "name": "Arthur" },
+    "target": { "wsId": "Qy339ASoBmooIBKdw9mH", "name": "Real Estate" },
+    "allowedActions": [
+      "delegate", "discover", "query:property_data",
+      "capability:property.getPropertySummary",
+      "capability:property.getMortgageDetails",
+      "capability:property.getEquityAnalysis"
+    ],
+    "status": "active"
+  },
+  {
+    "contractId": "contract-debt",
+    "type": "DataQuery",
+    "source": { "wsId": "FY6M0lU0katTXza3Yo1r", "name": "Arthur" },
+    "target": { "wsId": "jmdsbwMzZqelAnliJcGQ", "name": "Debt Management" },
+    "allowedActions": [
+      "delegate", "discover", "query:plaid_sync",
+      "capability:plaid.getBalances", "capability:plaid.getTransactions",
+      "capability:plaid.getLiabilities", "capability:plaid.getDebtSummary",
+      "capability:plaid.getCreditUtilization", "capability:plaid.syncData",
+      "capability:plaid.getDebtTransactions"
+    ],
+    "status": "active"
+  },
+  {
+    "contractId": "contract-cs",
+    "type": "DataQuery",
+    "source": { "wsId": "FY6M0lU0katTXza3Yo1r", "name": "Arthur" },
+    "target": { "wsId": "Narv6OBjpk50aJla6eED", "name": "Checking & Savings" },
+    "allowedActions": [
+      "delegate", "discover", "query:plaid_sync",
+      "capability:plaid.getBalances", "capability:plaid.getTransactions",
+      "capability:plaid.syncData"
+    ],
+    "status": "active"
+  }
+]

@@ -1,0 +1,54 @@
+[
+  {
+    "id": "FY6M0lU0katTXza3Yo1r",
+    "name": "Arthur",
+    "role": "orchestrator",
+    "aiProvider": "openai",
+    "aiModel": "gpt-5.5",
+    "deploymentName": "rt-ws-fy6m0lu0katt",
+    "databaseName": "ws_fy6m0lu0kattxza3yo1r",
+    "url": "https://fy6m0lu0kattxza3yo1r.pendragon-demo.ws.roundtable.foxtrotcommunications.net",
+    "a2aApiKey": "a2a-FY6M0lU0katTXza3Yo1r",
+    "domainType": null,
+    "capabilities": []
+  },
+  {
+    "id": "Narv6OBjpk50aJla6eED",
+    "name": "Checking & Savings",
+    "role": "domain",
+    "aiProvider": "gemini-enterprise",
+    "aiModel": "gemini-3.5-flash",
+    "deploymentName": "rt-ws-narv6objpk50",
+    "databaseName": "ws_narv6objpk50ajla6eed",
+    "url": "https://narv6objpk50ajla6eed.pendragon-demo.ws.roundtable.foxtrotcommunications.net",
+    "a2aApiKey": "a2a-Narv6OBjpk50aJla6eED",
+    "domainType": "checking",
+    "capabilities": ["plaid.getBalances", "plaid.getTransactions", "plaid.syncData"]
+  },
+  {
+    "id": "jmdsbwMzZqelAnliJcGQ",
+    "name": "Debt Management",
+    "role": "domain",
+    "aiProvider": "gemini-enterprise",
+    "aiModel": "gemini-3.5-flash",
+    "deploymentName": "rt-ws-jmdsbwmzzqel",
+    "databaseName": "ws_jmdsbwmzzqelanlijcgq",
+    "url": "https://jmdsbwmzzqelanlijcgq.pendragon-demo.ws.roundtable.foxtrotcommunications.net",
+    "a2aApiKey": "a2a-jmdsbwMzZqelAnliJcGQ",
+    "domainType": "debt",
+    "capabilities": ["plaid.getLiabilities", "plaid.getDebtSummary", "plaid.getCreditUtilization", "plaid.getBalances", "plaid.getTransactions", "plaid.getDebtTransactions", "plaid.syncData"]
+  },
+  {
+    "id": "Qy339ASoBmooIBKdw9mH",
+    "name": "Real Estate",
+    "role": "domain",
+    "aiProvider": "gemini-enterprise",
+    "aiModel": "gemini-3.5-flash",
+    "deploymentName": "rt-ws-qy339asobmoo",
+    "databaseName": "ws_qy339asobmooibkdw9mh",
+    "url": "https://qy339asobmooibkdw9mh.pendragon-demo.ws.roundtable.foxtrotcommunications.net",
+    "a2aApiKey": "a2a-Qy339ASoBmooIBKdw9mH",
+    "domainType": "realestate",
+    "capabilities": ["property.getPropertySummary", "property.getMortgageDetails", "property.getEquityAnalysis"]
+  }
+]
