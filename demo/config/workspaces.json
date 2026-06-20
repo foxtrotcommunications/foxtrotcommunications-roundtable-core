@@ -50,5 +50,44 @@
     "a2aApiKey": "a2a-Qy339ASoBmooIBKdw9mH",
     "domainType": "realestate",
     "capabilities": ["property.getPropertySummary", "property.getMortgageDetails", "property.getEquityAnalysis"]
+  },
+  {
+    "id": "pK7mWxR2nQ5vJbYs8dFe",
+    "name": "Investments",
+    "role": "domain",
+    "aiProvider": "gemini-enterprise",
+    "aiModel": "gemini-3.5-flash",
+    "deploymentName": "rt-ws-pk7mwxr2nq5v",
+    "databaseName": "ws_pk7mwxr2nq5vjbys8dfe",
+    "url": "https://pk7mwxr2nq5vjbys8dfe.pendragon-demo.ws.roundtable.foxtrotcommunications.net",
+    "a2aApiKey": "a2a-pK7mWxR2nQ5vJbYs8dFe",
+    "domainType": "investments",
+    "capabilities": ["plaid.getHoldings", "plaid.getSecurities", "plaid.getPortfolioSummary", "plaid.syncData"]
+  },
+  {
+    "id": "hN3cLzV9sT6wMgXa4bKi",
+    "name": "Retirement",
+    "role": "domain",
+    "aiProvider": "gemini-enterprise",
+    "aiModel": "gemini-3.5-flash",
+    "deploymentName": "rt-ws-hn3clzv9st6w",
+    "databaseName": "ws_hn3clzv9st6wmgxa4bki",
+    "url": "https://hn3clzv9st6wmgxa4bki.pendragon-demo.ws.roundtable.foxtrotcommunications.net",
+    "a2aApiKey": "a2a-hN3cLzV9sT6wMgXa4bKi",
+    "domainType": "retirement",
+    "capabilities": ["plaid.getHoldings", "plaid.getSecurities", "plaid.getPortfolioSummary", "plaid.syncData"]
+  },
+  {
+    "id": "eR8fDyU1kP4qJnZm7wCo",
+    "name": "Taxes",
+    "role": "domain",
+    "aiProvider": "gemini-enterprise",
+    "aiModel": "gemini-3.5-flash",
+    "deploymentName": "rt-ws-er8fdyu1kp4q",
+    "databaseName": "ws_er8fdyu1kp4qjnzm7wco",
+    "url": "https://er8fdyu1kp4qjnzm7wco.pendragon-demo.ws.roundtable.foxtrotcommunications.net",
+    "a2aApiKey": "a2a-eR8fDyU1kP4qJnZm7wCo",
+    "domainType": "taxes",
+    "capabilities": ["plaid.getBalances", "plaid.getTransactions", "plaid.syncData"]
   }
 ]
