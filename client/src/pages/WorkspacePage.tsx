@@ -31,7 +31,13 @@ export default function WorkspacePage({ user, onLogout }: Props) {
 
   useEffect(() => {
     api.getWorkspaceInfo().then(setWorkspace).catch(() => {});
-    api.getMessages().then(chat.setMessages).catch(() => {});
+    api.getMessages().then(msgs => {
+      chat.setMessages((prev: import('../types/message').ChatMessage[]) => {
+        const existingIds = new Set(msgs.map(m => m.id));
+        const newlyArrived = prev.filter(m => !existingIds.has(m.id));
+        return [...msgs, ...newlyArrived];
+      });
+    }).catch(() => {});
     api.getBridges().then(setBridges).catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -48,13 +48,14 @@ const colors = {
 // ---------------------------------------------------------------------------
 // Initialize Firebase Admin
 // ---------------------------------------------------------------------------
+const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 if (!DRY_RUN) {
   admin.initializeApp({
     projectId: orgConfig.firebaseProject,
   });
 }
 
-const db = DRY_RUN ? null : admin.firestore();
+const db = DRY_RUN ? null : getFirestore();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -133,8 +134,8 @@ async function main() {
     redisUrl: orgConfig.redisUrl,
     dockerImage: orgConfig.dockerImage,
     defaultModel: orgConfig.defaultModel,
-    createdAt: admin.firestore ? admin.firestore.FieldValue.serverTimestamp() : new Date().toISOString(),
-    updatedAt: admin.firestore ? admin.firestore.FieldValue.serverTimestamp() : new Date().toISOString(),
+    createdAt: admin.firestore ? FieldValue.serverTimestamp() : new Date().toISOString(),
+    updatedAt: admin.firestore ? FieldValue.serverTimestamp() : new Date().toISOString(),
   });
 
   // -------------------------------------------------------------------------
@@ -155,7 +156,7 @@ async function main() {
       domainType: ws.domainType || null,
       capabilities: ws.capabilities || [],
       status: 'active',
-      createdAt: admin.firestore ? admin.firestore.FieldValue.serverTimestamp() : new Date().toISOString(),
+      createdAt: admin.firestore ? FieldValue.serverTimestamp() : new Date().toISOString(),
     });
   }
 
@@ -172,7 +173,7 @@ async function main() {
       targetName: bridge.targetName,
       permissions: bridge.permissions,
       status: 'active',
-      createdAt: admin.firestore ? admin.firestore.FieldValue.serverTimestamp() : new Date().toISOString(),
+      createdAt: admin.firestore ? FieldValue.serverTimestamp() : new Date().toISOString(),
     });
   }
 
@@ -188,7 +189,7 @@ async function main() {
       target: contract.target,
       allowedActions: contract.allowedActions,
       status: contract.status,
-      createdAt: admin.firestore ? admin.firestore.FieldValue.serverTimestamp() : new Date().toISOString(),
+      createdAt: admin.firestore ? FieldValue.serverTimestamp() : new Date().toISOString(),
     });
   }
 

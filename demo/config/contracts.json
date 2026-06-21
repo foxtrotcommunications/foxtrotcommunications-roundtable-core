@@ -8,7 +8,8 @@
       "delegate", "discover", "query:property_data",
       "capability:property.getPropertySummary",
       "capability:property.getMortgageDetails",
-      "capability:property.getEquityAnalysis"
+      "capability:property.getEquityAnalysis",
+      "tool:get_financial_snapshot"
     ],
     "status": "active"
   },
@@ -22,7 +23,9 @@
       "capability:plaid.getBalances", "capability:plaid.getTransactions",
       "capability:plaid.getLiabilities", "capability:plaid.getDebtSummary",
       "capability:plaid.getCreditUtilization", "capability:plaid.syncData",
-      "capability:plaid.getDebtTransactions"
+      "capability:plaid.getDebtTransactions",
+      "tool:get_financial_snapshot", "tool:list_accounts", "tool:get_balance", "tool:get_transactions",
+      "tool:get_liabilities", "tool:get_debt_summary", "tool:get_credit_utilization", "tool:get_payoff_projection"
     ],
     "status": "active"
   },
@@ -34,7 +37,10 @@
     "allowedActions": [
       "delegate", "discover", "query:plaid_sync",
       "capability:plaid.getBalances", "capability:plaid.getTransactions",
-      "capability:plaid.syncData"
+      "capability:plaid.syncData",
+      "tool:get_financial_snapshot", "tool:list_accounts", "tool:get_balance", "tool:get_balance_history",
+      "tool:get_transactions", "tool:get_spending_by_category", "tool:get_spending_by_merchant", 
+      "tool:get_recurring_charges", "tool:get_income_summary", "tool:get_cashflow"
     ],
     "status": "active"
   },
@@ -42,11 +48,12 @@
     "contractId": "contract-investments",
     "type": "DataQuery",
     "source": { "wsId": "FY6M0lU0katTXza3Yo1r", "name": "Arthur" },
-    "target": { "wsId": "pK7mWxR2nQ5vJbYs8dFe", "name": "Investments" },
+    "target": { "wsId": "lYjs7ZeDanzC1FDiO3es", "name": "Investments" },
     "allowedActions": [
       "delegate", "discover", "query:plaid_sync",
       "capability:plaid.getHoldings", "capability:plaid.getSecurities",
-      "capability:plaid.getPortfolioSummary", "capability:plaid.syncData"
+      "capability:plaid.getPortfolioSummary", "capability:plaid.syncData",
+      "tool:get_financial_snapshot", "tool:list_accounts", "tool:get_balance", "tool:get_transactions"
     ],
     "status": "active"
   },
@@ -54,11 +61,12 @@
     "contractId": "contract-retirement",
     "type": "DataQuery",
     "source": { "wsId": "FY6M0lU0katTXza3Yo1r", "name": "Arthur" },
-    "target": { "wsId": "hN3cLzV9sT6wMgXa4bKi", "name": "Retirement" },
+    "target": { "wsId": "b0njzeX7q4JZ3KeLyASx", "name": "Retirement" },
     "allowedActions": [
       "delegate", "discover", "query:plaid_sync",
       "capability:plaid.getHoldings", "capability:plaid.getSecurities",
-      "capability:plaid.getPortfolioSummary", "capability:plaid.syncData"
+      "capability:plaid.getPortfolioSummary", "capability:plaid.syncData",
+      "tool:get_financial_snapshot", "tool:list_accounts", "tool:get_balance", "tool:get_transactions"
     ],
     "status": "active"
   },
@@ -66,11 +74,12 @@
     "contractId": "contract-taxes",
     "type": "DataQuery",
     "source": { "wsId": "FY6M0lU0katTXza3Yo1r", "name": "Arthur" },
-    "target": { "wsId": "eR8fDyU1kP4qJnZm7wCo", "name": "Taxes" },
+    "target": { "wsId": "4x5OQpZSA29iLJIrhmAC", "name": "Taxes" },
     "allowedActions": [
       "delegate", "discover", "query:plaid_sync",
       "capability:plaid.getBalances", "capability:plaid.getTransactions",
-      "capability:plaid.syncData"
+      "capability:plaid.syncData",
+      "tool:get_financial_snapshot", "tool:list_accounts", "tool:get_balance", "tool:get_transactions"
     ],
     "status": "active"
   }
