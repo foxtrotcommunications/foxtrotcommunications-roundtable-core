@@ -137,18 +137,7 @@ const intentBridge: Tool = {
     "- Call a tool: { op: 'tool_call', tool: '<tool_name>', args: { ... } }\n" +
     "- Query data: { op: 'query', tool: 'query_bigquery', params: { sql: 'SELECT ...' }, responseFormat: 'json_table' }\n" +
     "- Invoke a capability: { op: 'capability', name: '<name>', input: { ... } }\n" +
-    "- Discover capabilities: { op: 'discover', scope: 'tools' }\n\n" +
-    'Financial domain tools (use op: tool_call):\n' +
-    '- get_financial_snapshot: Complete financial summary (accounts, balances, income, spending, cashflow) in ONE call. Use this first for general financial questions.\n' +
-    '- list_accounts: List all accounts with balances\n' +
-    '- get_balance: Get current balance for one/all accounts\n' +
-    '- get_balance_history: Estimated balance over time (chart-ready)\n' +
-    '- get_transactions: Search and filter transactions (supports text search, date range, amount, category)\n' +
-    '- get_spending_by_category: Spending breakdown by category (chart-ready)\n' +
-    '- get_spending_by_merchant: Spending breakdown by merchant\n' +
-    '- get_recurring_charges: Detect subscriptions and recurring bills\n' +
-    '- get_income_summary: Income analysis\n' +
-    '- get_cashflow: Income vs spending over time (chart-ready)',
+    "- Discover capabilities: { op: 'discover', scope: 'tools' }",
   parameters: {
     type: 'object',
     properties: {

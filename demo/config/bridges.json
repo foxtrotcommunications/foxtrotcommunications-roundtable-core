@@ -27,7 +27,7 @@
     "bridgeId": "bridge-arthur-investments",
     "sourceWsId": "FY6M0lU0katTXza3Yo1r",
     "sourceName": "Arthur",
-    "targetWsId": "pK7mWxR2nQ5vJbYs8dFe",
+    "targetWsId": "lYjs7ZeDanzC1FDiO3es",
     "targetName": "Investments",
     "permissions": ["message", "delegate"]
   },
@@ -35,7 +35,7 @@
     "bridgeId": "bridge-arthur-retirement",
     "sourceWsId": "FY6M0lU0katTXza3Yo1r",
     "sourceName": "Arthur",
-    "targetWsId": "hN3cLzV9sT6wMgXa4bKi",
+    "targetWsId": "b0njzeX7q4JZ3KeLyASx",
     "targetName": "Retirement",
     "permissions": ["message", "delegate"]
   },
@@ -43,7 +43,7 @@
     "bridgeId": "bridge-arthur-taxes",
     "sourceWsId": "FY6M0lU0katTXza3Yo1r",
     "sourceName": "Arthur",
-    "targetWsId": "eR8fDyU1kP4qJnZm7wCo",
+    "targetWsId": "4x5OQpZSA29iLJIrhmAC",
     "targetName": "Taxes",
     "permissions": ["message", "delegate"]
   }
