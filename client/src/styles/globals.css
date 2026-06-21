@@ -759,10 +759,10 @@ select:focus { border-color: var(--accent-primary); }
   /* Sidebar: hide on mobile */
   .sidebar { display: none; }
 
-  /* App layout: strict 100svh height to guarantee it fits under the Safari nav bar on first load */
+  /* App layout: strict 100dvh height to guarantee it fits under the Safari nav bar on first load */
   .app-layout {
     height: 100vh; /* fallback */
-    height: 100svh;
+    height: 100dvh;
     position: relative;
     overflow: hidden;
   }
@@ -770,16 +770,11 @@ select:focus { border-color: var(--accent-primary); }
   /* Re-add overflow containment so flex + scroll works */
   #chat-view { overflow: hidden; }
 
-  /* Chat messages: add bottom padding to clear the fixed input area */
-  .chat-messages { padding: 16px; padding-bottom: 80px; }
+  /* Chat messages: normal padding, no fixed overlap needed */
+  .chat-messages { padding: 16px; }
 
-  /* INPUT AREA: fixed to bottom of screen — guaranteed visible */
+  /* INPUT AREA: normal flex layout */
   .chat-input-area {
-    position: fixed !important;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    z-index: 50;
     padding: 10px 12px;
     padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
     background: var(--bg-secondary);

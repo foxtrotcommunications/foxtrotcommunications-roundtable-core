@@ -4,7 +4,6 @@
 import { ScopedPlaidClient } from '../plaid/client.js';
 import { withPool } from '../db/pool.js';
 import { getSchemaForDomain } from '../db/schemas.js';
-import { aggregateProvenance } from '../provenance.js';
 // ─── Sync Logic ─────────────────────────────────────────────────────────────
 async function syncInvestmentData(config) {
     const plaid = new ScopedPlaidClient(config.clientId, config.secret, config.env, config.domainType);
@@ -97,15 +96,7 @@ function createGetHoldingsHandler(config) {
          FROM plaid_holdings h
          LEFT JOIN plaid_securities s ON s.security_id = h.security_id
          ORDER BY h.institution_value DESC`);
-            // For holdings, all Plaid-synced data is both balance and historical verified
-            const accountProvenance = rows.map((r) => ({
-                account_id: r.account_id,
-                current_balance: Math.abs(r.institution_value || 0),
-                current_balance_verified: true,
-                historical_series_verified: true, // Holdings are point-in-time snapshots from Plaid
-            }));
-            const provenance = aggregateProvenance(accountProvenance);
-            return { holdings: rows, provenance };
+            return { holdings: rows };
         });
     };
 }
@@ -131,15 +122,7 @@ function createGetSecuritiesHandler(config) {
                 params = [];
             }
             const { rows } = await pool.query(sql, params);
-            // Securities provenance: each security is verified by Plaid
-            const accountProvenance = rows.map((r) => ({
-                account_id: r.security_id,
-                current_balance: Math.abs(r.close_price || 0),
-                current_balance_verified: true,
-                historical_series_verified: true, // Securities data from Plaid is verified
-            }));
-            const provenance = aggregateProvenance(accountProvenance);
-            return { securities: rows, provenance };
+            return { securities: rows };
         });
     };
 }
@@ -159,16 +142,6 @@ function createGetPortfolioSummaryHandler(config) {
          LEFT JOIN plaid_securities s ON s.security_id = h.security_id
          GROUP BY s.type
          ORDER BY value DESC`);
-            // Build provenance from investment accounts
-            const acctResult = await pool.query(`SELECT account_id, balance_current, synced_at FROM plaid_accounts WHERE type = 'investment'`);
-            const accountProvenance = acctResult.rows.map((r) => ({
-                account_id: r.account_id,
-                current_balance: Math.abs(r.balance_current || 0),
-                current_balance_verified: true,
-                historical_series_verified: true, // Investment data from Plaid is verified
-            }));
-            const lastSynced = acctResult.rows.length > 0 ? acctResult.rows[0].synced_at : null;
-            const provenance = aggregateProvenance(accountProvenance, lastSynced);
             return {
                 totalValue: parseFloat(total_value) || 0,
                 holdingsCount: parseInt(holdings_count, 10) || 0,
@@ -177,7 +150,6 @@ function createGetPortfolioSummaryHandler(config) {
                     value: parseFloat(row.value) || 0,
                     count: parseInt(row.count, 10) || 0,
                 })),
-                provenance,
             };
         });
     };

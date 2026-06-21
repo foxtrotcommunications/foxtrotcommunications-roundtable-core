@@ -5,6 +5,7 @@ import { registerCheckingTools, registerCheckingCapabilities } from './domains/c
 import { registerInvestmentTools, registerInvestmentCapabilities } from './domains/investments.js';
 import { registerDebtTools, registerDebtCapabilities } from './domains/debt.js';
 import { registerRealEstateTools, registerRealEstateCapabilities } from './domains/realEstate.js';
+import { financialTools } from './tools/index.js';
 export { ScopedPlaidClient } from './plaid/client.js';
 export * from './types.js';
 // ─── Domain → Registrars Mapping ────────────────────────────────────────────
@@ -58,33 +59,43 @@ export const pendragonPlaid = {
 };
 // ─── Auto-detect Config from Environment ────────────────────────────────────
 export function registerFromEnv(toolRegistry, capabilityRegistry) {
-    const connectionsJson = process.env.RT_CONNECTIONS;
-    if (!connectionsJson)
-        return;
-    try {
-        const connections = JSON.parse(connectionsJson);
-        const plaidConn = connections.find((c) => c.type === 'plaid');
-        if (!plaidConn)
-            return;
-        const prefix = plaidConn.envPrefix || 'PLAID';
-        const config = {
-            domainType: (process.env[`${prefix}_DOMAIN_TYPE`] || plaidConn.domainType || 'checking'),
-            accessToken: process.env[`${prefix}_ACCESS_TOKEN`] || '',
-            clientId: process.env[`${prefix}_CLIENT_ID`] || process.env.PLAID_CLIENT_ID || '',
-            secret: process.env[`${prefix}_PLAID_SECRET`] || process.env.PLAID_SECRET || '',
-            env: (process.env[`${prefix}_PLAID_ENV`] || process.env.PLAID_ENV || 'sandbox'),
-            itemId: process.env[`${prefix}_ITEM_ID`],
-            databaseUrl: process.env.DATABASE_URL || '',
-        };
-        if (!config.accessToken || !config.clientId || !config.secret) {
-            console.warn('[pendragon-plaid] Missing Plaid credentials, skipping registration');
-            return;
+    // Always register generic financial tools if DB is present
+    if (process.env.DATABASE_URL) {
+        for (const [name, tool] of Object.entries(financialTools)) {
+            toolRegistry.register(name, tool);
         }
-        pendragonPlaid.register(toolRegistry, capabilityRegistry, config);
     }
-    catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error('[pendragon-plaid] Failed to parse RT_CONNECTIONS:', message);
+    // Determine domain type from env
+    const connectionsJson = process.env.RT_CONNECTIONS;
+    let domainType = 'checking';
+    if (connectionsJson) {
+        try {
+            const connections = JSON.parse(connectionsJson);
+            const plaidConn = connections.find((c) => c.type === 'plaid');
+            if (plaidConn) {
+                domainType = (process.env.PLAID_DOMAIN_TYPE || plaidConn.domainType || 'checking');
+            }
+        }
+        catch (e) { }
     }
+    const wsName = (process.env.WS_NAME || '').toLowerCase().replace(/[\s&]+/g, '');
+    if (wsName.includes('realestate') || wsName.includes('property')) {
+        domainType = 'realestate';
+    }
+    else if (wsName.includes('debt')) {
+        domainType = 'debt';
+    }
+    else if (wsName.includes('investments') || wsName.includes('retirement')) {
+        domainType = 'investments';
+    }
+    const config = {
+        domainType: domainType,
+        accessToken: process.env.PLAID_ACCESS_TOKEN || '',
+        clientId: process.env.PLAID_CLIENT_ID || '',
+        secret: process.env.PLAID_SECRET || '',
+        env: (process.env.PLAID_ENV || 'sandbox'),
+        databaseUrl: process.env.DATABASE_URL || '',
+    };
+    pendragonPlaid.register(toolRegistry, capabilityRegistry, config);
 }
 //# sourceMappingURL=index.js.map
