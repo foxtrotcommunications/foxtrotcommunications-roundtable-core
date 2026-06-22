@@ -8,6 +8,7 @@ export interface Span {
   parentSpanId: string | null;
   workspaceId: string;
   workspaceName: string;
+  orgId?: string;
   operation: string;
   toolName?: string;
   status: 'started' | 'completed' | 'error' | 'timeout' | 'retrying';
