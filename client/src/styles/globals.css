@@ -501,6 +501,55 @@ html, body { height: 100%; font-family: 'Inter', system-ui, sans-serif; backgrou
 .streaming-label { font-size: 12px; color: var(--text-muted); margin-left: 4px; font-style: italic; }
 @keyframes pulse { 0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); } 40% { opacity: 1; transform: scale(1); } }
 
+/* ── AI Step Log ─────────────────────────────────────────── */
+.ai-step-log {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 0 4px;
+  font-size: 12.5px;
+}
+.ai-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  transition: opacity 0.2s ease;
+}
+.ai-step-icon {
+  width: 16px;
+  text-align: center;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.ai-step-completed .ai-step-icon {
+  color: var(--accent-primary, #22c55e);
+}
+.ai-step-active .ai-step-icon {
+  color: var(--accent-secondary, #818cf8);
+  animation: spin 1s linear infinite;
+}
+.ai-step-pending .ai-step-icon {
+  color: var(--text-muted, #6b7280);
+  opacity: 0.5;
+}
+.ai-step-label {
+  color: var(--text-secondary, #9ca3af);
+  font-style: italic;
+}
+.ai-step-completed .ai-step-label {
+  color: var(--text-muted, #6b7280);
+  font-style: normal;
+}
+.ai-step-active .ai-step-label {
+  color: var(--text-primary, #e5e7eb);
+  font-style: normal;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* ─── Token Usage Bar ─── */
 .token-usage-bar { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 16px; margin: 4px 0 8px; font-size: 11px; color: var(--text-muted); opacity: 0.6; animation: fadeInUsage 0.4s ease; }
 .token-usage-bar:hover { opacity: 1; }

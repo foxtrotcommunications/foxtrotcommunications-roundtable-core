@@ -150,6 +150,7 @@ export default function WorkspacePage({ user, onLogout }: Props) {
             bridgeProcessing={chat.bridgeProcessing}
             bridgeStreamingContent={chat.bridgeStreamingContent}
             bridgeSourceName={chat.bridgeSourceName}
+            aiSteps={chat.aiSteps}
           />
         </div>
 

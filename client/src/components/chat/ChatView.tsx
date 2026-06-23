@@ -6,7 +6,7 @@ import OnboardingTooltip from './OnboardingTooltip';
 import type { MentionItem, BridgeInfo } from './MentionDropdown';
 import type { ChatMessage, ToolCall, ToolResult } from '../../types/message';
 import type { PresenceUser } from '../../types/workspace';
-import type { TokenUsage } from '../../hooks/useSocket';
+import type { TokenUsage, AiStep } from '../../hooks/useSocket';
 
 interface Props {
   messages: ChatMessage[];
@@ -25,6 +25,7 @@ interface Props {
   bridgeProcessing?: boolean;
   bridgeStreamingContent?: string;
   bridgeSourceName?: string;
+  aiSteps?: AiStep[];
 }
 
 function formatTokenCount(n: number): string {
@@ -37,6 +38,7 @@ export default function ChatView({
   messages, streaming, streamingContent, toolCalls, lastUsage,
   onSendMessage, onStopGeneration, onTyping, typingUsers, onlineUsers, currentUsername,
   workspaceName, bridges, bridgeProcessing, bridgeStreamingContent, bridgeSourceName,
+  aiSteps = [],
 }: Props) {
   const messagesRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -90,15 +92,24 @@ export default function ChatView({
     requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
   }, [messages]);
 
-  // Auto-scroll to bottom on new messages / streaming — only if user is near bottom
+  // Auto-scroll: only on new user messages or when AI completes
+  const prevStreamingRef = useRef(false);
   useEffect(() => {
     const el = messagesRef.current;
     if (!el) return;
-    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
-    if (isNearBottom) {
-      el.scrollTop = el.scrollHeight;
+
+    const justCompleted = prevStreamingRef.current && !streaming;
+    const lastMsg = messages[messages.length - 1];
+    const newUserMessage = lastMsg && lastMsg.role === 'user';
+
+    if (justCompleted || newUserMessage) {
+      requestAnimationFrame(() => {
+        el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+      });
     }
-  }, [messages, streamingContent, streaming]);
+
+    prevStreamingRef.current = streaming;
+  }, [messages, streaming]);
 
   const handleSend = () => {
     const content = inputValue.trim();
@@ -352,21 +363,28 @@ export default function ChatView({
                 {streamingContent && (
                   <MessageContent content={streamingContent} streaming knownMentions={knownMentions} />
                 )}
-                <div className="streaming-indicator">
-                  <span className="streaming-dot" />
-                  <span className="streaming-dot" />
-                  <span className="streaming-dot" />
-                  <span className="streaming-label">
-                    {toolCalls.size > 0
-                      ? `Working — ${(() => {
-                          const pending = Array.from(toolCalls.values()).filter(t => !t.result);
-                          if (pending.length === 0) return 'thinking…';
-                          const hasBridge = pending.some(t => ['bridge_workspace', 'intent_bridge'].includes(t.call.name));
-                          return hasBridge ? 'executing bridge request…' : 'running tools…';
-                        })()}`
-                      : streamingContent ? 'generating…' : ''}
-                  </span>
-                </div>
+                {aiSteps.length > 0 && (
+                  <div className="ai-step-log">
+                    {aiSteps.map((s) => (
+                      <div key={s.step} className={`ai-step ai-step-${s.state}`}>
+                        <span className="ai-step-icon">
+                          {s.state === 'completed' ? '✓' : s.state === 'active' ? '⟳' : '○'}
+                        </span>
+                        <span className="ai-step-label">{s.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {aiSteps.length === 0 && (
+                  <div className="streaming-indicator">
+                    <span className="streaming-dot" />
+                    <span className="streaming-dot" />
+                    <span className="streaming-dot" />
+                    <span className="streaming-label">
+                      {streamingContent ? 'Generating…' : ''}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           </div>

@@ -16,8 +16,7 @@ interface Props {
 export default function BridgePanel({ isOpen, onClose }: Props) {
   const [bridges, setBridges] = useState<Bridge[]>([]);
   const [loading, setLoading] = useState(true);
-  const [startTime] = useState(Date.now());
-  const [elapsed, setElapsed] = useState('0s');
+
 
   useEffect(() => {
     api.getBridges()
@@ -26,17 +25,7 @@ export default function BridgePanel({ isOpen, onClose }: Props) {
       .finally(() => setLoading(false));
   }, []);
 
-  // Uptime ticker
-  useEffect(() => {
-    if (bridges.length === 0) return;
-    const timer = setInterval(() => {
-      const diff = Math.floor((Date.now() - startTime) / 1000);
-      if (diff < 60) setElapsed(`${diff}s`);
-      else if (diff < 3600) setElapsed(`${Math.floor(diff / 60)}m`);
-      else setElapsed(`${Math.floor(diff / 3600)}h ${Math.floor((diff % 3600) / 60)}m`);
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [bridges, startTime]);
+
 
   return (
     <div className={`bridge-panel ${isOpen ? 'open' : ''}`}>
@@ -70,7 +59,7 @@ export default function BridgePanel({ isOpen, onClose }: Props) {
             <div className="bridge-panel-status-bar">
               <span className="bridge-panel-status-dot" />
               <span>{bridges.length} active bridge{bridges.length !== 1 ? 's' : ''}</span>
-              <span className="bridge-panel-uptime">⏱ {elapsed}</span>
+
             </div>
 
             {bridges.map(b => (
@@ -93,10 +82,7 @@ export default function BridgePanel({ isOpen, onClose }: Props) {
                       ))}
                     </div>
                   </div>
-                  <div className="bridge-card-row">
-                    <span className="bridge-card-label">Session</span>
-                    <span className="bridge-card-value">{elapsed}</span>
-                  </div>
+
                   <div className="bridge-card-row">
                     <span className="bridge-card-label">Status</span>
                     <span className="bridge-card-value bridge-card-active">● Active</span>
