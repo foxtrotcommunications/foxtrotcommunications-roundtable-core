@@ -96,28 +96,35 @@ export function registerFromEnv(
   }
 
   // Determine domain type from env
+  // Priority: DOMAIN_TYPE env > PLAID_DOMAIN_TYPE env > RT_CONNECTIONS > WS_NAME heuristic > default 'checking'
   const connectionsJson = process.env.RT_CONNECTIONS;
-  let domainType = 'checking';
+  let domainType: string = process.env.DOMAIN_TYPE || process.env.PLAID_DOMAIN_TYPE || '';
   
-  if (connectionsJson) {
+  if (!domainType && connectionsJson) {
     try {
       const connections = JSON.parse(connectionsJson);
       const plaidConn = connections.find((c: Record<string, unknown>) => c.type === 'plaid');
       if (plaidConn) {
-        domainType = (process.env.PLAID_DOMAIN_TYPE || (plaidConn.domainType as string) || 'checking') as DomainType;
+        domainType = (plaidConn.domainType as string) || '';
       }
     } catch (e) {}
   }
 
-  const wsName = (process.env.WS_NAME || '').toLowerCase().replace(/[\s&]+/g, '');
-  if (wsName.includes('realestate') || wsName.includes('property')) {
-    domainType = 'realestate';
-  } else if (wsName.includes('debt')) {
-    domainType = 'debt';
-  } else if (wsName.includes('investments') || wsName.includes('retirement')) {
-    domainType = 'investments';
-  } else if (wsName.includes('demographics')) {
-    domainType = 'demographics';
+  if (!domainType) {
+    const wsName = (process.env.WS_NAME || '').toLowerCase().replace(/[\s&]+/g, '');
+    if (wsName.includes('realestate') || wsName.includes('property')) {
+      domainType = 'realestate';
+    } else if (wsName.includes('debt')) {
+      domainType = 'debt';
+    } else if (wsName.includes('investments') || wsName.includes('retirement')) {
+      domainType = 'investments';
+    } else if (wsName.includes('demographics')) {
+      domainType = 'demographics';
+    }
+  }
+
+  if (!domainType) {
+    domainType = 'checking';
   }
 
   const config: PlaidPluginConfig = {
