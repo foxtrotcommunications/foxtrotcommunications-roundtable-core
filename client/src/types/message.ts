@@ -89,19 +89,40 @@ export interface ErrorResult {
   error: string;
 }
 
+export interface ChartAnnotation {
+  type: 'line' | 'label';
+  value: number;
+  label?: string;
+  color?: string;
+  axis?: 'x' | 'y';
+}
+
+export interface ChartNumberFormat {
+  prefix?: string;
+  suffix?: string;
+  compact?: boolean;
+}
+
 export interface ChartResult {
-  chartType: 'bar' | 'line' | 'pie' | 'doughnut' | 'scatter' | 'area';
+  chartType: 'bar' | 'line' | 'pie' | 'doughnut' | 'scatter' | 'area'
+    | 'waterfall' | 'treemap' | 'fan' | 'scenario' | 'overlap';
   title: string;
   labels: string[];
   datasets: Array<{
     label: string;
-    data: number[];
+    data: any[];
     backgroundColor?: string | string[];
     borderColor?: string | string[];
   }>;
   xAxisLabel?: string | null;
   yAxisLabel?: string | null;
   stacked?: boolean;
+  horizontal?: boolean;
+  numberFormat?: ChartNumberFormat;
+  currency?: string;
+  annotations?: ChartAnnotation[];
+  colors?: string[];
+  totals?: boolean[];
 }
 
 export type ToolResultData =
