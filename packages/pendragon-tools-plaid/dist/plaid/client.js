@@ -11,6 +11,7 @@ const DOMAIN_ALLOWED_OPS = {
     debt: new Set(['accountsGet', 'transactionsSync', 'liabilitiesGet']),
     taxes: new Set(['accountsGet', 'transactionsSync']),
     realestate: new Set(['accountsGet', 'transactionsSync', 'liabilitiesGet']),
+    demographics: new Set(), // Demographics does not use Plaid — queries PostgreSQL directly
 };
 // ─── ScopedPlaidClient ──────────────────────────────────────────────────────
 export class ScopedPlaidClient {

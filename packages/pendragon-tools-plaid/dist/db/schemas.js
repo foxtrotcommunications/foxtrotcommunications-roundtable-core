@@ -84,6 +84,7 @@ const DOMAIN_SCHEMAS = {
     debt: COMMON_TABLES + TRANSACTION_TABLES + LIABILITY_TABLES,
     taxes: COMMON_TABLES + TRANSACTION_TABLES,
     realestate: COMMON_TABLES + TRANSACTION_TABLES + LIABILITY_TABLES,
+    demographics: '', // Demographics uses its own schema (04-schema-demographics.sql), not Plaid tables
 };
 export function getSchemaForDomain(domainType) {
     const schema = DOMAIN_SCHEMAS[domainType];
