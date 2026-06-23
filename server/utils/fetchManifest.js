@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const config = require('../config');
+const { validateAndLogContracts } = require('./validateContracts');
 
 // In-memory cache to prevent spamming the control plane
 let manifestCache = null;
@@ -68,6 +69,11 @@ async function fetchManifest() {
       RT_A2A_AGENTS: Array.isArray(data.RT_A2A_AGENTS) ? data.RT_A2A_AGENTS : [],
     };
     lastFetchTime = now;
+
+    // Validate contracts on first successful fetch
+    if (!hasEverFetched) {
+      validateAndLogContracts(manifestCache.RT_CONTRACTS, 'control-plane');
+    }
     hasEverFetched = true;
     
     return manifestCache;
@@ -79,6 +85,7 @@ async function fetchManifest() {
       return manifestCache;
     }
     console.warn('[manifest] First boot — falling back to env vars');
+    validateAndLogContracts(envFallback.RT_CONTRACTS, 'RT_CONTRACTS env');
     return envFallback;
   }
 }
