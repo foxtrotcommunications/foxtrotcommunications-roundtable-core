@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useRef, memo } from 'react';
+import React, { useRef, memo, useEffect, useState } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -13,8 +13,6 @@ import {
   Legend,
 } from 'chart.js';
 import { Bar, Line, Pie, Doughnut, Scatter, Chart as ChartComponentRaw } from 'react-chartjs-2';
-import annotationPlugin from 'chartjs-plugin-annotation';
-import { TreemapController, TreemapElement } from 'chartjs-chart-treemap';
 import type { ChartResult } from '../../types/message';
 
 // Register Chart.js core components
@@ -30,9 +28,19 @@ ChartJS.register(
   Legend,
 );
 
-// Register optional plugins (non-fatal if they fail)
-try { ChartJS.register(annotationPlugin); } catch (e) { console.warn('chartjs-plugin-annotation failed to register:', e); }
-try { ChartJS.register(TreemapController, TreemapElement); } catch (e) { console.warn('chartjs-chart-treemap failed to register:', e); }
+// Dynamically register optional plugins (won't crash module if packages are missing)
+let _pluginsLoaded = false;
+(async () => {
+  try {
+    const annotation = await import('chartjs-plugin-annotation');
+    ChartJS.register(annotation.default);
+  } catch (e) { console.warn('chartjs-plugin-annotation not available:', e); }
+  try {
+    const treemap = await import('chartjs-chart-treemap');
+    ChartJS.register(treemap.TreemapController, treemap.TreemapElement);
+  } catch (e) { console.warn('chartjs-chart-treemap not available:', e); }
+  _pluginsLoaded = true;
+})();
 
 const EXEC_PALETTE = [
   'rgba(99, 102, 241, 0.8)',   // indigo
