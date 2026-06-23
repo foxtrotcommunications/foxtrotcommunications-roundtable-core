@@ -40,6 +40,12 @@ export function useSocket() {
 
 // ─── Chat Hook ──────────────────────────────────────
 
+export interface AiStep {
+  step: string;
+  label: string;
+  state: 'pending' | 'active' | 'completed';
+}
+
 export interface ChatState {
   messages: ChatMessage[];
   streaming: boolean;
@@ -81,6 +87,7 @@ export function useChat(socket: Socket | null) {
   const bridgeStreamingRef = useRef('');
   const [bridgeStreamingContent, setBridgeStreamingContent] = useState('');
   const [bridgeSourceName, setBridgeSourceName] = useState('');
+  const [aiSteps, setAiSteps] = useState<AiStep[]>([]);
 
   useEffect(() => {
     if (!socket) return;
@@ -95,6 +102,7 @@ export function useChat(socket: Socket | null) {
       setStreamingContent('');
       setToolCalls(new Map());
       setLastUsage(null);
+      setAiSteps([]);
     };
 
     const onAiUsage = (data: TokenUsage) => {
@@ -176,6 +184,21 @@ export function useChat(socket: Socket | null) {
       setStreaming(false);
       streamingContentRef.current = '';
       setStreamingContent('');
+      setAiSteps([]);
+    };
+
+    const onAiStatus = (data: { step: string; label: string; state: 'active' | 'completed' }) => {
+      setAiSteps(prev => {
+        const existing = prev.findIndex(s => s.step === data.step);
+        if (existing >= 0) {
+          // Update existing step
+          const next = [...prev];
+          next[existing] = { ...next[existing], state: data.state, label: data.label };
+          return next;
+        }
+        // Add new step
+        return [...prev, { step: data.step, label: data.label, state: data.state }];
+      });
     };
 
     socket.on('new-message', onMessage);
@@ -186,6 +209,7 @@ export function useChat(socket: Socket | null) {
     socket.on('ai-error', onAiError);
     socket.on('ai-complete', onAiComplete);
     socket.on('ai-usage', onAiUsage);
+    socket.on('ai-status', onAiStatus);
 
     // Queue notification — show user their position
     const onAiQueued = (data: { position: number; message: string }) => {
@@ -231,6 +255,7 @@ export function useChat(socket: Socket | null) {
       socket.off('ai-error', onAiError);
       socket.off('ai-complete', onAiComplete);
       socket.off('ai-usage', onAiUsage);
+      socket.off('ai-status', onAiStatus);
       socket.off('ai-queued', onAiQueued);
       socket.off('bridge-processing-start', onBridgeStart);
       socket.off('bridge-ai-chunk', onBridgeChunk);
@@ -246,7 +271,7 @@ export function useChat(socket: Socket | null) {
     if (socket) socket.emit('stop-generation');
   }, [socket]);
 
-  return { messages, setMessages, streaming, streamingContent, toolCalls, lastUsage, sendMessage, stopGeneration, bridgeProcessing, bridgeStreamingContent, bridgeSourceName };
+  return { messages, setMessages, streaming, streamingContent, toolCalls, lastUsage, sendMessage, stopGeneration, bridgeProcessing, bridgeStreamingContent, bridgeSourceName, aiSteps };
 }
 
 // ─── Presence Hook ──────────────────────────────────

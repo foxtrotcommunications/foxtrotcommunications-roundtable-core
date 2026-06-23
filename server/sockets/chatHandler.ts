@@ -61,6 +61,60 @@ interface BridgeToolResult {
   [key: string]: unknown;
 }
 
+// ─── Human-friendly step descriptions for tool calls ──────────────────
+/** Human-friendly descriptions for tool calls — uses financial advisor language */
+function describeActivity(toolName: string, args: Record<string, unknown>): { step: string; label: string } {
+  // Bridge/intent tools — use the target workspace name
+  if (toolName === 'intent_bridge') {
+    const target = (args.targetWorkspace || args.target || 'workspace') as string;
+    return { step: target, label: describeWorkspace(target) };
+  }
+  if (toolName === 'bridge_workspace') {
+    const target = (args.target || 'workspace') as string;
+    return { step: target, label: describeWorkspace(target) };
+  }
+  // Domain tools
+  const descriptions: Record<string, { step: string; label: string }> = {
+    get_user_profile: { step: 'demographics', label: 'Reviewing your profile' },
+    get_household: { step: 'demographics', label: 'Reviewing household details' },
+    get_financial_goals: { step: 'demographics', label: 'Reviewing your financial goals' },
+    get_investment_preferences: { step: 'demographics', label: 'Reviewing investment preferences' },
+    list_accounts: { step: 'accounts', label: 'Listing accounts' },
+    get_balance: { step: 'balances', label: 'Checking balances' },
+    get_transactions: { step: 'transactions', label: 'Reviewing transactions' },
+    get_financial_snapshot: { step: 'snapshot', label: 'Building financial snapshot' },
+    get_debt_summary: { step: 'debt', label: 'Evaluating debt obligations' },
+    get_credit_utilization: { step: 'credit', label: 'Checking credit utilization' },
+    get_cashflow: { step: 'cashflow', label: 'Checking cash flow' },
+    get_income_summary: { step: 'income', label: 'Analyzing income' },
+    get_spending_by_category: { step: 'spending', label: 'Analyzing spending patterns' },
+    get_spending_by_merchant: { step: 'spending', label: 'Reviewing merchant spending' },
+    get_recurring_charges: { step: 'recurring', label: 'Identifying recurring charges' },
+    get_balance_history: { step: 'history', label: 'Reviewing balance history' },
+    get_payoff_projection: { step: 'payoff', label: 'Projecting payoff timeline' },
+    get_liabilities: { step: 'liabilities', label: 'Reviewing liabilities' },
+    render_chart: { step: 'chart', label: 'Generating chart' },
+    discover: { step: 'discover', label: 'Discovering available data' },
+  };
+  if (descriptions[toolName]) return descriptions[toolName];
+  // Fallback: humanize the tool name
+  const humanized = toolName.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  return { step: toolName, label: humanized };
+}
+
+function describeWorkspace(name: string): string {
+  const wsDescriptions: Record<string, string> = {
+    'Retirement': 'Analyzing retirement accounts',
+    'Investments': 'Reviewing investments',
+    'Checking & Savings': 'Checking cash flow',
+    'Debt Management': 'Evaluating debt obligations',
+    'Real Estate': 'Reviewing real estate holdings',
+    'Taxes': 'Considering tax implications',
+    'Demographics': 'Reviewing your profile',
+  };
+  return wsDescriptions[name] || `Consulting ${name}`;
+}
+
 // ─── Per-socket rate limiting ─────────────────────────────────────────
 const RATE_LIMIT_WINDOW: number = 60_000; // 1 minute
 const RATE_LIMIT_MAX: number = parseInt(process.env.AI_RATE_LIMIT || '5', 10);
@@ -823,11 +877,18 @@ NEVER write a wall of text. If your response has more than one idea, it needs st
           switch (event.type) {
             case 'text-delta':
               fullText += event.content;
+              if (fullText.length === event.content.length) {
+                // First text chunk — AI is now composing
+                io.to(wsChannel).emit('ai-status', { step: 'composing', label: 'Composing response', state: 'active' });
+              }
               io.to(wsChannel).emit('ai-chunk', { content: event.content, userId: socket.userId });
               break;
             case 'tool-call':
               console.log(`[Tool] Calling: ${event.name}`, JSON.stringify(event.args));
               io.to(wsChannel).emit('tool-call', { name: event.name, args: event.args, callId: event.callId });
+              // Emit human-readable step status
+              const activity = describeActivity(event.name, event.args as Record<string, unknown>);
+              io.to(wsChannel).emit('ai-status', { step: activity.step, label: activity.label, state: 'active' });
               toolCallCount++;
               if (!toolNamesUsed.includes(event.name)) toolNamesUsed.push(event.name);
               // Audit: tool call
@@ -840,6 +901,9 @@ NEVER write a wall of text. If your response has more than one idea, it needs st
               console.log(`[Tool] Result from ${event.name}:`, JSON.stringify(event.result).substring(0, 200));
               await workspaceService.saveMessage(null, 'tool', JSON.stringify(event.result), event.name, event.callId);
               io.to(wsChannel).emit('tool-result', { name: event.name, callId: event.callId, result: event.result });
+              // Mark the step as completed
+              const completedActivity = describeActivity(event.name, event.result as Record<string, unknown> || {});
+              io.to(wsChannel).emit('ai-status', { step: completedActivity.step, label: completedActivity.label, state: 'completed' });
               // Audit: tool result (data_query for warehouse tools, tool_result for others)
               {
                 const auditType = ['query_bigquery', 'query_snowflake', 'query_databricks'].includes(event.name) ? 'data_query' : 'tool_result';
