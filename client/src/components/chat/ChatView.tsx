@@ -92,8 +92,23 @@ export default function ChatView({
     requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
   }, [messages]);
 
-  // Auto-scroll: only on new user messages or when AI completes
+  // Auto-scroll: only when AI completes or user sends a message,
+  // AND user hasn't scrolled up to read earlier content.
   const prevStreamingRef = useRef(false);
+  const userScrolledUpRef = useRef(false);
+
+  // Track when user manually scrolls away from bottom
+  useEffect(() => {
+    const el = messagesRef.current;
+    if (!el) return;
+    const handleUserScroll = () => {
+      const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+      userScrolledUpRef.current = !isNearBottom;
+    };
+    el.addEventListener('scroll', handleUserScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleUserScroll);
+  }, []);
+
   useEffect(() => {
     const el = messagesRef.current;
     if (!el) return;
@@ -102,7 +117,13 @@ export default function ChatView({
     const lastMsg = messages[messages.length - 1];
     const newUserMessage = lastMsg && lastMsg.role === 'user';
 
-    if (justCompleted || newUserMessage) {
+    // Always scroll for user's own message; scroll on completion only if near bottom
+    if (newUserMessage) {
+      userScrolledUpRef.current = false;
+      requestAnimationFrame(() => {
+        el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+      });
+    } else if (justCompleted && !userScrolledUpRef.current) {
       requestAnimationFrame(() => {
         el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
       });
