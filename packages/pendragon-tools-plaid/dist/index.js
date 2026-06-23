@@ -5,6 +5,7 @@ import { registerCheckingTools, registerCheckingCapabilities } from './domains/c
 import { registerInvestmentTools, registerInvestmentCapabilities } from './domains/investments.js';
 import { registerDebtTools, registerDebtCapabilities } from './domains/debt.js';
 import { registerRealEstateTools, registerRealEstateCapabilities } from './domains/realEstate.js';
+import { registerDemographicsTools, registerDemographicsCapabilities } from './domains/demographics.js';
 import { financialTools } from './tools/index.js';
 export { ScopedPlaidClient } from './plaid/client.js';
 export * from './types.js';
@@ -16,6 +17,7 @@ const DOMAIN_REGISTRARS = {
     retirement: { tools: registerInvestmentTools, capabilities: registerInvestmentCapabilities },
     debt: { tools: registerDebtTools, capabilities: registerDebtCapabilities },
     realestate: { tools: registerRealEstateTools, capabilities: registerRealEstateCapabilities },
+    demographics: { tools: registerDemographicsTools, capabilities: registerDemographicsCapabilities },
 };
 // ─── Allowed Operations (static mapping — no runtime client needed) ─────────
 const DOMAIN_ALLOWED_OPS = {
@@ -35,6 +37,7 @@ const DOMAIN_CAPS = {
     retirement: ['plaid.getHoldings', 'plaid.getSecurities', 'plaid.getPortfolioSummary', 'plaid.syncData'],
     debt: ['plaid.getLiabilities', 'plaid.getDebtSummary', 'plaid.getCreditUtilization', 'plaid.syncData'],
     realestate: ['property.getPropertySummary', 'property.getMortgageDetails', 'property.getEquityAnalysis'],
+    demographics: ['demographics.getUserProfile', 'demographics.getHousehold', 'demographics.getFinancialGoals', 'demographics.getInvestmentPreferences'],
 };
 // ─── Plugin Object ──────────────────────────────────────────────────────────
 export const pendragonPlaid = {
@@ -66,27 +69,36 @@ export function registerFromEnv(toolRegistry, capabilityRegistry) {
         }
     }
     // Determine domain type from env
+    // Priority: DOMAIN_TYPE env > PLAID_DOMAIN_TYPE env > RT_CONNECTIONS > WS_NAME heuristic > default 'checking'
     const connectionsJson = process.env.RT_CONNECTIONS;
-    let domainType = 'checking';
-    if (connectionsJson) {
+    let domainType = process.env.DOMAIN_TYPE || process.env.PLAID_DOMAIN_TYPE || '';
+    if (!domainType && connectionsJson) {
         try {
             const connections = JSON.parse(connectionsJson);
             const plaidConn = connections.find((c) => c.type === 'plaid');
             if (plaidConn) {
-                domainType = (process.env.PLAID_DOMAIN_TYPE || plaidConn.domainType || 'checking');
+                domainType = plaidConn.domainType || '';
             }
         }
         catch (e) { }
     }
-    const wsName = (process.env.WS_NAME || '').toLowerCase().replace(/[\s&]+/g, '');
-    if (wsName.includes('realestate') || wsName.includes('property')) {
-        domainType = 'realestate';
+    if (!domainType) {
+        const wsName = (process.env.WS_NAME || '').toLowerCase().replace(/[\s&]+/g, '');
+        if (wsName.includes('realestate') || wsName.includes('property')) {
+            domainType = 'realestate';
+        }
+        else if (wsName.includes('debt')) {
+            domainType = 'debt';
+        }
+        else if (wsName.includes('investments') || wsName.includes('retirement')) {
+            domainType = 'investments';
+        }
+        else if (wsName.includes('demographics')) {
+            domainType = 'demographics';
+        }
     }
-    else if (wsName.includes('debt')) {
-        domainType = 'debt';
-    }
-    else if (wsName.includes('investments') || wsName.includes('retirement')) {
-        domainType = 'investments';
+    if (!domainType) {
+        domainType = 'checking';
     }
     const config = {
         domainType: domainType,
