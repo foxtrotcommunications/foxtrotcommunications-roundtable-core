@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { useRef, memo } from 'react';
+import React, { useRef, memo } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -17,7 +17,7 @@ import annotationPlugin from 'chartjs-plugin-annotation';
 import { TreemapController, TreemapElement } from 'chartjs-chart-treemap';
 import type { ChartResult } from '../../types/message';
 
-// Register Chart.js components
+// Register Chart.js core components
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -28,10 +28,11 @@ ChartJS.register(
   Filler,
   Tooltip,
   Legend,
-  annotationPlugin,
-  TreemapController,
-  TreemapElement
 );
+
+// Register optional plugins (non-fatal if they fail)
+try { ChartJS.register(annotationPlugin); } catch (e) { console.warn('chartjs-plugin-annotation failed to register:', e); }
+try { ChartJS.register(TreemapController, TreemapElement); } catch (e) { console.warn('chartjs-chart-treemap failed to register:', e); }
 
 const EXEC_PALETTE = [
   'rgba(99, 102, 241, 0.8)',   // indigo
@@ -445,6 +446,25 @@ function ChartRenderer({ config, onToggleTable }: Props) {
 
   /* ── Render ─────────────────────────────────────────────────────── */
 
+  // Catch rendering errors
+  const [renderError, setRenderError] = React.useState<string | null>(null);
+
+  if (renderError) {
+    return (
+      <div className="chart-container" style={{ padding: '24px', color: '#ef4444' }}>
+        <div className="chart-header">
+          <span className="chart-title">📊 {config.title}</span>
+        </div>
+        <p style={{ margin: '16px 0', fontSize: '13px' }}>
+          Chart rendering error: {renderError}
+        </p>
+        <pre style={{ fontSize: '11px', color: '#71717a', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+          {JSON.stringify(config, null, 2).slice(0, 500)}
+        </pre>
+      </div>
+    );
+  }
+
   return (
     <div className="chart-container">
       <div className="chart-header">
@@ -454,18 +474,41 @@ function ChartRenderer({ config, onToggleTable }: Props) {
           {onToggleTable && <button onClick={onToggleTable}>📋 Table</button>}
         </div>
       </div>
-      {isTreemap ? (
-        <ChartComponentRaw
-          ref={chartRef as any}
-          type="treemap"
-          data={data as any}
-          options={options as any}
-        />
-      ) : (
-        <ChartComponent ref={chartRef as any} data={data as any} options={options as any} />
-      )}
+      <ChartErrorBoundary onError={(msg) => setRenderError(msg)} chartType={config.chartType}>
+        {isTreemap ? (
+          <ChartComponentRaw
+            ref={chartRef as any}
+            type="treemap"
+            data={data as any}
+            options={options as any}
+          />
+        ) : (
+          <ChartComponent ref={chartRef as any} data={data as any} options={options as any} />
+        )}
+      </ChartErrorBoundary>
     </div>
   );
+}
+
+// Error boundary for chart rendering
+class ChartErrorBoundary extends React.Component<
+  { children: React.ReactNode; onError: (msg: string) => void; chartType: string },
+  { hasError: boolean; error: string }
+> {
+  state = { hasError: false, error: '' };
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error: error.message };
+  }
+  componentDidCatch(error: Error) {
+    console.error(`ChartRenderer [${this.props.chartType}] error:`, error);
+    this.props.onError(error.message);
+  }
+  render() {
+    if (this.state.hasError) {
+      return <p style={{ color: '#ef4444', fontSize: '13px', padding: '16px' }}>Failed to render chart: {this.state.error}</p>;
+    }
+    return this.props.children;
+  }
 }
 
 export default memo(ChartRenderer);
