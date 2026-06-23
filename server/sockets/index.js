@@ -44,6 +44,12 @@ function setupSockets(httpServer, sessionMiddleware) {
       socket.userId = session.userId;
       socket.username = session.username;
       next();
+    } else if (process.env.A2A_API_KEY && socket.handshake.auth?.apiKey === process.env.A2A_API_KEY) {
+      // Allow server-to-server connections authenticated via A2A API key
+      // (e.g. Pendragon demo API streaming step log events)
+      socket.userId = null;
+      socket.username = `a2a-listener-${crypto.randomBytes(2).toString('hex')}`;
+      next();
     } else if (config.embedMode) {
       // In embed mode, auto-create guest identity when cookies are blocked
       const adjectives = ['swift', 'bright', 'calm', 'bold', 'keen', 'warm', 'wise', 'fair', 'kind', 'glad'];
