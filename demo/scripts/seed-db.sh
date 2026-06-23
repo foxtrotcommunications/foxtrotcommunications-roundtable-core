@@ -127,11 +127,11 @@ if [[ "$SEED_ONLY" == false ]]; then
     run_sql "$DB_NAME" "$SQL_DIR/00-schema-core.sql" "Core schema ($WS_NAME)"
   done
 
-  # Plaid schema → checking and debt workspaces
+  # Plaid schema → checking, debt, investments, retirement, taxes workspaces
   log_info "Plaid schema → Plaid-based workspaces"
   for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
     DOMAIN_TYPE=$(jq -r ".[$i].domainType" "$CONFIG_DIR/workspaces.json")
-    if [[ "$DOMAIN_TYPE" == "checking" || "$DOMAIN_TYPE" == "debt" ]]; then
+    if [[ "$DOMAIN_TYPE" == "checking" || "$DOMAIN_TYPE" == "debt" || "$DOMAIN_TYPE" == "investments" || "$DOMAIN_TYPE" == "retirement" || "$DOMAIN_TYPE" == "taxes" ]]; then
       DB_NAME=$(jq -r ".[$i].databaseName" "$CONFIG_DIR/workspaces.json")
       WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
       run_sql "$DB_NAME" "$SQL_DIR/01-schema-plaid.sql" "Plaid schema ($WS_NAME)"
@@ -146,6 +146,28 @@ if [[ "$SEED_ONLY" == false ]]; then
       DB_NAME=$(jq -r ".[$i].databaseName" "$CONFIG_DIR/workspaces.json")
       WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
       run_sql "$DB_NAME" "$SQL_DIR/02-schema-realestate.sql" "Real Estate schema ($WS_NAME)"
+    fi
+  done
+
+  # Investments schema → investments and retirement workspaces
+  log_info "Investments schema → Investments + Retirement workspaces"
+  for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
+    DOMAIN_TYPE=$(jq -r ".[$i].domainType" "$CONFIG_DIR/workspaces.json")
+    if [[ "$DOMAIN_TYPE" == "investments" || "$DOMAIN_TYPE" == "retirement" ]]; then
+      DB_NAME=$(jq -r ".[$i].databaseName" "$CONFIG_DIR/workspaces.json")
+      WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
+      run_sql "$DB_NAME" "$SQL_DIR/03-schema-investments.sql" "Investments schema ($WS_NAME)"
+    fi
+  done
+
+  # Demographics schema → demographics workspace
+  log_info "Demographics schema → Demographics workspace"
+  for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
+    DOMAIN_TYPE=$(jq -r ".[$i].domainType" "$CONFIG_DIR/workspaces.json")
+    if [[ "$DOMAIN_TYPE" == "demographics" ]]; then
+      DB_NAME=$(jq -r ".[$i].databaseName" "$CONFIG_DIR/workspaces.json")
+      WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
+      run_sql "$DB_NAME" "$SQL_DIR/04-schema-demographics.sql" "Demographics schema ($WS_NAME)"
     fi
   done
 fi
@@ -170,6 +192,18 @@ if [[ "$SCHEMA_ONLY" == false ]]; then
         ;;
       realestate)
         run_sql "$DB_NAME" "$SQL_DIR/seed-realestate.sql" "Seed data ($WS_NAME)"
+        ;;
+      investments)
+        run_sql "$DB_NAME" "$SQL_DIR/seed-investments.sql" "Seed data ($WS_NAME)"
+        ;;
+      retirement)
+        run_sql "$DB_NAME" "$SQL_DIR/seed-retirement.sql" "Seed data ($WS_NAME)"
+        ;;
+      taxes)
+        run_sql "$DB_NAME" "$SQL_DIR/seed-taxes.sql" "Seed data ($WS_NAME)"
+        ;;
+      demographics)
+        run_sql "$DB_NAME" "$SQL_DIR/seed-demographics.sql" "Seed data ($WS_NAME)"
         ;;
       null|"")
         log_info "No seed data for orchestrator: $WS_NAME — skipping"
