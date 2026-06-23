@@ -473,14 +473,12 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
       const wsChannel = `ws:${config.workspaceId}`;
       const io = (global as any)._io;
       let firstTextChunk = true;
-      console.log(`[A2A] Step log: io=${!!io}, wsChannel=${wsChannel}`);
 
       for await (const event of stream) {
         if (event.type === 'text-delta') {
           fullText += event.content;
           // First text chunk — AI is composing
           if (firstTextChunk && io) {
-            console.log(`[A2A] Emitting ai-status: composing active`);
             io.to(wsChannel).emit('ai-status', { step: 'composing', label: 'Composing response', state: 'active' });
             firstTextChunk = false;
           }
@@ -488,10 +486,7 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
           // Emit step log: tool call starting
           if (io && event.name) {
             const activity = describeActivity(event.name, (event as any).args || {});
-            console.log(`[A2A] Emitting ai-status: ${activity.step} active — ${activity.label}`);
             io.to(wsChannel).emit('ai-status', { step: activity.step, label: activity.label, state: 'active' });
-          } else {
-            console.log(`[A2A] tool-call skipped: io=${!!io}, name=${event.name}`);
           }
         } else if (event.type === 'tool-result') {
           // ── Distributed tracing: record child span for each tool result ──
