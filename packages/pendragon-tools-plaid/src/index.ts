@@ -7,6 +7,7 @@ import { registerCheckingTools, registerCheckingCapabilities } from './domains/c
 import { registerInvestmentTools, registerInvestmentCapabilities } from './domains/investments.js';
 import { registerDebtTools, registerDebtCapabilities } from './domains/debt.js';
 import { registerRealEstateTools, registerRealEstateCapabilities } from './domains/realEstate.js';
+import { registerDemographicsTools, registerDemographicsCapabilities } from './domains/demographics.js';
 import { financialTools } from './tools/index.js';
 
 export { ScopedPlaidClient } from './plaid/client.js';
@@ -23,7 +24,8 @@ const DOMAIN_REGISTRARS: Record<string, {
   investments: { tools: registerInvestmentTools, capabilities: registerInvestmentCapabilities },
   retirement:  { tools: registerInvestmentTools, capabilities: registerInvestmentCapabilities },
   debt:        { tools: registerDebtTools, capabilities: registerDebtCapabilities },
-  realestate:  { tools: registerRealEstateTools, capabilities: registerRealEstateCapabilities },
+  realestate:     { tools: registerRealEstateTools, capabilities: registerRealEstateCapabilities },
+  demographics:   { tools: registerDemographicsTools, capabilities: registerDemographicsCapabilities },
 };
 
 // ─── Allowed Operations (static mapping — no runtime client needed) ─────────
@@ -46,7 +48,8 @@ const DOMAIN_CAPS: Record<string, string[]> = {
   investments: ['plaid.getHoldings', 'plaid.getSecurities', 'plaid.getPortfolioSummary', 'plaid.syncData'],
   retirement:  ['plaid.getHoldings', 'plaid.getSecurities', 'plaid.getPortfolioSummary', 'plaid.syncData'],
   debt:        ['plaid.getLiabilities', 'plaid.getDebtSummary', 'plaid.getCreditUtilization', 'plaid.syncData'],
-  realestate:  ['property.getPropertySummary', 'property.getMortgageDetails', 'property.getEquityAnalysis'],
+  realestate:     ['property.getPropertySummary', 'property.getMortgageDetails', 'property.getEquityAnalysis'],
+  demographics:   ['demographics.getUserProfile', 'demographics.getHousehold', 'demographics.getFinancialGoals', 'demographics.getInvestmentPreferences'],
 };
 
 // ─── Plugin Object ──────────────────────────────────────────────────────────
@@ -113,6 +116,8 @@ export function registerFromEnv(
     domainType = 'debt';
   } else if (wsName.includes('investments') || wsName.includes('retirement')) {
     domainType = 'investments';
+  } else if (wsName.includes('demographics')) {
+    domainType = 'demographics';
   }
 
   const config: PlaidPluginConfig = {

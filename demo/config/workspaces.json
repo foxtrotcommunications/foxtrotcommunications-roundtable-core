@@ -89,5 +89,18 @@
     "a2aApiKey": "a2a-4x5OQpZSA29iLJIrhmAC",
     "domainType": "taxes",
     "capabilities": ["plaid.getBalances", "plaid.getTransactions", "plaid.syncData"]
+  },
+  {
+    "id": "DemoGraphicsWs01xYz",
+    "name": "Demographics",
+    "role": "domain",
+    "aiProvider": "gemini-enterprise",
+    "aiModel": "gemini-3.5-flash",
+    "deploymentName": "rt-ws-demographicsws01",
+    "databaseName": "ws_demographicsws01xyz",
+    "url": "https://demographicsws01xyz.pendragon-demo.ws.roundtable.foxtrotcommunications.net",
+    "a2aApiKey": "a2a-DemoGraphicsWs01xYz",
+    "domainType": "demographics",
+    "capabilities": ["demographics.getUserProfile", "demographics.getHousehold", "demographics.getFinancialGoals", "demographics.getInvestmentPreferences"]
   }
 ]
