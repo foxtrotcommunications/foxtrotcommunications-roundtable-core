@@ -26,6 +26,48 @@ const { streamCompletion } = require('../services/aiProvider') as {
   ) => AsyncGenerator<StreamEvent>;
 };
 
+// ─── Step Log Labels (mirrored from chatHandler.ts) ────────
+function describeActivity(toolName: string, args: Record<string, unknown>): { step: string; label: string } {
+  if (toolName === 'intent_bridge' || toolName === 'bridge_workspace') {
+    const target = (args.targetWorkspace || args.target || 'workspace') as string;
+    const wsLabels: Record<string, string> = {
+      'Retirement': 'Analyzing retirement accounts',
+      'Investments': 'Reviewing investments',
+      'Checking & Savings': 'Checking cash flow',
+      'Debt Management': 'Evaluating debt obligations',
+      'Real Estate': 'Reviewing real estate holdings',
+      'Taxes': 'Considering tax implications',
+      'Demographics': 'Reviewing your profile',
+    };
+    return { step: target, label: wsLabels[target] || `Consulting ${target}` };
+  }
+  const descriptions: Record<string, { step: string; label: string }> = {
+    get_user_profile: { step: 'demographics', label: 'Reviewing your profile' },
+    get_household: { step: 'demographics', label: 'Reviewing household details' },
+    get_financial_goals: { step: 'demographics', label: 'Reviewing your financial goals' },
+    get_investment_preferences: { step: 'demographics', label: 'Reviewing investment preferences' },
+    list_accounts: { step: 'accounts', label: 'Listing accounts' },
+    get_balance: { step: 'balances', label: 'Checking balances' },
+    get_transactions: { step: 'transactions', label: 'Reviewing transactions' },
+    get_financial_snapshot: { step: 'snapshot', label: 'Building financial snapshot' },
+    get_debt_summary: { step: 'debt', label: 'Evaluating debt obligations' },
+    get_credit_utilization: { step: 'credit', label: 'Checking credit utilization' },
+    get_cashflow: { step: 'cashflow', label: 'Checking cash flow' },
+    get_income_summary: { step: 'income', label: 'Analyzing income' },
+    get_spending_by_category: { step: 'spending', label: 'Analyzing spending patterns' },
+    get_spending_by_merchant: { step: 'spending', label: 'Reviewing merchant spending' },
+    get_recurring_charges: { step: 'recurring', label: 'Identifying recurring charges' },
+    get_balance_history: { step: 'history', label: 'Reviewing balance history' },
+    get_payoff_projection: { step: 'payoff', label: 'Projecting payoff timeline' },
+    get_liabilities: { step: 'liabilities', label: 'Reviewing liabilities' },
+    render_chart: { step: 'chart', label: 'Generating chart' },
+    discover: { step: 'discover', label: 'Discovering available data' },
+  };
+  if (descriptions[toolName]) return descriptions[toolName];
+  const humanized = toolName.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  return { step: toolName, label: humanized };
+}
+
 // ─── A2A Task Types ────────────────────────────────────────
 
 type A2aPart =
@@ -428,9 +470,24 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
         tracedWorkspaceConfig
       );
 
+      const wsChannel = `ws:${config.workspaceId}`;
+      const io = (global as any)._io;
+      let firstTextChunk = true;
+
       for await (const event of stream) {
         if (event.type === 'text-delta') {
           fullText += event.content;
+          // First text chunk — AI is composing
+          if (firstTextChunk && io) {
+            io.to(wsChannel).emit('ai-status', { step: 'composing', label: 'Composing response', state: 'active' });
+            firstTextChunk = false;
+          }
+        } else if (event.type === 'tool-call') {
+          // Emit step log: tool call starting
+          if (io && event.name) {
+            const activity = describeActivity(event.name, (event as any).args || {});
+            io.to(wsChannel).emit('ai-status', { step: activity.step, label: activity.label, state: 'active' });
+          }
         } else if (event.type === 'tool-result') {
           // ── Distributed tracing: record child span for each tool result ──
           const toolSpan = startSpan({
@@ -447,6 +504,13 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
 
           toolResults.push({ name: event.name, result: event.result });
           toolCallCount++;
+
+          // Emit step log: tool call completed
+          if (io && event.name) {
+            const completedActivity = describeActivity(event.name, (event.result as Record<string, unknown>) || {});
+            io.to(wsChannel).emit('ai-status', { step: completedActivity.step, label: completedActivity.label, state: 'completed' });
+          }
+
           // If we already have a substantial response and the model is doing
           // a follow-up tool call (e.g. emit_provenance after the main response),
           // snapshot the text so we don't append a duplicate response afterward.
@@ -460,6 +524,10 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
             fullText = snapshotText;
           } else {
             fullText = event.fullText || fullText;
+          }
+          // Mark composing as done
+          if (io) {
+            io.to(wsChannel).emit('ai-status', { step: 'composing', label: 'Composing response', state: 'completed' });
           }
         } else if (event.type === 'error') {
           throw new Error(event.error);
