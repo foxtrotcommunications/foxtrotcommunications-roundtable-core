@@ -1,4 +1,4 @@
-export type DomainType = 'checking' | 'savings' | 'investments' | 'retirement' | 'debt' | 'taxes' | 'realestate';
+export type DomainType = 'checking' | 'savings' | 'investments' | 'retirement' | 'debt' | 'taxes' | 'realestate' | 'demographics';
 export interface ToolParameters {
     type: 'object';
     properties: Record<string, {
