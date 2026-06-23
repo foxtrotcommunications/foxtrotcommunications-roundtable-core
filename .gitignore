@@ -13,3 +13,12 @@ client/node_modules/
 # Playwright
 e2e/test-results/
 e2e/playwright-report/
+
+# Deployment manifests (may contain secrets)
+*-deployment.json
+*-deployment-patched.json
+tmp-dep*.json
+
+# Debug/patch scripts
+patch-*.cjs
+patch-*.js
