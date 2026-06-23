@@ -61,12 +61,18 @@ async function fetchManifest() {
 
     const data = await response.json();
     
-    // Only cache on success
+    // Only cache on success — merge env-based config for any arrays
+    // the control plane returns as empty (not yet migrated to Firestore)
+    const envBridges = parseEnvJson('RT_BRIDGES', []);
+    const envContracts = parseEnvJson('RT_CONTRACTS', []);
+    const envMcpServers = parseEnvJson('RT_MCP_SERVERS', []);
+    const envAgents = parseEnvJson('RT_A2A_AGENTS', []);
+
     manifestCache = {
-      RT_BRIDGES: Array.isArray(data.RT_BRIDGES) ? data.RT_BRIDGES : [],
-      RT_CONTRACTS: Array.isArray(data.RT_CONTRACTS) ? data.RT_CONTRACTS : [],
-      RT_MCP_SERVERS: Array.isArray(data.RT_MCP_SERVERS) ? data.RT_MCP_SERVERS : [],
-      RT_A2A_AGENTS: Array.isArray(data.RT_A2A_AGENTS) ? data.RT_A2A_AGENTS : [],
+      RT_BRIDGES: (Array.isArray(data.RT_BRIDGES) && data.RT_BRIDGES.length > 0) ? data.RT_BRIDGES : envBridges,
+      RT_CONTRACTS: (Array.isArray(data.RT_CONTRACTS) && data.RT_CONTRACTS.length > 0) ? data.RT_CONTRACTS : envContracts,
+      RT_MCP_SERVERS: (Array.isArray(data.RT_MCP_SERVERS) && data.RT_MCP_SERVERS.length > 0) ? data.RT_MCP_SERVERS : envMcpServers,
+      RT_A2A_AGENTS: (Array.isArray(data.RT_A2A_AGENTS) && data.RT_A2A_AGENTS.length > 0) ? data.RT_A2A_AGENTS : envAgents,
     };
     lastFetchTime = now;
 
