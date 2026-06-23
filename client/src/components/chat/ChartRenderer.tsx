@@ -139,32 +139,26 @@ function ChartRenderer({ config, onToggleTable }: Props) {
       : WATERFALL_COLORS;
 
     let running = 0;
-    const bases: number[] = [];
-    const deltas: number[] = [];
+    const floatingBars: [number, number][] = [];
     const barColors: string[] = [];
     const barBorders: string[] = [];
 
     raw.forEach((val, i) => {
       const isTotal = config.totals?.[i] === true;
       if (isTotal) {
-        bases.push(0);
-        deltas.push(running);
+        // Total bar: from 0 to the running total
+        floatingBars.push([0, running]);
         barColors.push(wColors.total);
         barBorders.push(wColors.total.replace(/[\d.]+\)$/, '1)'));
       } else {
         const prev = running;
         running += val;
-        if (val >= 0) {
-          bases.push(prev);
-          deltas.push(val);
-          barColors.push(wColors.increase);
-          barBorders.push(wColors.increase.replace(/[\d.]+\)$/, '1)'));
-        } else {
-          bases.push(running);
-          deltas.push(Math.abs(val));
-          barColors.push(wColors.decrease);
-          barBorders.push(wColors.decrease.replace(/[\d.]+\)$/, '1)'));
-        }
+        // Floating bar from previous running total to new running total
+        floatingBars.push([Math.min(prev, running), Math.max(prev, running)]);
+        barColors.push(val >= 0 ? wColors.increase : wColors.decrease);
+        barBorders.push(
+          (val >= 0 ? wColors.increase : wColors.decrease).replace(/[\d.]+\)$/, '1)')
+        );
       }
     });
 
@@ -172,16 +166,8 @@ function ChartRenderer({ config, onToggleTable }: Props) {
       labels: config.labels,
       datasets: [
         {
-          label: '_base',
-          data: bases,
-          backgroundColor: 'transparent',
-          borderColor: 'transparent',
-          borderWidth: 0,
-          borderSkipped: false,
-        },
-        {
           label: config.datasets[0]?.label || 'Value',
-          data: deltas,
+          data: floatingBars,
           backgroundColor: barColors,
           borderColor: barBorders,
           borderWidth: 2,
@@ -314,7 +300,7 @@ function ChartRenderer({ config, onToggleTable }: Props) {
 
   /* ── Stacked support ───────────────────────────────────────────── */
 
-  const useStacked = isWaterfall || isOverlap || config.stacked || false;
+  const useStacked = isOverlap || config.stacked || false;
 
   /* ── Tooltip callbacks ─────────────────────────────────────────── */
 
@@ -337,16 +323,14 @@ function ChartRenderer({ config, onToggleTable }: Props) {
     };
   }
 
-  // Hide the invisible waterfall base dataset in tooltips
-  if (isWaterfall) {
-    const origLabel = tooltipCallbacks.label;
-    tooltipCallbacks.filter = (item: any) => item.dataset.label !== '_base';
-    if (!origLabel && numFmt) {
-      tooltipCallbacks.label = (item: any) => {
-        const dsLabel = item.dataset?.label || '';
-        return `${dsLabel}: ${formatNumber(item.parsed.y, numFmt)}`;
-      };
-    }
+  // Waterfall tooltip: show the delta value, not the floating bar range
+  if (isWaterfall && numFmt) {
+    tooltipCallbacks.label = (item: any) => {
+      const dsLabel = item.dataset?.label || '';
+      const raw = item.raw as [number, number] | undefined;
+      const val = raw ? raw[1] - raw[0] : item.parsed?.y ?? 0;
+      return `${dsLabel}: ${formatNumber(val, numFmt)}`;
+    };
   }
 
   /* ── Tick formatter ────────────────────────────────────────────── */
@@ -371,8 +355,7 @@ function ChartRenderer({ config, onToggleTable }: Props) {
           color: '#a1a1aa',
           font: { family: 'Inter, sans-serif', size: 12 },
           padding: 16,
-          // Hide the invisible waterfall base from the legend
-          ...(isWaterfall ? { filter: (item: any) => item.text !== '_base' } : {}),
+
         },
       },
       tooltip: {
