@@ -3,7 +3,7 @@
 
 // ─── Domain Types ───────────────────────────────────────────────────────────
 
-export type DomainType = 'checking' | 'savings' | 'investments' | 'retirement' | 'debt' | 'taxes' | 'realestate';
+export type DomainType = 'checking' | 'savings' | 'investments' | 'retirement' | 'debt' | 'taxes' | 'realestate' | 'demographics';
 
 // ─── Tool Interface (matches roundtable-core's Tool) ────────────────────────
 

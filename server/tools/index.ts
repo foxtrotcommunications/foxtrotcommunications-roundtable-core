@@ -92,6 +92,12 @@ try {
 // Domain logic (Real Estate, Checking/Savings, Debt) has been removed from core
 // and is now managed entirely by the Plaid plugin.
 
+// ─── Demographics Domain Tools ──────────────────────────────────────
+// Demographics tools (get_user_profile, get_household, get_financial_goals,
+// get_investment_preferences) are now registered via the @pendragon/tools-plaid
+// plugin in packages/pendragon-tools-plaid/src/domains/demographics.ts.
+// Auto-detected via workspace name containing 'demographics'.
+
 // ─── Dynamic Tool Registry (MCP servers inject tools here) ─────────
 // Dynamic tools are stored separately and merged at resolve-time.
 // Key: tool name (e.g. 'mcp_myserver_search'), Value: Tool object

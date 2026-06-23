@@ -89,13 +89,14 @@ CREATE TABLE IF NOT EXISTS plaid_liabilities (
 // ─── Domain → Tables Mapping (strict isolation) ────────────────────────────
 
 const DOMAIN_SCHEMAS: Record<DomainType, string> = {
-  checking:    COMMON_TABLES + TRANSACTION_TABLES,
-  savings:     COMMON_TABLES + TRANSACTION_TABLES,
-  investments: COMMON_TABLES + INVESTMENT_TABLES,
-  retirement:  COMMON_TABLES + INVESTMENT_TABLES,
-  debt:        COMMON_TABLES + TRANSACTION_TABLES + LIABILITY_TABLES,
-  taxes:       COMMON_TABLES + TRANSACTION_TABLES,
-  realestate:  COMMON_TABLES + TRANSACTION_TABLES + LIABILITY_TABLES,
+  checking:      COMMON_TABLES + TRANSACTION_TABLES,
+  savings:       COMMON_TABLES + TRANSACTION_TABLES,
+  investments:   COMMON_TABLES + INVESTMENT_TABLES,
+  retirement:    COMMON_TABLES + INVESTMENT_TABLES,
+  debt:          COMMON_TABLES + TRANSACTION_TABLES + LIABILITY_TABLES,
+  taxes:         COMMON_TABLES + TRANSACTION_TABLES,
+  realestate:    COMMON_TABLES + TRANSACTION_TABLES + LIABILITY_TABLES,
+  demographics:  '',  // Demographics uses its own schema (04-schema-demographics.sql), not Plaid tables
 };
 
 export function getSchemaForDomain(domainType: DomainType): string {

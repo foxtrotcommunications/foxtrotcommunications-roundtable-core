@@ -8,13 +8,14 @@ import type { DomainType } from '../types.js';
 // ─── Domain → Allowed Operations ────────────────────────────────────────────
 
 const DOMAIN_ALLOWED_OPS: Record<DomainType, Set<string>> = {
-  checking:    new Set(['accountsGet', 'transactionsSync']),
-  savings:     new Set(['accountsGet', 'transactionsSync']),
-  investments: new Set(['accountsGet', 'investmentsHoldingsGet']),
-  retirement:  new Set(['accountsGet', 'investmentsHoldingsGet']),
-  debt:        new Set(['accountsGet', 'transactionsSync', 'liabilitiesGet']),
-  taxes:       new Set(['accountsGet', 'transactionsSync']),
-  realestate:  new Set(['accountsGet', 'transactionsSync', 'liabilitiesGet']),
+  checking:      new Set(['accountsGet', 'transactionsSync']),
+  savings:       new Set(['accountsGet', 'transactionsSync']),
+  investments:   new Set(['accountsGet', 'investmentsHoldingsGet']),
+  retirement:    new Set(['accountsGet', 'investmentsHoldingsGet']),
+  debt:          new Set(['accountsGet', 'transactionsSync', 'liabilitiesGet']),
+  taxes:         new Set(['accountsGet', 'transactionsSync']),
+  realestate:    new Set(['accountsGet', 'transactionsSync', 'liabilitiesGet']),
+  demographics:  new Set(),  // Demographics does not use Plaid — queries PostgreSQL directly
 };
 
 // ─── ScopedPlaidClient ──────────────────────────────────────────────────────

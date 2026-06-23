@@ -82,5 +82,19 @@
       "tool:get_financial_snapshot", "tool:list_accounts", "tool:get_balance", "tool:get_transactions"
     ],
     "status": "active"
+  },
+  {
+    "contractId": "contract-demographics",
+    "type": "DataQuery",
+    "source": { "wsId": "FY6M0lU0katTXza3Yo1r", "name": "Arthur" },
+    "target": { "wsId": "DemoGraphicsWs01xYz", "name": "Demographics" },
+    "allowedActions": [
+      "delegate", "discover",
+      "tool:get_user_profile", "tool:get_household",
+      "tool:get_financial_goals", "tool:get_investment_preferences",
+      "capability:demographics.getUserProfile", "capability:demographics.getHousehold",
+      "capability:demographics.getFinancialGoals", "capability:demographics.getInvestmentPreferences"
+    ],
+    "status": "active"
   }
 ]
