@@ -91,6 +91,18 @@ function ChartRenderer({ config, onToggleTable }: Props) {
         padding: 10,
         titleFont: { family: 'Inter, sans-serif', weight: '600' as const },
         bodyFont: { family: 'Inter, sans-serif' },
+        callbacks: config.chartType === 'scatter' && config.labels?.length ? {
+          // For scatter charts, show the label from the labels array instead of the dataset name
+          title: (items: { dataIndex: number }[]) => {
+            const idx = items[0]?.dataIndex;
+            return (idx != null && config.labels[idx]) || '';
+          },
+          label: (item: { parsed: { x: number; y: number }; dataset: { label?: string } }) => {
+            const xLabel = config.xAxisLabel || 'x';
+            const yLabel = config.yAxisLabel || 'y';
+            return `${xLabel}: ${item.parsed.x}, ${yLabel}: ${item.parsed.y}`;
+          },
+        } : undefined,
       },
     },
     scales: ['pie', 'doughnut'].includes(config.chartType) ? {} : {
