@@ -194,6 +194,7 @@ async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: str
     const body: Record<string, unknown> = {
       model,
       messages: currentMessages,
+      max_completion_tokens: 16384,
       stream: true,
       stream_options: { include_usage: true },
     };
@@ -358,7 +359,7 @@ async function* streamAnthropic(model: string, messages: ChatMessage[], apiKey: 
     const body: Record<string, unknown> = {
       model,
       messages: currentMessages,
-      max_tokens: 4096,
+      max_tokens: 16384,
       stream: true,
     };
 
