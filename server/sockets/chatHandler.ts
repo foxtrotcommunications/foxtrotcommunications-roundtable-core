@@ -75,6 +75,7 @@ function describeActivity(toolName: string, args: Record<string, unknown>): { st
   }
   // Domain tools
   const descriptions: Record<string, { step: string; label: string }> = {
+    describe_workspace: { step: 'planning', label: 'Planning analysis' },
     get_user_profile: { step: 'demographics', label: 'Reviewing your profile' },
     get_household: { step: 'demographics', label: 'Reviewing household details' },
     get_financial_goals: { step: 'demographics', label: 'Reviewing your financial goals' },
@@ -95,6 +96,15 @@ function describeActivity(toolName: string, args: Record<string, unknown>): { st
     get_liabilities: { step: 'liabilities', label: 'Reviewing liabilities' },
     render_chart: { step: 'chart', label: 'Generating chart' },
     discover: { step: 'discover', label: 'Discovering available data' },
+    calculator: { step: 'calculating', label: 'Running calculations' },
+    emit_provenance: { step: 'provenance', label: 'Verifying sources' },
+    query_bigquery: { step: 'querying', label: 'Querying data warehouse' },
+    query_snowflake: { step: 'querying', label: 'Querying data warehouse' },
+    query_databricks: { step: 'querying', label: 'Querying data warehouse' },
+    call_agent: { step: 'consulting', label: 'Consulting specialist' },
+    run_code: { step: 'computing', label: 'Running analysis' },
+    read_file: { step: 'reading', label: 'Reading documents' },
+    read_url: { step: 'researching', label: 'Researching online' },
   };
   if (descriptions[toolName]) return descriptions[toolName];
   // Fallback: humanize the tool name
