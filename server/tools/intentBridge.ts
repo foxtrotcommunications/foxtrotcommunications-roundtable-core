@@ -251,10 +251,17 @@ const intentBridge: Tool = {
     if (contracts && Array.isArray(contracts)) {
       try {
         contract = contracts.find(
-          (c) =>
-            c.direction === 'outbound' &&
-            c.counterparty.wsId === bridge.targetWsId &&
-            c.status === 'active'
+          (c) => {
+            // Support both contract formats:
+            // Legacy:  { direction: 'outbound', counterparty: { wsId } }
+            // Current: { source: { wsId }, target: { wsId } }
+            const matchesTarget =
+              (c.counterparty && c.counterparty.wsId === bridge.targetWsId) ||
+              (c.target && c.target.wsId === bridge.targetWsId);
+            const directionOk =
+              c.direction === 'outbound' || !c.direction; // current format has no direction field
+            return directionOk && matchesTarget && c.status === 'active';
+          }
         );
       } catch { /* intentionally empty */ }
     }
