@@ -9,7 +9,14 @@
       "capability:property.getPropertySummary",
       "capability:property.getMortgageDetails",
       "capability:property.getEquityAnalysis",
-      "tool:get_financial_snapshot"
+      "tool:get_financial_snapshot",
+      "tool:list_accounts", "tool:get_liabilities",
+      "query:plaid_sync",
+      "capability:plaid.getBalances", "capability:plaid.getTransactions",
+      "capability:plaid.getLiabilities", "capability:plaid.getDebtSummary",
+      "capability:plaid.syncData",
+      "capability:goals.list", "capability:goals.get",
+      "capability:goals.evaluateProgress", "capability:goals.snapshot"
     ],
     "status": "active"
   },
@@ -25,7 +32,9 @@
       "capability:plaid.getCreditUtilization", "capability:plaid.syncData",
       "capability:plaid.getDebtTransactions",
       "tool:get_financial_snapshot", "tool:list_accounts", "tool:get_balance", "tool:get_transactions",
-      "tool:get_liabilities", "tool:get_debt_summary", "tool:get_credit_utilization", "tool:get_payoff_projection"
+      "tool:get_liabilities", "tool:get_debt_summary", "tool:get_credit_utilization", "tool:get_payoff_projection",
+      "capability:goals.list", "capability:goals.get",
+      "capability:goals.evaluateProgress", "capability:goals.snapshot"
     ],
     "status": "active"
   },
@@ -40,7 +49,9 @@
       "capability:plaid.syncData",
       "tool:get_financial_snapshot", "tool:list_accounts", "tool:get_balance", "tool:get_balance_history",
       "tool:get_transactions", "tool:get_spending_by_category", "tool:get_spending_by_merchant", 
-      "tool:get_recurring_charges", "tool:get_income_summary", "tool:get_cashflow"
+      "tool:get_recurring_charges", "tool:get_income_summary", "tool:get_cashflow",
+      "capability:goals.list", "capability:goals.get",
+      "capability:goals.evaluateProgress", "capability:goals.snapshot"
     ],
     "status": "active"
   },
@@ -53,7 +64,9 @@
       "delegate", "discover", "query:plaid_sync",
       "capability:plaid.getHoldings", "capability:plaid.getSecurities",
       "capability:plaid.getPortfolioSummary", "capability:plaid.syncData",
-      "tool:get_financial_snapshot", "tool:list_accounts", "tool:get_balance", "tool:get_transactions"
+      "tool:get_financial_snapshot", "tool:list_accounts", "tool:get_balance", "tool:get_transactions",
+      "capability:goals.list", "capability:goals.get",
+      "capability:goals.evaluateProgress", "capability:goals.snapshot"
     ],
     "status": "active"
   },
@@ -66,7 +79,9 @@
       "delegate", "discover", "query:plaid_sync",
       "capability:plaid.getHoldings", "capability:plaid.getSecurities",
       "capability:plaid.getPortfolioSummary", "capability:plaid.syncData",
-      "tool:get_financial_snapshot", "tool:list_accounts", "tool:get_balance", "tool:get_transactions"
+      "tool:get_financial_snapshot", "tool:list_accounts", "tool:get_balance", "tool:get_transactions",
+      "capability:goals.list", "capability:goals.get",
+      "capability:goals.evaluateProgress", "capability:goals.snapshot"
     ],
     "status": "active"
   },
@@ -79,7 +94,9 @@
       "delegate", "discover", "query:plaid_sync",
       "capability:plaid.getBalances", "capability:plaid.getTransactions",
       "capability:plaid.syncData",
-      "tool:get_financial_snapshot", "tool:list_accounts", "tool:get_balance", "tool:get_transactions"
+      "tool:get_financial_snapshot", "tool:list_accounts", "tool:get_balance", "tool:get_transactions",
+      "capability:goals.list", "capability:goals.get",
+      "capability:goals.evaluateProgress", "capability:goals.snapshot"
     ],
     "status": "active"
   },
@@ -91,9 +108,11 @@
     "allowedActions": [
       "delegate", "discover",
       "tool:get_user_profile", "tool:get_household",
-      "tool:get_financial_goals", "tool:get_investment_preferences",
+      "tool:get_investment_preferences",
       "capability:demographics.getUserProfile", "capability:demographics.getHousehold",
-      "capability:demographics.getFinancialGoals", "capability:demographics.getInvestmentPreferences"
+      "capability:demographics.getInvestmentPreferences",
+      "capability:goals.list", "capability:goals.get",
+      "capability:goals.evaluateProgress", "capability:goals.snapshot"
     ],
     "status": "active"
   }
