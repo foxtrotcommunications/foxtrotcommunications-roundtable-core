@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **HKDF cryptographic contract authentication** — Per-contract keys derived via HKDF with AES-256-GCM end-to-end encryption for all cross-workspace payloads
 - **Cross-workspace execution model** — AI reasons locally, ICE executes remotely; target AI is not involved unless delegation is genuinely needed
 - **Wake-proxy for sleeping workspaces** — Sleeping workspaces are woken on-demand when an inbound intent token or delegation arrives
-- **Wake-on-request (K8s API)** — Bridge tools (`intent_bridge`, `bridge_workspace`) detect sleeping target workspaces (HTTP 503) and automatically scale them from 0→1 replicas via the Kubernetes API, then retry with fresh HMAC signatures every 5s for up to 120s
+- **Wake-on-request (K8s API)** — Bridge tools (`intent_bridge`, `bridge_workspace`) detect sleeping target workspaces (HTTP 503) and automatically scale them from 0→1 replicas via the Kubernetes API, then retry with fresh HMAC signatures every 5s for up to 250s
 - **X-Contract-Action header** — Bridge requests now include an `X-Contract-Action` header carrying the signed action name, allowing the receiver's auth middleware to verify the correct HMAC payload instead of hardcoding `message_send`
 - **Verbose bridge retry logging** — Both `intent_bridge` and `bridge_workspace` log each retry attempt with elapsed time and HTTP status for operational visibility
 - **429 auto-fallback** — When Vertex AI returns `RESOURCE_EXHAUSTED` (429), automatically retries with `gemini-3.5-flash` and restores the original model after a 10-minute cooldown. Streams a brief notice to the user during fallback
@@ -46,4 +46,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Schema injection** — YAML schema files auto-injected into AI system prompt
 - **Presence system** — Live user avatars, typing indicators, @mention notifications
 - **Code explorer** — In-browser file tree for cloned repositories
-- **CI/CD** — GitHub Actions for tests (Node 20+22) and GHCR Docker image publishing
+- **CI/CD** — GitHub Actions for tests (Node 20+22) and Artifact Registry Docker image publishing
