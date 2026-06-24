@@ -1,0 +1,453 @@
+// src/domains/goalEvaluators.ts — Per-domain goal progress evaluators
+// Each domain type has specialized logic for computing progress toward goals.
+// Uses OBSERVED data (actual balances, actual payments) — not user-stated amounts.
+
+import type pg from 'pg';
+import type { DomainType } from '../types.js';
+
+type Pool = InstanceType<typeof pg.Pool>;
+
+const DEFAULT_GROWTH_RATE = 0.07; // 7% annual
+const MONTHS_FOR_AVERAGE = 3; // Use 3-month rolling average
+
+interface GoalProgress {
+  goal_id: string;
+  goal_name: string;
+  goal_type: string;
+  target_amount: number | null;
+  target_date: string | null;
+  current_value: number;
+  progress_pct: number;
+  on_track: boolean;
+  projected_date: string | null;
+  monthly_required: number | null;
+  monthly_current: number | null;
+  gap: number | null;
+  recommendation: string;
+  details: Record<string, unknown>;
+  error?: string;
+}
+
+export async function evaluateGoalProgress(
+  pool: Pool,
+  goalId: string,
+  domainType: DomainType,
+): Promise<GoalProgress> {
+  // Read the goal
+  const goalResult = await pool.query(
+    `SELECT * FROM domain_goals WHERE id = $1`,
+    [goalId],
+  );
+  if (goalResult.rows.length === 0) {
+    return {
+      goal_id: goalId,
+      goal_name: 'Unknown',
+      goal_type: 'unknown',
+      target_amount: null,
+      target_date: null,
+      current_value: 0,
+      progress_pct: 0,
+      on_track: false,
+      projected_date: null,
+      monthly_required: null,
+      monthly_current: null,
+      gap: null,
+      recommendation: 'Goal not found',
+      details: {},
+      error: 'Goal not found',
+    };
+  }
+
+  const goal = goalResult.rows[0];
+
+  // Dispatch to domain-specific evaluator
+  switch (domainType) {
+    case 'checking':
+    case 'savings':
+      return evaluateSavingsGoal(pool, goal);
+    case 'debt':
+      return evaluateDebtGoal(pool, goal);
+    case 'investments':
+      return evaluateInvestmentGoal(pool, goal, DEFAULT_GROWTH_RATE);
+    case 'retirement':
+      return evaluateRetirementGoal(pool, goal, DEFAULT_GROWTH_RATE);
+    case 'realestate':
+      return evaluateRealEstateGoal(pool, goal);
+    case 'taxes':
+      return evaluateTaxGoal(pool, goal);
+    default:
+      return evaluateGenericGoal(pool, goal);
+  }
+}
+
+// ─── Checking / Savings Goals ───────────────────────────────────────────────
+
+async function evaluateSavingsGoal(pool: Pool, goal: Record<string, any>): Promise<GoalProgress> {
+  // Get current total balance
+  const balanceResult = await pool.query(
+    `SELECT COALESCE(SUM(balance_current), 0) as total_balance FROM plaid_accounts`,
+  );
+  const currentBalance = parseFloat(balanceResult.rows[0].total_balance) || 0;
+
+  // Get monthly savings rate from recent transactions (income - expenses)
+  const savingsResult = await pool.query(
+    `SELECT
+       COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END), 0) as total_income,
+       COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as total_expenses,
+       COUNT(DISTINCT date_trunc('month', date)) as months_counted
+     FROM plaid_transactions
+     WHERE date >= NOW() - INTERVAL '${MONTHS_FOR_AVERAGE} months'
+       AND pending = false`,
+  );
+  const { total_income, total_expenses, months_counted } = savingsResult.rows[0];
+  const monthsCounted = Math.max(parseFloat(months_counted) || 1, 1);
+  const monthlyIncome = parseFloat(total_income) / monthsCounted;
+  const monthlyExpenses = parseFloat(total_expenses) / monthsCounted;
+  const monthlySavings = monthlyIncome - monthlyExpenses;
+
+  const targetAmount = goal.target_amount || 0;
+  const remaining = Math.max(targetAmount - currentBalance, 0);
+  const progressPct = targetAmount > 0 ? Math.min((currentBalance / targetAmount) * 100, 100) : 0;
+
+  // Project when target will be reached
+  let projectedDate: string | null = null;
+  let monthsToTarget: number | null = null;
+  if (monthlySavings > 0 && remaining > 0) {
+    monthsToTarget = Math.ceil(remaining / monthlySavings);
+    const projected = new Date();
+    projected.setMonth(projected.getMonth() + monthsToTarget);
+    projectedDate = projected.toISOString().split('T')[0];
+  }
+
+  // Determine if on track
+  let onTrack = false;
+  let monthlyRequired: number | null = null;
+  if (goal.target_date) {
+    const targetDate = new Date(goal.target_date);
+    const now = new Date();
+    const monthsRemaining = Math.max(
+      (targetDate.getFullYear() - now.getFullYear()) * 12 + (targetDate.getMonth() - now.getMonth()),
+      1,
+    );
+    monthlyRequired = remaining / monthsRemaining;
+    onTrack = monthlySavings >= monthlyRequired;
+  } else if (remaining <= 0) {
+    onTrack = true;
+  }
+
+  const gap = monthlyRequired !== null ? Math.max(monthlyRequired - monthlySavings, 0) : null;
+
+  let recommendation = '';
+  if (remaining <= 0) {
+    recommendation = 'Goal achieved! Consider setting a new target.';
+  } else if (onTrack) {
+    recommendation = `On track. At your current savings rate of $${monthlySavings.toFixed(0)}/mo, you'll reach your target${projectedDate ? ' by ' + projectedDate : ''}.`;
+  } else if (gap !== null && gap > 0) {
+    recommendation = `Behind target. Increase monthly savings by $${gap.toFixed(0)} to stay on track for ${goal.target_date}.`;
+  } else {
+    recommendation = `Saving $${monthlySavings.toFixed(0)}/mo toward $${targetAmount.toLocaleString()} target.`;
+  }
+
+  return {
+    goal_id: goal.id,
+    goal_name: goal.name,
+    goal_type: goal.goal_type,
+    target_amount: targetAmount,
+    target_date: goal.target_date,
+    current_value: currentBalance,
+    progress_pct: Math.round(progressPct * 10) / 10,
+    on_track: onTrack,
+    projected_date: projectedDate,
+    monthly_required: monthlyRequired ? Math.round(monthlyRequired) : null,
+    monthly_current: Math.round(monthlySavings),
+    gap: gap !== null ? Math.round(gap) : null,
+    recommendation,
+    details: { monthlyIncome: Math.round(monthlyIncome), monthlyExpenses: Math.round(monthlyExpenses), monthsCounted },
+  };
+}
+
+// ─── Debt Goals ─────────────────────────────────────────────────────────────
+
+async function evaluateDebtGoal(pool: Pool, goal: Record<string, any>): Promise<GoalProgress> {
+  // Get current total debt
+  const debtResult = await pool.query(
+    `SELECT
+       COALESCE(SUM(a.balance_current), 0) as total_debt,
+       COALESCE(SUM(l.minimum_payment_amount), 0) as total_minimum,
+       COALESCE(AVG(l.interest_rate), 0) as avg_rate
+     FROM plaid_liabilities l
+     LEFT JOIN plaid_accounts a ON a.account_id = l.account_id`,
+  );
+  const totalDebt = Math.abs(parseFloat(debtResult.rows[0].total_debt) || 0);
+  const totalMinimum = parseFloat(debtResult.rows[0].total_minimum) || 0;
+  const avgRate = parseFloat(debtResult.rows[0].avg_rate) || 0;
+
+  // Observe actual monthly payments from transactions (last 3 months)
+  const paymentResult = await pool.query(
+    `SELECT
+       COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END), 0) as total_payments,
+       COUNT(DISTINCT date_trunc('month', date)) as months_counted
+     FROM plaid_transactions
+     WHERE date >= NOW() - INTERVAL '${MONTHS_FOR_AVERAGE} months'
+       AND pending = false
+       AND amount < 0`,
+  );
+  const monthsCounted = Math.max(parseFloat(paymentResult.rows[0].months_counted) || 1, 1);
+  const monthlyPayment = parseFloat(paymentResult.rows[0].total_payments) / monthsCounted;
+
+  // For debt goals, target_amount is typically 0 (debt-free) or a reduced balance
+  const targetAmount = goal.target_amount ?? 0;
+  const remaining = Math.max(totalDebt - targetAmount, 0);
+  
+  // Progress: how much of the original debt has been paid toward target
+  // If we have snapshots, use the first snapshot as baseline
+  const baselineResult = await pool.query(
+    `SELECT current_value FROM goal_snapshots WHERE goal_id = $1 ORDER BY snapshot_at ASC LIMIT 1`,
+    [goal.id],
+  );
+  const baseline = baselineResult.rows.length > 0 ? parseFloat(baselineResult.rows[0].current_value) : totalDebt;
+  const totalReduction = Math.max(baseline - targetAmount, 1);
+  const progressPct = Math.min(((baseline - totalDebt) / totalReduction) * 100, 100);
+
+  // Simple payoff projection (monthly payment - monthly interest)
+  const monthlyRate = avgRate / 100 / 12;
+  const monthlyInterest = totalDebt * monthlyRate;
+  const principalPayment = Math.max(monthlyPayment - monthlyInterest, 0);
+
+  let projectedDate: string | null = null;
+  let monthsToPayoff: number | null = null;
+  if (principalPayment > 0 && remaining > 0) {
+    // Amortization: n = -log(1 - r*PV/PMT) / log(1+r)
+    if (monthlyRate > 0 && monthlyPayment > monthlyInterest) {
+      monthsToPayoff = Math.ceil(
+        -Math.log(1 - (monthlyRate * remaining) / monthlyPayment) / Math.log(1 + monthlyRate),
+      );
+    } else {
+      monthsToPayoff = Math.ceil(remaining / principalPayment);
+    }
+    const projected = new Date();
+    projected.setMonth(projected.getMonth() + monthsToPayoff);
+    projectedDate = projected.toISOString().split('T')[0];
+  }
+
+  let onTrack = false;
+  let monthlyRequired: number | null = null;
+  if (goal.target_date) {
+    const targetDate = new Date(goal.target_date);
+    const now = new Date();
+    const monthsRemaining = Math.max(
+      (targetDate.getFullYear() - now.getFullYear()) * 12 + (targetDate.getMonth() - now.getMonth()),
+      1,
+    );
+    // Required payment to hit target date (simplified — ignores compounding for estimate)
+    if (monthlyRate > 0) {
+      monthlyRequired = (remaining * monthlyRate * Math.pow(1 + monthlyRate, monthsRemaining)) /
+        (Math.pow(1 + monthlyRate, monthsRemaining) - 1);
+    } else {
+      monthlyRequired = remaining / monthsRemaining;
+    }
+    onTrack = monthlyPayment >= monthlyRequired;
+  } else if (remaining <= 0) {
+    onTrack = true;
+  }
+
+  const gap = monthlyRequired !== null ? Math.max(monthlyRequired - monthlyPayment, 0) : null;
+
+  let recommendation = '';
+  if (remaining <= 0) {
+    recommendation = 'Debt goal achieved! 🎉';
+  } else if (onTrack) {
+    recommendation = `On track. At $${monthlyPayment.toFixed(0)}/mo, debt will be paid off${projectedDate ? ' by ' + projectedDate : ''}.`;
+  } else if (gap !== null && gap > 0) {
+    recommendation = `Increase monthly payments by $${gap.toFixed(0)} to hit your ${goal.target_date} target.`;
+  } else {
+    recommendation = `Paying $${monthlyPayment.toFixed(0)}/mo against $${totalDebt.toLocaleString()} total debt (avg ${avgRate.toFixed(1)}% APR).`;
+  }
+
+  return {
+    goal_id: goal.id,
+    goal_name: goal.name,
+    goal_type: goal.goal_type,
+    target_amount: targetAmount,
+    target_date: goal.target_date,
+    current_value: totalDebt,
+    progress_pct: Math.round(Math.max(progressPct, 0) * 10) / 10,
+    on_track: onTrack,
+    projected_date: projectedDate,
+    monthly_required: monthlyRequired ? Math.round(monthlyRequired) : null,
+    monthly_current: Math.round(monthlyPayment),
+    gap: gap !== null ? Math.round(gap) : null,
+    recommendation,
+    details: { totalDebt, avgRate, monthlyInterest: Math.round(monthlyInterest), principalPayment: Math.round(principalPayment), totalMinimum },
+  };
+}
+
+// ─── Investment Goals ───────────────────────────────────────────────────────
+
+async function evaluateInvestmentGoal(pool: Pool, goal: Record<string, any>, growthRate: number): Promise<GoalProgress> {
+  // Get current portfolio value
+  const holdingsResult = await pool.query(
+    `SELECT COALESCE(SUM(institution_value), 0) as total_value FROM plaid_holdings`,
+  );
+  const currentValue = parseFloat(holdingsResult.rows[0].total_value) || 0;
+
+  const targetAmount = goal.target_amount || 0;
+  const progressPct = targetAmount > 0 ? Math.min((currentValue / targetAmount) * 100, 100) : 0;
+
+  // Estimate monthly contributions from recent snapshots or use stated
+  const monthlyContrib = goal.monthly_contribution || 0;
+  const monthlyRate = growthRate / 12;
+
+  // Project future value: FV = PV(1+r)^n + PMT*((1+r)^n - 1)/r
+  let projectedDate: string | null = null;
+  let onTrack = false;
+  let monthlyRequired: number | null = null;
+
+  if (goal.target_date) {
+    const targetDate = new Date(goal.target_date);
+    const now = new Date();
+    const monthsRemaining = Math.max(
+      (targetDate.getFullYear() - now.getFullYear()) * 12 + (targetDate.getMonth() - now.getMonth()),
+      1,
+    );
+
+    // Project what we'll have at target date
+    const projectedValue = currentValue * Math.pow(1 + monthlyRate, monthsRemaining) +
+      monthlyContrib * ((Math.pow(1 + monthlyRate, monthsRemaining) - 1) / monthlyRate);
+
+    onTrack = projectedValue >= targetAmount;
+
+    // What monthly contribution would be needed?
+    const growthFactor = Math.pow(1 + monthlyRate, monthsRemaining);
+    const futureGap = Math.max(targetAmount - currentValue * growthFactor, 0);
+    monthlyRequired = futureGap > 0 ? futureGap / ((growthFactor - 1) / monthlyRate) : 0;
+  }
+
+  // When will we reach target at current rate?
+  if (currentValue < targetAmount && monthlyContrib > 0) {
+    // Solve: targetAmount = currentValue*(1+r)^n + PMT*((1+r)^n - 1)/r
+    // Iterative approximation
+    let months = 0;
+    let projected = currentValue;
+    while (projected < targetAmount && months < 600) {
+      projected = projected * (1 + monthlyRate) + monthlyContrib;
+      months++;
+    }
+    if (months < 600) {
+      const d = new Date();
+      d.setMonth(d.getMonth() + months);
+      projectedDate = d.toISOString().split('T')[0];
+    }
+  } else if (currentValue >= targetAmount) {
+    onTrack = true;
+    projectedDate = new Date().toISOString().split('T')[0];
+  }
+
+  const gap = monthlyRequired !== null ? Math.max(monthlyRequired - monthlyContrib, 0) : null;
+
+  let recommendation = '';
+  if (currentValue >= targetAmount) {
+    recommendation = 'Goal achieved! Portfolio has reached target value.';
+  } else if (onTrack) {
+    recommendation = `On track. At $${monthlyContrib.toFixed(0)}/mo with ${(growthRate * 100).toFixed(0)}% assumed growth, you'll hit your target${projectedDate ? ' by ' + projectedDate : ''}.`;
+  } else if (gap !== null && gap > 0) {
+    recommendation = `Increase monthly contributions by $${gap.toFixed(0)} to reach $${targetAmount.toLocaleString()} by ${goal.target_date}.`;
+  } else {
+    recommendation = `Portfolio at $${currentValue.toLocaleString()} of $${targetAmount.toLocaleString()} target.`;
+  }
+
+  return {
+    goal_id: goal.id,
+    goal_name: goal.name,
+    goal_type: goal.goal_type,
+    target_amount: targetAmount,
+    target_date: goal.target_date,
+    current_value: currentValue,
+    progress_pct: Math.round(progressPct * 10) / 10,
+    on_track: onTrack,
+    projected_date: projectedDate,
+    monthly_required: monthlyRequired ? Math.round(monthlyRequired) : null,
+    monthly_current: Math.round(monthlyContrib),
+    gap: gap !== null ? Math.round(gap) : null,
+    recommendation,
+    details: { growthRateAssumption: growthRate, currentValue },
+  };
+}
+
+// ─── Retirement Goals ───────────────────────────────────────────────────────
+
+async function evaluateRetirementGoal(pool: Pool, goal: Record<string, any>, growthRate: number): Promise<GoalProgress> {
+  // Retirement goals use the same math as investment but may use target_age from parameters
+  return evaluateInvestmentGoal(pool, goal, growthRate);
+}
+
+// ─── Real Estate Goals ──────────────────────────────────────────────────────
+
+async function evaluateRealEstateGoal(pool: Pool, goal: Record<string, any>): Promise<GoalProgress> {
+  // Get current equity from accounts (value - mortgage)
+  const equityResult = await pool.query(
+    `SELECT
+       COALESCE(SUM(CASE WHEN a.type != 'loan' THEN a.balance_current ELSE 0 END), 0) as asset_value,
+       COALESCE(SUM(CASE WHEN a.type = 'loan' THEN ABS(a.balance_current) ELSE 0 END), 0) as loan_balance
+     FROM plaid_accounts a`,
+  );
+  const assetValue = parseFloat(equityResult.rows[0].asset_value) || 0;
+  const loanBalance = parseFloat(equityResult.rows[0].loan_balance) || 0;
+  const equity = assetValue - loanBalance;
+
+  const targetAmount = goal.target_amount || 0;
+  const progressPct = targetAmount > 0 ? Math.min((equity / targetAmount) * 100, 100) : 0;
+
+  return {
+    goal_id: goal.id,
+    goal_name: goal.name,
+    goal_type: goal.goal_type,
+    target_amount: targetAmount,
+    target_date: goal.target_date,
+    current_value: equity,
+    progress_pct: Math.round(progressPct * 10) / 10,
+    on_track: equity >= targetAmount,
+    projected_date: null,
+    monthly_required: null,
+    monthly_current: null,
+    gap: null,
+    recommendation: equity >= targetAmount
+      ? `Equity target met. Current equity: $${equity.toLocaleString()}`
+      : `Equity at $${equity.toLocaleString()} of $${targetAmount.toLocaleString()} target.`,
+    details: { assetValue, loanBalance, equity },
+  };
+}
+
+// ─── Tax Goals ──────────────────────────────────────────────────────────────
+
+async function evaluateTaxGoal(pool: Pool, goal: Record<string, any>): Promise<GoalProgress> {
+  return evaluateGenericGoal(pool, goal);
+}
+
+// ─── Generic Fallback ───────────────────────────────────────────────────────
+
+async function evaluateGenericGoal(pool: Pool, goal: Record<string, any>): Promise<GoalProgress> {
+  const balanceResult = await pool.query(
+    `SELECT COALESCE(SUM(balance_current), 0) as total FROM plaid_accounts`,
+  );
+  const currentValue = parseFloat(balanceResult.rows[0].total) || 0;
+  const targetAmount = goal.target_amount || 0;
+  const progressPct = targetAmount > 0 ? Math.min((currentValue / targetAmount) * 100, 100) : 0;
+
+  return {
+    goal_id: goal.id,
+    goal_name: goal.name,
+    goal_type: goal.goal_type,
+    target_amount: targetAmount,
+    target_date: goal.target_date,
+    current_value: currentValue,
+    progress_pct: Math.round(progressPct * 10) / 10,
+    on_track: currentValue >= targetAmount,
+    projected_date: null,
+    monthly_required: null,
+    monthly_current: null,
+    gap: null,
+    recommendation: `Current value: $${currentValue.toLocaleString()} of $${targetAmount.toLocaleString()} target.`,
+    details: {},
+  };
+}

@@ -45,7 +45,6 @@ function describeActivity(toolName: string, args: Record<string, unknown>): { st
     describe_workspace: { step: 'planning', label: 'Planning analysis' },
     get_user_profile: { step: 'demographics', label: 'Reviewing your profile' },
     get_household: { step: 'demographics', label: 'Reviewing household details' },
-    get_financial_goals: { step: 'demographics', label: 'Reviewing your financial goals' },
     get_investment_preferences: { step: 'demographics', label: 'Reviewing investment preferences' },
     list_accounts: { step: 'accounts', label: 'Listing accounts' },
     get_balance: { step: 'balances', label: 'Checking balances' },

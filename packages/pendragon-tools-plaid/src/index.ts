@@ -8,9 +8,12 @@ import { registerInvestmentTools, registerInvestmentCapabilities } from './domai
 import { registerDebtTools, registerDebtCapabilities } from './domains/debt.js';
 import { registerRealEstateTools, registerRealEstateCapabilities } from './domains/realEstate.js';
 import { registerDemographicsTools, registerDemographicsCapabilities } from './domains/demographics.js';
+import { registerGoalCapabilities } from './domains/goals.js';
+import { ensureDefaultGoals } from './domains/autoGoals.js';
 import { financialTools } from './tools/index.js';
 
 export { ScopedPlaidClient } from './plaid/client.js';
+export { ensureDefaultGoals } from './domains/autoGoals.js';
 export * from './types.js';
 
 // ─── Domain → Registrars Mapping ────────────────────────────────────────────
@@ -42,14 +45,19 @@ const DOMAIN_ALLOWED_OPS: Record<string, string[]> = {
 
 // ─── Domain → Capabilities Mapping ──────────────────────────────────────────
 
+const GOAL_CAPS = [
+  'goals.create', 'goals.list', 'goals.get',
+  'goals.update', 'goals.delete', 'goals.evaluateProgress', 'goals.snapshot',
+];
+
 const DOMAIN_CAPS: Record<string, string[]> = {
-  checking:    ['plaid.getBalances', 'plaid.getTransactions', 'plaid.syncData'],
-  savings:     ['plaid.getBalances', 'plaid.getTransactions', 'plaid.syncData'],
-  investments: ['plaid.getHoldings', 'plaid.getSecurities', 'plaid.getPortfolioSummary', 'plaid.syncData'],
-  retirement:  ['plaid.getHoldings', 'plaid.getSecurities', 'plaid.getPortfolioSummary', 'plaid.syncData'],
-  debt:        ['plaid.getLiabilities', 'plaid.getDebtSummary', 'plaid.getCreditUtilization', 'plaid.syncData'],
-  realestate:     ['property.getPropertySummary', 'property.getMortgageDetails', 'property.getEquityAnalysis'],
-  demographics:   ['demographics.getUserProfile', 'demographics.getHousehold', 'demographics.getFinancialGoals', 'demographics.getInvestmentPreferences'],
+  checking:    ['plaid.getBalances', 'plaid.getTransactions', 'plaid.syncData', ...GOAL_CAPS],
+  savings:     ['plaid.getBalances', 'plaid.getTransactions', 'plaid.syncData', ...GOAL_CAPS],
+  investments: ['plaid.getHoldings', 'plaid.getSecurities', 'plaid.getPortfolioSummary', 'plaid.syncData', ...GOAL_CAPS],
+  retirement:  ['plaid.getHoldings', 'plaid.getSecurities', 'plaid.getPortfolioSummary', 'plaid.syncData', ...GOAL_CAPS],
+  debt:        ['plaid.getLiabilities', 'plaid.getDebtSummary', 'plaid.getCreditUtilization', 'plaid.syncData', ...GOAL_CAPS],
+  realestate:  ['property.getPropertySummary', 'property.getMortgageDetails', 'property.getEquityAnalysis', ...GOAL_CAPS],
+  demographics:   ['demographics.getUserProfile', 'demographics.getHousehold', 'demographics.getInvestmentPreferences', ...GOAL_CAPS],
 };
 
 // ─── Plugin Object ──────────────────────────────────────────────────────────
@@ -70,7 +78,15 @@ export const pendragonPlaid = {
     }
     registrar.tools(toolRegistry, config);
     registrar.capabilities(capabilityRegistry, config);
-    console.log(`[pendragon-plaid] Registered tools + capabilities for domain: ${config.domainType}`);
+    registerGoalCapabilities(capabilityRegistry, config);
+    console.log(`[pendragon-plaid] Registered tools + capabilities + goals for domain: ${config.domainType}`);
+
+    // Ensure domain has at least one goal (non-blocking, fire-and-forget)
+    if (config.databaseUrl) {
+      ensureDefaultGoals(config).catch((err) =>
+        console.warn(`[pendragon-plaid] Auto-goal check failed: ${err.message}`),
+      );
+    }
   },
 
   getAllowedOps(domainType: DomainType): string[] {
