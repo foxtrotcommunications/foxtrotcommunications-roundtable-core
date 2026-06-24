@@ -43,22 +43,36 @@ let _pluginsLoaded = false;
 })();
 
 const EXEC_PALETTE = [
-  'rgba(99, 102, 241, 0.8)',   // indigo
-  'rgba(168, 85, 247, 0.8)',   // purple
-  'rgba(59, 130, 246, 0.8)',   // blue
-  'rgba(34, 211, 238, 0.8)',   // cyan
-  'rgba(52, 211, 153, 0.8)',   // emerald
-  'rgba(251, 191, 36, 0.8)',   // amber
-  'rgba(251, 113, 133, 0.8)',  // rose
-  'rgba(244, 114, 182, 0.8)',  // pink
+  'rgba(74, 93, 82, 0.85)',     // deep olive      #4A5D52
+  'rgba(139, 158, 139, 0.85)',  // sage green       #8B9E8B
+  'rgba(181, 196, 177, 0.85)',  // muted sage       #B5C4B1
+  'rgba(47, 79, 79, 0.85)',     // dark slate       #2F4F4F
+  'rgba(107, 123, 110, 0.85)',  // olive gray       #6B7B6E
+  'rgba(61, 90, 76, 0.85)',     // forest olive     #3D5A4C
+  'rgba(163, 181, 160, 0.85)',  // light sage       #A3B5A0
+  'rgba(85, 107, 92, 0.85)',    // medium olive     #556B5C
+  'rgba(122, 139, 114, 0.85)',  // moss             #7A8B72
+  'rgba(68, 92, 74, 0.85)',     // pine             #445C4A
+  'rgba(155, 175, 147, 0.85)',  // dusty sage       #9BAF93
+  'rgba(54, 74, 60, 0.85)',     // deep forest      #364A3C
+  'rgba(194, 205, 184, 0.85)',  // pale lichen      #C2CDB8
+  'rgba(139, 69, 19, 0.85)',    // muted rust       #8B4513
+  'rgba(197, 209, 192, 0.85)',  // sage tint        #C5D1C0
 ];
 
-const BORDER_PALETTE = EXEC_PALETTE.map(c => c.replace('0.8)', '1)'));
+/** Derive a fully opaque border color from any CSS color string (rgba or hex) */
+function toBorderColor(c: string): string {
+  if (c.includes('rgba')) return c.replace(/[\d.]+\)$/, '1)');
+  if (c.startsWith('#')) return c; // hex is already opaque
+  return c;
+}
+
+const BORDER_PALETTE = EXEC_PALETTE.map(toBorderColor);
 
 const WATERFALL_COLORS = {
-  increase: 'rgba(52, 211, 153, 0.8)',  // emerald
-  decrease: 'rgba(251, 113, 133, 0.8)', // rose
-  total: 'rgba(99, 102, 241, 0.8)',      // indigo
+  increase: 'rgba(74, 93, 82, 0.85)',    // deep olive (positive)
+  decrease: 'rgba(139, 69, 19, 0.85)',    // muted rust (negative)
+  total: 'rgba(47, 79, 79, 0.85)',        // dark slate (totals)
 };
 
 /* ── Number formatting helper ─────────────────────────────────────── */
@@ -107,7 +121,7 @@ interface Props {
 function ChartRenderer({ config, onToggleTable }: Props) {
   const chartRef = useRef<ChartJS | null>(null);
   const palette = config.colors?.length ? config.colors : EXEC_PALETTE;
-  const borderPalette = palette.map(c => c.replace(/[\d.]+\)$/, '1)'));
+  const borderPalette = palette.map(toBorderColor);
   const numFmt = resolveNumberFormat(config);
 
   /* ── Annotation config ─────────────────────────────────────────── */
@@ -210,7 +224,7 @@ function ChartRenderer({ config, onToggleTable }: Props) {
       const fillTarget = isUpper
         ? (i === 1 ? 0 : i - 2) // upper: fill toward center or prev upper
         : (i === 2 ? 0 : i - 2); // lower: fill toward center or prev lower
-      const fillColor = `rgba(99, 102, 241, ${opacity})`;
+      const fillColor = `rgba(74, 93, 82, ${opacity})`;
 
       return {
         ...ds,
