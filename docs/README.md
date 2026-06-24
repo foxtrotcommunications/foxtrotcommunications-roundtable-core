@@ -6,7 +6,7 @@ Roundtable uses a **workspace-per-pod** architecture where each workspace runs a
 
 - **Express** server with Socket.IO for real-time multiplayer
 - **React** client (Vite) built at container start
-- **PostgreSQL** for persistence (messages, users, workspaces, usage tracking)
+- **PostgreSQL** for persistence (messages, users, workspaces, usage tracking); **SQLite** auto-fallback when no `DATABASE_URL` is set (local dev)
 - **AI Provider integration** (Vertex AI, OpenAI, Anthropic, Google AI)
 - **Tool system** with per-workspace allowlists
 
@@ -29,22 +29,23 @@ See `.env.example` for all available environment variables.
 
 ## Cross-Workspace Communication
 
-Roundtable supports two types of cross-workspace communication, both governed by cryptographic contracts:
+Roundtable supports two types of cross-workspace communication, both governed by cryptographic contracts.
+The wire protocol is **A2A** (JSON-RPC 2.0 over HTTP).
 
 ### Bridge Tools
 
 | Tool | Purpose | Latency | LLM Tokens |
 |------|---------|---------|------------|
 | `bridge_workspace` | AI-to-AI reasoning delegation (E2E encrypted) | ~3-5s | Full inference on receiver |
-| `intent_bridge` | Compiled intent execution (ICE protocol) | ~15ms hot / ~15s cold | Zero |
+| `intent_bridge` | Compiled intent execution (ICE protocol) | ~15ms hot / ~250s cold (max) | Zero |
 
 ### Wake-on-Request
 
 Workspaces scaled to zero replicas are automatically woken when a bridge request arrives. The calling workspace:
-1. Detects a 503 (sleeping target)
+1. Detects a 502 or 503 (sleeping target)
 2. Scales the target deployment via K8s API
-3. Retries every 5s with fresh HMAC signatures
-4. Returns results within ~15s of cold start
+3. Retries every 5s with fresh HMAC signatures (up to `MAX_WAKE_WAIT_MS` = 250 000 ms ≈ ~250s)
+4. Returns results once the target is healthy
 
 ### Contract Governance
 
