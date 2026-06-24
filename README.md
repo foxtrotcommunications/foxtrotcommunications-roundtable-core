@@ -6,7 +6,7 @@ Multiple users collaborate on AI conversations in real-time — with built-in to
 
 [![License](https://img.shields.io/badge/license-proprietary-red.svg)](#license)
 [![Tests](https://img.shields.io/badge/tests-414%20passing-brightgreen.svg)](#testing)
-[![Node](https://img.shields.io/badge/node-20%2B-blue.svg)](#prerequisites)
+[![Node](https://img.shields.io/badge/node-18%2B-blue.svg)](#prerequisites)
 [![CI](https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable-core/actions/workflows/ci.yml/badge.svg)](https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable-core/actions/workflows/ci.yml)
 
 > **Production** — [roundtable.foxtrotcommunications.net](https://roundtable.foxtrotcommunications.net)
@@ -39,7 +39,7 @@ Roundtable auto-detects the environment: if no `DATABASE_URL` is set, it uses SQ
 
 ### Prerequisites
 
-- **Node.js** 20+ (tested on 20, 22)
+- **Node.js** 18+ (tested on 20, 22)
 - **PostgreSQL** — required only for production (local dev uses SQLite automatically)
 
 ---
