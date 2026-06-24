@@ -4,6 +4,7 @@ import {
   Chart as ChartJS,
   CategoryScale,
   LinearScale,
+  RadialLinearScale,
   PointElement,
   LineElement,
   BarElement,
@@ -12,13 +13,14 @@ import {
   Tooltip,
   Legend,
 } from 'chart.js';
-import { Bar, Line, Pie, Doughnut, Scatter, Chart as ChartComponentRaw } from 'react-chartjs-2';
+import { Bar, Line, Pie, Doughnut, Scatter, PolarArea, Radar, Chart as ChartComponentRaw } from 'react-chartjs-2';
 import type { ChartResult } from '../../types/message';
 
 // Register Chart.js core components
 ChartJS.register(
   CategoryScale,
   LinearScale,
+  RadialLinearScale,
   PointElement,
   LineElement,
   BarElement,
@@ -277,24 +279,30 @@ function ChartRenderer({ config, onToggleTable }: Props) {
   const buildStandardDatasets = () => {
     const isOverlap = config.chartType === 'overlap';
     const isScenario = config.chartType === 'scenario';
+    const isPolar = config.chartType === 'polar';
+    const isRadar = config.chartType === 'radar';
+    const usePerSliceColors = ['pie', 'doughnut', 'polar'].includes(config.chartType);
 
     return config.datasets.map((ds, i) => ({
       ...ds,
       backgroundColor: ds.backgroundColor || (
-        ['pie', 'doughnut'].includes(config.chartType)
+        usePerSliceColors
           ? palette.slice(0, ds.data.length)
-          : palette[i % palette.length]
+          : isRadar
+            ? palette[i % palette.length].replace(/[\d.]+\)$/, '0.25)')
+            : palette[i % palette.length]
       ),
       borderColor: ds.borderColor || (
-        ['pie', 'doughnut'].includes(config.chartType)
+        usePerSliceColors
           ? borderPalette.slice(0, ds.data.length)
           : borderPalette[i % borderPalette.length]
       ),
-      borderWidth: isScenario ? 3 : 2,
-      fill: config.chartType === 'area',
-      tension: ['line', 'area', 'scenario'].includes(config.chartType) ? 0.3 : undefined,
-      pointRadius: config.chartType === 'scatter' ? 5 : (isScenario ? 4 : 3),
+      borderWidth: isScenario ? 3 : isRadar ? 2.5 : 2,
+      fill: config.chartType === 'area' || isRadar,
+      tension: ['line', 'area', 'scenario'].includes(config.chartType) ? 0.3 : isRadar ? 0.1 : undefined,
+      pointRadius: config.chartType === 'scatter' ? 5 : (isScenario ? 4 : isRadar ? 4 : 3),
       pointHoverRadius: isScenario ? 7 : 6,
+      pointBackgroundColor: isRadar ? borderPalette[i % borderPalette.length] : undefined,
     }));
   };
 
@@ -364,7 +372,7 @@ function ChartRenderer({ config, onToggleTable }: Props) {
 
   /* ── Build chart options ───────────────────────────────────────── */
 
-  const noAxes = ['pie', 'doughnut', 'treemap'].includes(config.chartType);
+  const noAxes = ['pie', 'doughnut', 'treemap', 'polar', 'radar'].includes(config.chartType);
 
   const options: Record<string, unknown> = {
     responsive: true,
@@ -463,6 +471,8 @@ function ChartRenderer({ config, onToggleTable }: Props) {
     fan: Line,
     scenario: Line,
     overlap: Bar,
+    polar: PolarArea,
+    radar: Radar,
     treemap: null, // handled separately below
   }[config.chartType] || Bar;
 
