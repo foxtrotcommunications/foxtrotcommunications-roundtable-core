@@ -1,7 +1,9 @@
 // src/domains/demographics.ts — Demographics domain module
 // Contains tools and capabilities for the demographics domain.
 // Unlike other domains, Demographics does NOT use Plaid — it queries
-// PostgreSQL directly for user profile, household, goals, and preferences.
+// PostgreSQL directly for user profile, household, and preferences.
+// Note: Financial goals are managed through the Goals capability service,
+// not through demographics seed data.
 
 import { withPool } from '../db/pool.js';
 import type {
@@ -55,21 +57,6 @@ function createGetHouseholdHandler(config: PlaidPluginConfig): CapabilityHandler
   };
 }
 
-function createGetFinancialGoalsHandler(config: PlaidPluginConfig): CapabilityHandler {
-  return async (_input, _ctx) => {
-    return withPool(config.databaseUrl, async (pool) => {
-      const { rows } = await pool.query(
-        `SELECT id, user_id, goal_type, description,
-                target_age, target_amount, priority, status, created_at
-         FROM financial_goals
-         WHERE status = 'active'
-         ORDER BY priority DESC`,
-      );
-      return { goals: rows, count: rows.length };
-    });
-  };
-}
-
 function createGetInvestmentPreferencesHandler(config: PlaidPluginConfig): CapabilityHandler {
   return async (_input, _ctx) => {
     return withPool(config.databaseUrl, async (pool) => {
@@ -94,7 +81,6 @@ export function registerDemographicsTools(registry: ToolRegistry, config: PlaidP
   const handler = {
     userProfile: createGetUserProfileHandler(config),
     household: createGetHouseholdHandler(config),
-    financialGoals: createGetFinancialGoalsHandler(config),
     investmentPreferences: createGetInvestmentPreferencesHandler(config),
   };
 
@@ -121,18 +107,8 @@ export function registerDemographicsTools(registry: ToolRegistry, config: PlaidP
       return handler.household({}, null) as Promise<Record<string, unknown>>;
     },
   });
-
-  registry.register('get_financial_goals', {
-    name: 'get_financial_goals',
-    description:
-      'Get all active financial goals including retirement targets, education funding plans (529s), ' +
-      'savings goals, and their priorities, target ages, and target amounts.',
-    parameters: { type: 'object', properties: {}, required: [] },
-    alwaysEnabled: true,
-    async execute() {
-      return handler.financialGoals({}, null) as Promise<Record<string, unknown>>;
-    },
-  });
+  // Note: get_financial_goals removed — goals are now managed through the
+  // Goals capability service (capability:goals.*), not demographics seed data.
 
   registry.register('get_investment_preferences', {
     name: 'get_investment_preferences',
@@ -146,7 +122,7 @@ export function registerDemographicsTools(registry: ToolRegistry, config: PlaidP
     },
   });
 
-  console.log('[demographics] Registered 4 domain tools: get_user_profile, get_household, get_financial_goals, get_investment_preferences');
+  console.log('[demographics] Registered 3 domain tools: get_user_profile, get_household, get_investment_preferences');
 }
 
 // ─── Capability Registration ────────────────────────────────────────────────
@@ -184,22 +160,10 @@ export function registerDemographicsCapabilities(registry: CapabilityRegistry, c
     handler: createGetHouseholdHandler(config),
   });
 
-  // 3. Financial goals
-  registry.register({
-    name: 'demographics.getFinancialGoals',
-    description: 'Get active financial goals including retirement targets, education 529 plans, and priorities',
-    inputSchema: { type: 'object', properties: {} },
-    outputSchema: {
-      type: 'object',
-      properties: {
-        goals: { type: 'array', description: 'Financial goals with goal_type, description, target_age, target_amount, priority, status' },
-        count: { type: 'number' },
-      },
-    },
-    handler: createGetFinancialGoalsHandler(config),
-  });
+  // Note: demographics.getFinancialGoals removed — goals are now managed
+  // through the Goals capability service (capability:goals.*)
 
-  // 4. Investment preferences
+  // 3. Investment preferences
   registry.register({
     name: 'demographics.getInvestmentPreferences',
     description: 'Get investment preferences including risk tolerance, liquidity preference, time horizon, and asset class preferences/exclusions',
@@ -216,5 +180,5 @@ export function registerDemographicsCapabilities(registry: CapabilityRegistry, c
     handler: createGetInvestmentPreferencesHandler(config),
   });
 
-  console.log('[demographics] Registered 4 capabilities: demographics.getUserProfile, demographics.getHousehold, demographics.getFinancialGoals, demographics.getInvestmentPreferences');
+  console.log('[demographics] Registered 3 capabilities: demographics.getUserProfile, demographics.getHousehold, demographics.getInvestmentPreferences');
 }

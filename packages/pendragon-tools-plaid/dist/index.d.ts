@@ -1,5 +1,6 @@
 import type { DomainType, ToolRegistry, CapabilityRegistry, PlaidPluginConfig } from './types.js';
 export { ScopedPlaidClient } from './plaid/client.js';
+export { ensureDefaultGoals } from './domains/autoGoals.js';
 export * from './types.js';
 export declare const pendragonPlaid: {
     name: "pendragon-plaid";

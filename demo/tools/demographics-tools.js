@@ -43,16 +43,8 @@ const get_household = {
   },
 };
 
-const get_financial_goals = {
-  name: 'get_financial_goals',
-  description: 'Get all financial goals including retirement targets, education funding plans, and their priorities.',
-  parameters: { type: 'object', properties: {}, required: [] },
-  alwaysEnabled: true,
-  async execute() {
-    const rows = await query('SELECT * FROM financial_goals WHERE status = $1 ORDER BY priority DESC', ['active']);
-    return { goals: rows, count: rows.length };
-  },
-};
+// Note: get_financial_goals removed — goals are now managed through the
+// Goals capability service (capability:goals.*), not demographics seed data.
 
 const get_investment_preferences = {
   name: 'get_investment_preferences',
@@ -67,5 +59,5 @@ const get_investment_preferences = {
 };
 
 module.exports = {
-  tools: [get_user_profile, get_household, get_financial_goals, get_investment_preferences],
+  tools: [get_user_profile, get_household, get_investment_preferences],
 };

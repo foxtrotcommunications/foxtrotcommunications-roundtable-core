@@ -75,16 +75,43 @@ CREATE TABLE IF NOT EXISTS plaid_liabilities (
   synced_at TIMESTAMPTZ DEFAULT NOW()
 );
 `;
+// ─── Goal Tables (all domains) ──────────────────────────────────────────────
+const GOAL_TABLES = `
+CREATE TABLE IF NOT EXISTS domain_goals (
+  id TEXT PRIMARY KEY,
+  goal_type TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  target_amount REAL,
+  target_date TEXT,
+  monthly_contribution REAL,
+  parameters JSONB DEFAULT '{}',
+  status TEXT DEFAULT 'active',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS goal_snapshots (
+  id SERIAL PRIMARY KEY,
+  goal_id TEXT REFERENCES domain_goals(id) ON DELETE CASCADE,
+  current_value REAL,
+  progress_pct REAL,
+  on_track BOOLEAN,
+  projected_date TEXT,
+  details JSONB DEFAULT '{}',
+  snapshot_at TIMESTAMPTZ DEFAULT NOW()
+);
+`;
 // ─── Domain → Tables Mapping (strict isolation) ────────────────────────────
 const DOMAIN_SCHEMAS = {
-    checking: COMMON_TABLES + TRANSACTION_TABLES,
-    savings: COMMON_TABLES + TRANSACTION_TABLES,
-    investments: COMMON_TABLES + INVESTMENT_TABLES,
-    retirement: COMMON_TABLES + INVESTMENT_TABLES,
-    debt: COMMON_TABLES + TRANSACTION_TABLES + LIABILITY_TABLES,
-    taxes: COMMON_TABLES + TRANSACTION_TABLES,
-    realestate: COMMON_TABLES + TRANSACTION_TABLES + LIABILITY_TABLES,
-    demographics: '', // Demographics uses its own schema (04-schema-demographics.sql), not Plaid tables
+    checking: COMMON_TABLES + TRANSACTION_TABLES + GOAL_TABLES,
+    savings: COMMON_TABLES + TRANSACTION_TABLES + GOAL_TABLES,
+    investments: COMMON_TABLES + INVESTMENT_TABLES + GOAL_TABLES,
+    retirement: COMMON_TABLES + INVESTMENT_TABLES + GOAL_TABLES,
+    debt: COMMON_TABLES + TRANSACTION_TABLES + LIABILITY_TABLES + GOAL_TABLES,
+    taxes: COMMON_TABLES + TRANSACTION_TABLES + GOAL_TABLES,
+    realestate: COMMON_TABLES + TRANSACTION_TABLES + LIABILITY_TABLES + GOAL_TABLES,
+    demographics: GOAL_TABLES, // Demographics uses its own schema (04-schema-demographics.sql), only needs goal tables
 };
 export function getSchemaForDomain(domainType) {
     const schema = DOMAIN_SCHEMAS[domainType];

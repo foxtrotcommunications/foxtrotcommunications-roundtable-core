@@ -22,17 +22,9 @@ CREATE TABLE IF NOT EXISTS household_members (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS financial_goals (
-  id SERIAL PRIMARY KEY,
-  user_id INTEGER REFERENCES user_profile(id),
-  goal_type TEXT NOT NULL,
-  description TEXT,
-  target_age INTEGER,
-  target_amount NUMERIC,
-  priority TEXT DEFAULT 'medium',
-  status TEXT DEFAULT 'active',
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
+-- financial_goals table removed — goals are now managed through the
+-- Goals capability service (capability:goals.*), not demographics SQL.
+DROP TABLE IF EXISTS financial_goals;
 
 CREATE TABLE IF NOT EXISTS investment_preferences (
   id SERIAL PRIMARY KEY,
