@@ -6,14 +6,14 @@ import type { Tool } from '../types';
 
 const tool: Tool = {
   name: 'render_chart',
-  description: 'Render an interactive chart visualization inline in your response. Supports: bar, line, pie, doughnut, scatter, area, waterfall (value buildups), treemap (hierarchical proportions), fan (projections with confidence bands), scenario (side-by-side comparisons), and overlap (exposure analysis). After calling this tool, you MUST include the returned chart block in your response text exactly as provided. After the chart, provide a blockquote italic caption with the key takeaway.',
+  description: 'Render an interactive chart visualization inline in your response. Supports: bar, line, pie, doughnut, scatter, area, waterfall (value buildups), treemap (hierarchical proportions), fan (projections with confidence bands), scenario (side-by-side comparisons), overlap (exposure analysis), polar (radial proportions with magnitude), and radar (multi-dimensional comparisons). After calling this tool, you MUST include the returned chart block in your response text exactly as provided. After the chart, provide a blockquote italic caption with the key takeaway.',
   parameters: {
     type: 'object',
     properties: {
       type: {
         type: 'string',
-        enum: ['bar', 'line', 'pie', 'doughnut', 'scatter', 'area', 'waterfall', 'treemap', 'fan', 'scenario', 'overlap'],
-        description: 'Chart type. Use bar for comparisons, line for trends over time, pie/doughnut for proportions, scatter for correlations, waterfall for value buildups/breakdowns, treemap for hierarchical proportions, fan for projections with confidence bands, scenario for side-by-side comparisons, overlap for exposure/overlap analysis. IMPORTANT: For scatter charts, each data point must be an object {x: number, y: number} — do NOT use flat number arrays.',
+        enum: ['bar', 'line', 'pie', 'doughnut', 'scatter', 'area', 'waterfall', 'treemap', 'fan', 'scenario', 'overlap', 'polar', 'radar'],
+        description: 'Chart type. Use bar for comparisons, line for trends over time, pie/doughnut for proportions, scatter for correlations, waterfall for value buildups/breakdowns, treemap for hierarchical proportions, fan for projections with confidence bands, scenario for side-by-side comparisons, overlap for exposure/overlap analysis, polar for radial proportions (like pie but with magnitude), radar for multi-dimensional comparisons. IMPORTANT: For scatter charts, each data point must be an object {x: number, y: number} — do NOT use flat number arrays.',
       },
       title: {
         type: 'string',
