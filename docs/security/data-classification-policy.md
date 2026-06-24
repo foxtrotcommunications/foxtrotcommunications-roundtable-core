@@ -31,7 +31,7 @@ This policy applies to all data created, processed, stored, or transmitted by th
 | Data Type | Storage Location | Protection |
 |-----------|-----------------|------------|
 | User API keys (OpenAI, Anthropic, etc.) | Per-workspace Cloud SQL database | Encrypted at rest (AES-256 via Cloud SQL) |
-| Database credentials | K8s Secrets → planned migration to Secret Manager | Base64 encoded → will be encrypted |
+| Database credentials | GCP Secret Manager | Encrypted at rest, IAM-scoped access |
 | Firebase service account keys | K8s Secrets | Scoped to minimum required permissions |
 | Session secrets | K8s Secrets | Unique per workspace |
 | Cloud SQL passwords | K8s Secrets | Rotated on provisioning |

@@ -33,7 +33,7 @@ GCP maintains its own SOC 2 Type II report, which covers the controls listed und
 | Container image hosting | ✅ Artifact Registry infrastructure | ✅ Enable vulnerability scanning, use signed images |
 | Workload Identity | ✅ Token issuance and IAM binding | ✅ Annotate service accounts, bind KSA ↔ GSA |
 | Ingress and load balancing | ✅ Network load balancer | ✅ Configure nginx-ingress, TLS certificates |
-| Secrets storage | ✅ etcd encryption at rest | ✅ Create and manage K8s Secrets (planned: Secret Manager) |
+| Secrets storage | ✅ etcd encryption at rest | ✅ Manage K8s Secrets and GCP Secret Manager |
 
 ## 4. Data Layer
 
