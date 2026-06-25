@@ -951,6 +951,34 @@ NEVER write a wall of text. If your response has more than one idea, it needs st
                 _ga().audit(config.workspaceId, socket.userId, socket.username, 'tool_call', event.name, {
                   args: JSON.stringify(event.args).substring(0, 500),
                 }, socket.handshake?.address).catch(() => {}); }
+              // Chart telemetry: always-sampled span capturing what type the model chose
+              if (event.name === 'render_chart' && event.args) {
+                const chartArgs = event.args as Record<string, unknown>;
+                const datasets = Array.isArray(chartArgs.datasets) ? chartArgs.datasets as any[] : [];
+                const chartSpan = startSpan({
+                  traceId: rootSpan.traceId,
+                  parentSpanId: rootSpan.spanId,
+                  workspaceId: config.workspaceId,
+                  workspaceName: workspace?.name || config.workspaceId,
+                  operation: 'render_chart',
+                  toolName: 'render_chart',
+                  inputPreview: JSON.stringify(chartArgs).substring(0, 500),
+                  sampled: true,
+                });
+                endSpan(chartSpan, 'completed', {
+                  metadata: {
+                    chartType: chartArgs.type,
+                    title: chartArgs.title,
+                    datasetCount: datasets.length,
+                    datasetLabels: datasets.map((d: any) => d.label).filter(Boolean),
+                    labelCount: Array.isArray(chartArgs.labels) ? (chartArgs.labels as any[]).length : 0,
+                    stacked: chartArgs.stacked || false,
+                    horizontal: chartArgs.horizontal || false,
+                    currency: chartArgs.currency || null,
+                  },
+                });
+                recordSpan(chartSpan);
+              }
               break;
             case 'tool-result':
               console.log(`[Tool] Result from ${event.name}:`, JSON.stringify(event.result).substring(0, 200));
