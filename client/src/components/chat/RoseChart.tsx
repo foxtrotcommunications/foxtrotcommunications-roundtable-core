@@ -239,14 +239,28 @@ function RoseChart({
         currentAngle = endAngle;
       }
 
-      // ── Outer labels with leader lines ──────────────────────────
+      // ── Outer labels with leader lines (collision-resolved) ────
       if (progress > 0.6) {
         const labelOpacity = Math.min(1, (progress - 0.6) / 0.4);
+        const MIN_LABEL_GAP = 22; // minimum vertical px between label centers
+
+        // Phase 1: collect raw label positions into left/right buckets
+        interface LabelEntry {
+          idx: number;
+          midAngle: number;
+          petalR: number;
+          rawY: number;       // ideal Y from geometry
+          resolvedY: number;  // Y after collision fix
+          anchorX: number;    // X where leader line meets label column
+          isRight: boolean;
+        }
+        const leftLabels: LabelEntry[] = [];
+        const rightLabels: LabelEntry[] = [];
 
         currentAngle = -Math.PI / 2;
         for (let i = 0; i < labels.length; i++) {
           const angle = angles[i];
-          if (angle < 0.005) continue;
+          if (angle < 0.005) { currentAngle += angle; continue; }
 
           const rv = radiusValues[i] || 0;
           const petalR = Math.max(15, baselineR + (rv / maxAbsR) * rScale);
@@ -254,21 +268,60 @@ function RoseChart({
           const labelR = Math.max(petalR, baselineR) + 22;
           const lx = cx + Math.cos(midAngle) * labelR;
           const ly = cy + Math.sin(midAngle) * labelR;
+          const isRight = midAngle > -Math.PI / 2 && midAngle < Math.PI / 2;
 
-          const isRight =
-            midAngle > -Math.PI / 2 && midAngle < Math.PI / 2;
+          const entry: LabelEntry = {
+            idx: i, midAngle, petalR,
+            rawY: ly, resolvedY: ly,
+            anchorX: lx, isRight,
+          };
+          (isRight ? rightLabels : leftLabels).push(entry);
+          currentAngle += angle;
+        }
 
-          // Leader line
-          const lineStart = petalR + 4;
-          ctx.beginPath();
-          ctx.moveTo(
-            cx + Math.cos(midAngle) * lineStart,
-            cy + Math.sin(midAngle) * lineStart,
-          );
-          ctx.lineTo(lx, ly);
-          // Horizontal tick
+        // Phase 2: resolve collisions per side
+        function resolveCollisions(bucket: LabelEntry[]) {
+          if (bucket.length <= 1) return;
+          // sort by raw Y so we process top-to-bottom
+          bucket.sort((a, b) => a.rawY - b.rawY);
+
+          // iterative relaxation (3 passes handles most cases)
+          for (let pass = 0; pass < 3; pass++) {
+            for (let j = 1; j < bucket.length; j++) {
+              const gap = bucket[j].resolvedY - bucket[j - 1].resolvedY;
+              if (gap < MIN_LABEL_GAP) {
+                const push = (MIN_LABEL_GAP - gap) / 2;
+                bucket[j - 1].resolvedY -= push;
+                bucket[j].resolvedY += push;
+              }
+            }
+          }
+
+          // clamp to canvas bounds (leave 8px padding)
+          for (const entry of bucket) {
+            entry.resolvedY = Math.max(8, Math.min(H - 8, entry.resolvedY));
+          }
+        }
+        resolveCollisions(leftLabels);
+        resolveCollisions(rightLabels);
+
+        // Phase 3: draw with elbow leader lines
+        const allLabels = [...leftLabels, ...rightLabels];
+        for (const entry of allLabels) {
+          const { idx, midAngle, petalR, resolvedY, anchorX, isRight } = entry;
           const tickDir = isRight ? 1 : -1;
-          ctx.lineTo(lx + tickDir * 12, ly);
+
+          // Leader line: petal edge → elbow → label
+          const lineStart = petalR + 4;
+          const startX = cx + Math.cos(midAngle) * lineStart;
+          const startY = cy + Math.sin(midAngle) * lineStart;
+
+          ctx.beginPath();
+          ctx.moveTo(startX, startY);
+          // go to anchor X at the resolved Y (elbow)
+          ctx.lineTo(anchorX, resolvedY);
+          // horizontal tick
+          ctx.lineTo(anchorX + tickDir * 12, resolvedY);
           ctx.strokeStyle = `rgba(161, 161, 170, ${0.35 * labelOpacity})`;
           ctx.lineWidth = 1;
           ctx.stroke();
@@ -278,20 +331,18 @@ function RoseChart({
           ctx.font = `11px ${FONT_FAMILY}`;
           ctx.textAlign = isRight ? 'left' : 'right';
           ctx.textBaseline = 'middle';
-          const textX = lx + tickDir * 16;
+          const textX = anchorX + tickDir * 16;
           const displayLabel =
-            labels[i].length > 20
-              ? labels[i].substring(0, 18) + '…'
-              : labels[i];
-          ctx.fillText(displayLabel, textX, ly);
+            labels[idx].length > 20
+              ? labels[idx].substring(0, 18) + '…'
+              : labels[idx];
+          ctx.fillText(displayLabel, textX, resolvedY);
 
           // Theta annotation
           ctx.fillStyle = `rgba(161, 161, 170, ${0.6 * labelOpacity})`;
           ctx.font = `9px ${FONT_FAMILY}`;
-          const thetaDeg = (thetaValues[i] / thetaSum * 360).toFixed(1);
-          ctx.fillText(`θ ${thetaDeg}°`, textX, ly + 13);
-
-          currentAngle += angle;
+          const thetaDeg = (thetaValues[idx] / thetaSum * 360).toFixed(1);
+          ctx.fillText(`θ ${thetaDeg}°`, textX, resolvedY + 13);
         }
       }
 
