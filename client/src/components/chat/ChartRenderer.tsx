@@ -464,7 +464,7 @@ function ChartRendererInner({ config }: { config: ChartConfig }) {
               : Bar;
 
   return (
-    <div className="msg-chart-wrap">
+    <div className={`msg-chart-wrap${isRose ? ' msg-chart-wrap--rose' : ''}`}>
       {isRose ? (
         <RoseChart
           labels={config.labels || []}
