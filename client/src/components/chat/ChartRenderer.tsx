@@ -301,7 +301,7 @@ function applyDefaults(config: ChartConfig) {
 
 /* ── Main component ─────────────────────────────────────────────── */
 
-function ChartRendererInner({ config }: { config: ChartConfig }) {
+function ChartRendererInner({ config }: { config: ChartConfig; onToggleTable?: () => void }) {
   const numFmt = resolveNumberFormat(config);
   const type = config.chartType;
   const isRose = type === 'rose';
@@ -525,10 +525,10 @@ class ChartErrorBoundary extends React.Component<
   }
 }
 
-function ChartRendererWithBoundary({ config }: { config: ChartConfig }) {
+function ChartRendererWithBoundary({ config, onToggleTable }: { config: ChartConfig; onToggleTable?: () => void }) {
   return (
     <ChartErrorBoundary>
-      <ChartRendererInner config={config} />
+      <ChartRendererInner config={config} onToggleTable={onToggleTable} />
     </ChartErrorBoundary>
   );
 }
