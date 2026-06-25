@@ -105,7 +105,8 @@ export interface ChartNumberFormat {
 
 export interface ChartResult {
   chartType: 'bar' | 'line' | 'pie' | 'doughnut' | 'scatter' | 'area'
-    | 'waterfall' | 'treemap' | 'fan' | 'scenario' | 'overlap';
+    | 'waterfall' | 'treemap' | 'fan' | 'scenario' | 'overlap'
+    | 'polar' | 'radar' | 'rose';
   title: string;
   labels: string[];
   datasets: Array<{

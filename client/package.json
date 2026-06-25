@@ -13,6 +13,8 @@
     "chart.js": "^4.4.0",
     "chartjs-chart-treemap": "^3.1.0",
     "chartjs-plugin-annotation": "^3.1.0",
+    "echarts": "^6.1.0",
+    "echarts-for-react": "^3.0.6",
     "html2canvas": "^1.4.1",
     "jspdf": "^2.5.0",
     "katex": "^0.17.0",
