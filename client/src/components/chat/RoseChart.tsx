@@ -1,4 +1,3 @@
-// @ts-nocheck
 // RoseChart — Custom coxcomb/rose chart with variable θ (angle) and variable r (radius)
 // Used when chartType === 'rose' in ChartRenderer
 //
@@ -399,7 +398,7 @@ function RoseChart({
       const dx = mx - cx;
       const dy = my - cy;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      let angle = Math.atan2(dy, dx);
+      const angle = Math.atan2(dy, dx);
 
       // Normalize angle to match our drawing (starts at -PI/2)
       // atan2 range is [-PI, PI], our petals start at -PI/2
@@ -409,22 +408,18 @@ function RoseChart({
       for (const g of geoRef.current) {
         if (g.outerR === 0) continue;
 
-        // Check if angle is within this slice
-        let inAngle = false;
-        let sa = g.startAngle;
-        let ea = g.endAngle;
-
-        // Normalize
-        while (sa > Math.PI) sa -= Math.PI * 2;
-        while (sa < -Math.PI) sa += Math.PI * 2;
-        while (ea > Math.PI) ea -= Math.PI * 2;
-        while (ea < -Math.PI) ea += Math.PI * 2;
-
-        if (sa <= ea) {
-          inAngle = angle >= sa && angle <= ea;
-        } else {
-          inAngle = angle >= sa || angle <= ea;
-        }
+        // Check if angle is within this slice (normalize to [-PI, PI])
+        const normAngle = (a: number) => {
+          let n = a;
+          while (n > Math.PI) n -= Math.PI * 2;
+          while (n < -Math.PI) n += Math.PI * 2;
+          return n;
+        };
+        const sa = normAngle(g.startAngle);
+        const ea = normAngle(g.endAngle);
+        const inAngle = sa <= ea
+          ? (angle >= sa && angle <= ea)
+          : (angle >= sa || angle <= ea);
 
         if (inAngle && dist <= g.outerR) {
           setTooltip({
@@ -464,6 +459,7 @@ function RoseChart({
         onMouseLeave={handleMouseLeave}
         style={{
           width: '100%',
+          maxHeight: '480px',
           aspectRatio: '1',
           cursor: tooltip ? 'crosshair' : 'default',
         }}
@@ -516,7 +512,8 @@ function RoseChart({
           display: 'flex',
           justifyContent: 'center',
           gap: 24,
-          padding: '8px 0 4px',
+          padding: '8px 0 16px',
+          marginBottom: 8,
           fontSize: 11,
           fontFamily: FONT_FAMILY,
           color: '#71717a',
