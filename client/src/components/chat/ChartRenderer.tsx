@@ -15,6 +15,7 @@ import {
 } from 'chart.js';
 import { Bar, Line, Pie, Doughnut, Scatter, PolarArea, Radar, Chart as ChartComponentRaw } from 'react-chartjs-2';
 import type { ChartResult } from '../../types/message';
+import RoseChart from './RoseChart';
 
 // Register Chart.js core components
 ChartJS.register(
@@ -312,6 +313,7 @@ function ChartRenderer({ config, onToggleTable }: Props) {
   const isTreemap = config.chartType === 'treemap';
   const isFan = config.chartType === 'fan';
   const isOverlap = config.chartType === 'overlap';
+  const isRose = config.chartType === 'rose';
 
   let data: any;
   if (isWaterfall) {
@@ -507,7 +509,16 @@ function ChartRenderer({ config, onToggleTable }: Props) {
         </div>
       </div>
       <ChartErrorBoundary onError={(msg) => setRenderError(msg)} chartType={config.chartType}>
-        {isTreemap ? (
+        {isRose ? (
+          <RoseChart
+            labels={config.labels || []}
+            thetaValues={(config.datasets[0]?.data as number[]) || []}
+            radiusValues={(config.datasets[1]?.data as number[]) || []}
+            palette={palette}
+            thetaLabel={config.datasets[0]?.label || 'Share'}
+            radiusLabel={config.datasets[1]?.label || 'Change'}
+          />
+        ) : isTreemap ? (
           <ChartComponentRaw
             ref={chartRef as any}
             type="treemap"
