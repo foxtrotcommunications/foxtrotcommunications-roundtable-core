@@ -26,7 +26,69 @@ export async function evaluateGoalProgress(pool, goalId, domainType) {
         };
     }
     const goal = goalResult.rows[0];
-    // Dispatch to domain-specific evaluator
+    // ── Snapshot-first strategy ──────────────────────────────────────────────
+    // When multiple goals share a domain (e.g., 3 college funds + retirement
+    // in the retirement domain), the domain-level aggregate query would apply
+    // the TOTAL portfolio balance to every goal. Check for a recent snapshot
+    // first and use per-goal values when available.
+    const snapshotResult = await pool.query(`SELECT * FROM goal_snapshots
+     WHERE goal_id = $1
+       AND snapshot_at >= NOW() - INTERVAL '7 days'
+     ORDER BY snapshot_at DESC
+     LIMIT 1`, [goalId]);
+    if (snapshotResult.rows.length > 0) {
+        const snap = snapshotResult.rows[0];
+        const targetAmount = goal.target_amount ?? 0;
+        const currentValue = parseFloat(snap.current_value) || 0;
+        const progressPct = parseFloat(snap.progress_pct) || 0;
+        const onTrack = snap.on_track ?? false;
+        const projectedDate = snap.projected_date || null;
+        const details = snap.details || {};
+        // Compute monthly gap if we have a target date
+        let monthlyRequired = null;
+        let gap = null;
+        const monthlyContrib = goal.monthly_contribution || 0;
+        if (goal.target_date && targetAmount > 0) {
+            const targetDate = new Date(goal.target_date);
+            const now = new Date();
+            const monthsRemaining = Math.max((targetDate.getFullYear() - now.getFullYear()) * 12 +
+                (targetDate.getMonth() - now.getMonth()), 1);
+            const remaining = Math.max(targetAmount - currentValue, 0);
+            monthlyRequired = Math.round(remaining / monthsRemaining);
+            gap = Math.max(monthlyRequired - monthlyContrib, 0);
+        }
+        let recommendation = '';
+        if (progressPct >= 100) {
+            recommendation = 'Goal achieved! 🎉';
+        }
+        else if (onTrack) {
+            recommendation = `On track at $${currentValue.toLocaleString()} of $${targetAmount.toLocaleString()} target.`;
+        }
+        else if (gap !== null && gap > 0) {
+            recommendation = `Behind target. Increase contributions by $${gap}/mo to stay on track.`;
+        }
+        else {
+            recommendation = `$${currentValue.toLocaleString()} of $${targetAmount.toLocaleString()} target (${progressPct.toFixed(1)}%).`;
+        }
+        return {
+            goal_id: goalId,
+            goal_name: goal.name,
+            goal_type: goal.goal_type,
+            target_amount: targetAmount,
+            target_date: goal.target_date,
+            current_value: currentValue,
+            progress_pct: Math.round(progressPct * 10) / 10,
+            on_track: onTrack,
+            projected_date: projectedDate,
+            monthly_required: monthlyRequired,
+            monthly_current: monthlyContrib ? Math.round(monthlyContrib) : null,
+            gap,
+            recommendation,
+            details: { ...details, source: 'goal_snapshot' },
+        };
+    }
+    // ────────────────────────────────────────────────────────────────────────
+    // No recent snapshot — fall back to domain-specific evaluator
     switch (domainType) {
         case 'checking':
         case 'savings':
