@@ -475,20 +475,24 @@ function ChartRendererInner({ config }: { config: ChartConfig }) {
           radiusLabel={config.datasets[1]?.label || 'Change'}
         />
       ) : isTreemap ? (
-        <ChartComponentRaw
-          type="treemap"
-          data={data}
-          options={{
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              title: { display: !!config.title, text: config.title, color: '#1e293b' },
-              legend: { display: false },
-            },
-          }}
-        />
+        <div style={{ position: 'relative', width: '100%', height: '400px' }}>
+          <ChartComponentRaw
+            type="treemap"
+            data={data}
+            options={{
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                title: { display: !!config.title, text: config.title, color: '#1e293b' },
+                legend: { display: false },
+              },
+            }}
+          />
+        </div>
       ) : ChartComponent ? (
-        <ChartComponent data={data} options={chartOptions} />
+        <div style={{ position: 'relative', width: '100%', height: '400px' }}>
+          <ChartComponent data={data} options={chartOptions} />
+        </div>
       ) : null}
       <button
         onClick={handleDownloadCsv}
