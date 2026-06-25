@@ -1,83 +1,103 @@
-// @ts-nocheck
-// ChartRenderer — ECharts-powered chart visualization for Roundtable
-// Replaces the old Chart.js renderer with richer animations, native rose/nightingale,
-// gradient fills, and a premium dark theme.
-
-import React, { useRef, memo, useCallback } from 'react';
-import ReactECharts from 'echarts-for-react';
-import * as echarts from 'echarts';
-import type { ChartResult } from '../../types/message';
+import React, { memo, useCallback } from 'react';
 import RoseChart from './RoseChart';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  LineElement,
+  PointElement,
+  ArcElement,
+  Filler,
+  Tooltip,
+  Legend,
+  Title,
+} from 'chart.js';
+import { Bar, Line, Pie, Doughnut, Scatter, Chart as ChartComponentRaw } from 'react-chartjs-2';
 
-/* ═══════════════════════════════════════════════════════════════════
-   PALETTE — Pendragon olive-drab
-   ═══════════════════════════════════════════════════════════════════ */
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  LineElement,
+  PointElement,
+  ArcElement,
+  Filler,
+  Tooltip,
+  Legend,
+  Title,
+);
+
+// Dynamically register optional plugins (non-fatal if unavailable)
+(async () => {
+  try {
+    const annotation = await import('chartjs-plugin-annotation');
+    ChartJS.register(annotation.default);
+  } catch { /* optional plugin */ }
+  try {
+    const treemap = await import('chartjs-chart-treemap');
+    ChartJS.register(treemap.TreemapController, treemap.TreemapElement);
+  } catch { /* optional plugin */ }
+})();
+
+export interface ChartConfig {
+  chartType: 'bar' | 'line' | 'pie' | 'doughnut' | 'scatter' | 'area'
+    | 'waterfall' | 'treemap' | 'fan' | 'scenario' | 'overlap'
+    | 'rose' | 'polar' | 'radar';
+  title: string;
+  labels: string[];
+  datasets: Array<{
+    label: string;
+    data: any[];
+    backgroundColor?: string | string[];
+    borderColor?: string | string[];
+  }>;
+  xAxisLabel?: string | null;
+  yAxisLabel?: string | null;
+  stacked?: boolean;
+  horizontal?: boolean;
+  numberFormat?: { prefix?: string; suffix?: string; compact?: boolean };
+  currency?: string;
+  annotations?: Array<{ type: string; value: number; label?: string; color?: string; axis?: string }>;
+  colors?: string[];
+  totals?: boolean[];
+}
 
 const PALETTE = [
-  '#4A5D52',  // deep olive
-  '#8B9E8B',  // sage green
-  '#B5C4B1',  // muted sage
-  '#2F4F4F',  // dark slate
-  '#6B7B6E',  // olive gray
-  '#3D5A4C',  // forest olive
-  '#A3B5A0',  // light sage
-  '#556B5C',  // medium olive
-  '#7A8B72',  // moss
-  '#445C4A',  // pine
-  '#9BAF93',  // dusty sage
-  '#364A3C',  // deep forest
-  '#C2CDB8',  // pale lichen
-  '#8B4513',  // muted rust
-  '#C5D1C0',  // sage tint
+  '#6B7F4E', // olive drab
+  '#8B7D3C', // dark goldenrod / muted yellow-olive
+  '#A68B4B', // warm ochre
+  '#9B6B47', // burnt sienna / muted red-brown
+  '#7D5A50', // clay
+  '#5C7A6B', // muted sage teal
+  '#8A7E6B', // warm taupe
+  '#6E7E5A', // moss green
+  '#B89B6A', // muted gold
+  '#8C6356', // dusty terracotta
+  '#5B6E5D', // deep sage
+  '#A08C72', // sandstone
 ];
 
-/* ═══════════════════════════════════════════════════════════════════
-   CUSTOM THEME
-   ═══════════════════════════════════════════════════════════════════ */
+const WATERFALL_COLORS = {
+  increase: '#6B7F4E',
+  decrease: '#9B6B47',
+  total: '#5C7A6B',
+};
 
-echarts.registerTheme('pendragon', {
-  color: PALETTE,
-  backgroundColor: 'transparent',
-  textStyle: { fontFamily: 'Inter, system-ui, -apple-system, sans-serif', color: '#a1a1aa' },
-  title: {
-    textStyle: { color: '#e4e4e7', fontWeight: 600, fontSize: 14 },
-  },
-  legend: {
-    textStyle: { color: '#a1a1aa', fontSize: 12 },
-    pageTextStyle: { color: '#71717a' },
-  },
-  categoryAxis: {
-    axisLine: { lineStyle: { color: 'rgba(63, 63, 70, 0.5)' } },
-    axisTick: { show: false },
-    axisLabel: { color: '#71717a', fontSize: 11 },
-    splitLine: { lineStyle: { color: 'rgba(63, 63, 70, 0.15)', type: 'dashed' } },
-  },
-  valueAxis: {
-    axisLine: { show: false },
-    axisTick: { show: false },
-    axisLabel: { color: '#71717a', fontSize: 11 },
-    splitLine: { lineStyle: { color: 'rgba(63, 63, 70, 0.2)', type: 'dashed' } },
-  },
-  tooltip: {
-    backgroundColor: '#1a1b23',
-    borderColor: '#27272a',
-    borderWidth: 1,
-    textStyle: { color: '#e4e4e7', fontFamily: 'Inter, sans-serif', fontSize: 12 },
-    extraCssText: 'border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.4); padding: 10px 14px;',
-  },
-});
+const CURRENCY_SYMBOLS: Record<string, string> = { USD: '$', EUR: '€', GBP: '£' };
 
-/* ═══════════════════════════════════════════════════════════════════
-   NUMBER FORMATTING
-   ═══════════════════════════════════════════════════════════════════ */
+/* ── Number formatting ──────────────────────────────────────────── */
 
-function formatNum(value: number, fmt?: any): string {
-  if (fmt == null) return String(value);
+function formatNumber(
+  value: number,
+  fmt?: { prefix?: string; suffix?: string; compact?: boolean },
+): string {
+  if (!fmt) return String(value);
   let str: string;
   if (fmt.compact) {
-    if (Math.abs(value) >= 1e9) str = (value / 1e9).toFixed(1) + 'B';
-    else if (Math.abs(value) >= 1e6) str = (value / 1e6).toFixed(1) + 'M';
-    else if (Math.abs(value) >= 1e3) str = (value / 1e3).toFixed(1) + 'K';
+    if (Math.abs(value) >= 1_000_000_000) str = (value / 1_000_000_000).toFixed(1) + 'B';
+    else if (Math.abs(value) >= 1_000_000) str = (value / 1_000_000).toFixed(1) + 'M';
+    else if (Math.abs(value) >= 1_000) str = (value / 1_000).toFixed(1) + 'K';
     else str = value.toFixed(0);
   } else {
     str = value.toLocaleString();
@@ -85,631 +105,366 @@ function formatNum(value: number, fmt?: any): string {
   return (fmt.prefix || '') + str + (fmt.suffix || '');
 }
 
-const CUR: Record<string, string> = { USD: '$', EUR: '€', GBP: '£' };
-
-function resolveFmt(c: ChartResult) {
-  if (c.numberFormat) return c.numberFormat;
-  if (c.currency) return { prefix: CUR[c.currency.toUpperCase()] || (c.currency + ' '), compact: true };
+function resolveNumberFormat(config: ChartConfig) {
+  if (config.numberFormat) return config.numberFormat;
+  if (config.currency) {
+    const symbol = CURRENCY_SYMBOLS[config.currency.toUpperCase()] || (config.currency + ' ');
+    return { prefix: symbol, compact: true };
+  }
   return undefined;
 }
 
-/* ═══════════════════════════════════════════════════════════════════
-   GRADIENT HELPER
-   ═══════════════════════════════════════════════════════════════════ */
+/* ── CSV builder ────────────────────────────────────────────────── */
 
-function vertGrad(color: string, topOpacity = 'FF', botOpacity = '66') {
-  return new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-    { offset: 0, color: color + topOpacity },
-    { offset: 1, color: color + botOpacity },
-  ]);
-}
+function buildCsv(config: ChartConfig): string {
+  const isScatter = config.chartType === 'scatter';
+  const rows: string[][] = [];
 
-/* ═══════════════════════════════════════════════════════════════════
-   ANNOTATION → markLine
-   ═══════════════════════════════════════════════════════════════════ */
-
-function buildMarkLines(annotations: any[]) {
-  if (!annotations?.length) return undefined;
-  return {
-    markLine: {
-      silent: true,
-      symbol: 'none',
-      lineStyle: { type: 'dashed', width: 2 },
-      label: {
-        show: true,
-        color: '#a1a1aa',
-        fontSize: 11,
-        fontFamily: 'Inter, sans-serif',
-        formatter: (p: any) => p.name,
-        position: 'insideEndTop',
-        backgroundColor: '#1a1b23',
-        padding: [3, 6],
-        borderRadius: 3,
-      },
-      data: annotations.map((a) => ({
-        name: a.label || '',
-        [a.axis === 'x' ? 'xAxis' : 'yAxis']: a.value,
-        lineStyle: { color: a.color || '#8B4513' },
-        label: { color: a.color || '#a1a1aa' },
-      })),
-    },
-  };
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   SHARED TOOLTIP FORMATTER
-   ═══════════════════════════════════════════════════════════════════ */
-
-function axisTooltip(fmt: any) {
-  if (!fmt) return {};
-  return {
-    formatter: (params: any) => {
-      const items = Array.isArray(params) ? params : [params];
-      let html = `<div style="font-weight:600;margin-bottom:4px">${items[0].axisValue || items[0].name}</div>`;
-      items.forEach((p: any) => {
-        const v = typeof p.value === 'number' ? p.value : (Array.isArray(p.value) ? p.value[1] : p.value);
-        html += `<div>${p.marker} ${p.seriesName}: <strong>${formatNum(v, fmt)}</strong></div>`;
+  if (isScatter) {
+    const headers = ['Label'];
+    config.datasets.forEach(ds => {
+      headers.push(`${ds.label} X`, `${ds.label} Y`);
+    });
+    rows.push(headers);
+    const maxLen = Math.max(...config.datasets.map(ds => ds.data.length));
+    for (let i = 0; i < maxLen; i++) {
+      const row: string[] = [config.labels[i] || `Point ${i + 1}`];
+      config.datasets.forEach(ds => {
+        const pt = ds.data[i];
+        if (pt && typeof pt === 'object' && 'x' in pt) {
+          row.push(String(pt.x), String(pt.y));
+        } else if (typeof pt === 'number') {
+          row.push(String(parseFloat(config.labels[i]) || i), String(pt));
+        } else {
+          row.push('', '');
+        }
       });
-      return html;
-    },
-  };
+      rows.push(row);
+    }
+  } else {
+    const headers = [config.xAxisLabel || 'Label'];
+    config.datasets.forEach(ds => headers.push(ds.label));
+    rows.push(headers);
+    for (let i = 0; i < config.labels.length; i++) {
+      const row: string[] = [config.labels[i]];
+      config.datasets.forEach(ds => {
+        const val = ds.data[i];
+        row.push(typeof val === 'number' ? String(val) : '');
+      });
+      rows.push(row);
+    }
+  }
+
+  return rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
 }
 
-/* ═══════════════════════════════════════════════════════════════════
-   OPTIONS BUILDERS
-   ═══════════════════════════════════════════════════════════════════ */
+/* ── Waterfall builder ──────────────────────────────────────────── */
 
-function buildBar(c: ChartResult, fmt: any, pal: string[]) {
-  const hz = c.horizontal || c.chartType === 'overlap';
-  const marks = buildMarkLines(c.annotations);
-
-  return {
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, ...axisTooltip(fmt) },
-    legend: { show: c.datasets.length > 1, top: 4 },
-    grid: { left: '3%', right: '4%', bottom: '6%', top: c.datasets.length > 1 ? '14%' : '6%', containLabel: true },
-    [hz ? 'yAxis' : 'xAxis']: {
-      type: 'category',
-      data: c.labels,
-      axisLabel: { rotate: !hz && c.labels.length > 7 ? 35 : 0, fontSize: 11 },
-      name: hz ? c.yAxisLabel : c.xAxisLabel,
-      nameTextStyle: { color: '#71717a', fontSize: 11 },
-    },
-    [hz ? 'xAxis' : 'yAxis']: {
-      type: 'value',
-      name: hz ? c.xAxisLabel : c.yAxisLabel,
-      nameTextStyle: { color: '#71717a', fontSize: 11 },
-      axisLabel: { formatter: fmt ? (v: number) => formatNum(v, fmt) : undefined },
-    },
-    series: c.datasets.map((ds, i) => ({
-      name: ds.label,
-      type: 'bar',
-      data: ds.data,
-      stack: (c.stacked || c.chartType === 'overlap') ? 'total' : undefined,
-      barMaxWidth: 40,
-      itemStyle: {
-        color: vertGrad(pal[i % pal.length]),
-        borderRadius: hz ? [0, 4, 4, 0] : [4, 4, 0, 0],
-      },
-      emphasis: { itemStyle: { shadowBlur: 12, shadowColor: 'rgba(0,0,0,0.25)' } },
-      animationDelay: (idx: number) => idx * 40 + i * 200,
-      ...marks,
-    })),
-    animationEasing: 'cubicOut',
-    animationDuration: 800,
-  };
-}
-
-function buildLine(c: ChartResult, fmt: any, pal: string[], isArea: boolean, isScenario: boolean) {
-  const marks = buildMarkLines(c.annotations);
-
-  return {
-    tooltip: { trigger: 'axis', ...axisTooltip(fmt) },
-    legend: { show: c.datasets.length > 1, top: 4 },
-    grid: { left: '3%', right: '4%', bottom: '6%', top: '14%', containLabel: true },
-    xAxis: {
-      type: 'category',
-      data: c.labels,
-      name: c.xAxisLabel,
-      nameTextStyle: { color: '#71717a' },
-      boundaryGap: false,
-    },
-    yAxis: {
-      type: 'value',
-      name: c.yAxisLabel,
-      nameTextStyle: { color: '#71717a' },
-      axisLabel: { formatter: fmt ? (v: number) => formatNum(v, fmt) : undefined },
-    },
-    series: c.datasets.map((ds, i) => ({
-      name: ds.label,
-      type: 'line',
-      data: ds.data,
-      smooth: 0.3,
-      symbol: 'circle',
-      symbolSize: isScenario ? 5 : 4,
-      showSymbol: (ds.data?.length || 0) <= 20,
-      lineStyle: { width: isScenario ? 3 : 2.5, color: pal[i % pal.length] },
-      itemStyle: { color: pal[i % pal.length] },
-      areaStyle: isArea ? {
-        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-          { offset: 0, color: pal[i % pal.length] + 'AA' },
-          { offset: 1, color: pal[i % pal.length] + '08' },
-        ]),
-      } : undefined,
-      stack: c.stacked ? 'total' : undefined,
-      emphasis: { focus: 'series', lineStyle: { width: 4 } },
-      ...marks,
-    })),
-    animationEasing: 'cubicOut',
-    animationDuration: 1200,
-  };
-}
-
-function buildPie(c: ChartResult, fmt: any, pal: string[], isDoughnut: boolean) {
-  const d0 = c.datasets[0];
-  const data = c.labels.map((label, i) => ({
-    name: label,
-    value: d0.data[i],
-    itemStyle: { color: pal[i % pal.length] },
-  }));
-
-  return {
-    tooltip: {
-      trigger: 'item',
-      formatter: (p: any) => {
-        const val = fmt ? formatNum(p.value, fmt) : p.value;
-        return `<strong>${p.name}</strong><br/>${p.marker} ${val} (${p.percent}%)`;
-      },
-    },
-    legend: {
-      orient: 'vertical',
-      right: '5%',
-      top: 'center',
-      textStyle: { color: '#a1a1aa', fontSize: 11 },
-    },
-    series: [{
-      type: 'pie',
-      radius: isDoughnut ? ['42%', '72%'] : ['0%', '72%'],
-      center: ['40%', '50%'],
-      data,
-      label: {
-        show: true,
-        color: '#a1a1aa',
-        fontSize: 11,
-        formatter: '{b}: {d}%',
-      },
-      labelLine: { lineStyle: { color: 'rgba(161,161,170,0.4)' } },
-      emphasis: {
-        itemStyle: { shadowBlur: 16, shadowColor: 'rgba(0,0,0,0.35)' },
-        label: { fontSize: 13, fontWeight: 'bold' },
-        scaleSize: 8,
-      },
-      itemStyle: {
-        borderColor: '#0f0f12',
-        borderWidth: 2,
-      },
-      animationType: 'expansion',
-      animationDuration: 1000,
-      animationEasing: 'cubicOut',
-    }],
-  };
-}
-
-function buildScatter(c: ChartResult, fmt: any, pal: string[]) {
-  return {
-    tooltip: {
-      trigger: 'item',
-      formatter: (p: any) => {
-        const xVal = fmt ? formatNum(p.value[0], fmt) : p.value[0];
-        const yVal = fmt ? formatNum(p.value[1], fmt) : p.value[1];
-        const label = c.labels?.[p.dataIndex] || '';
-        return `<strong>${label || p.seriesName}</strong><br/>${c.xAxisLabel || 'x'}: ${xVal}<br/>${c.yAxisLabel || 'y'}: ${yVal}`;
-      },
-    },
-    grid: { left: '3%', right: '4%', bottom: '8%', top: '8%', containLabel: true },
-    xAxis: {
-      type: 'value',
-      name: c.xAxisLabel,
-      nameTextStyle: { color: '#71717a' },
-      axisLabel: { formatter: fmt ? (v: number) => formatNum(v, fmt) : undefined },
-    },
-    yAxis: {
-      type: 'value',
-      name: c.yAxisLabel,
-      nameTextStyle: { color: '#71717a' },
-      axisLabel: { formatter: fmt ? (v: number) => formatNum(v, fmt) : undefined },
-    },
-    series: c.datasets.map((ds, i) => ({
-      name: ds.label,
-      type: 'scatter',
-      data: ds.data.map((d: any) => [d.x, d.y]),
-      symbolSize: 10,
-      itemStyle: {
-        color: pal[i % pal.length],
-        shadowBlur: 4,
-        shadowColor: pal[i % pal.length] + '55',
-      },
-      emphasis: { itemStyle: { shadowBlur: 12, borderWidth: 2, borderColor: '#fff' } },
-    })),
-    animationDuration: 800,
-  };
-}
-
-function buildWaterfall(c: ChartResult, fmt: any, pal: string[]) {
-  const raw = c.datasets[0]?.data as number[] ?? [];
-  const wColors = c.colors?.length === 3
-    ? { inc: c.colors[0], dec: c.colors[1], tot: c.colors[2] }
-    : { inc: '#4A5D52', dec: '#8B4513', tot: '#2F4F4F' };
+function buildWaterfallData(config: ChartConfig) {
+  const raw = config.datasets[0]?.data as number[] ?? [];
+  const palette = config.colors?.length === 3
+    ? { increase: config.colors[0], decrease: config.colors[1], total: config.colors[2] }
+    : WATERFALL_COLORS;
 
   let running = 0;
-  const base: number[] = [];
-  const delta: number[] = [];
-  const colors: string[] = [];
+  const floatingBars: [number, number][] = [];
+  const barColors: string[] = [];
 
   raw.forEach((val, i) => {
-    const isTotal = c.totals?.[i] === true;
+    const isTotal = config.totals?.[i] === true;
     if (isTotal) {
-      base.push(0);
-      delta.push(running);
-      colors.push(wColors.tot);
+      floatingBars.push([0, running]);
+      barColors.push(palette.total);
     } else {
       const prev = running;
       running += val;
-      base.push(val >= 0 ? prev : running);
-      delta.push(Math.abs(val));
-      colors.push(val >= 0 ? wColors.inc : wColors.dec);
+      floatingBars.push([Math.min(prev, running), Math.max(prev, running)]);
+      barColors.push(val >= 0 ? palette.increase : palette.decrease);
     }
   });
 
   return {
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: { type: 'shadow' },
-      formatter: (params: any) => {
-        const items = Array.isArray(params) ? params : [params];
-        const visible = items.find((p: any) => p.seriesIndex === 1);
-        if (!visible) return '';
-        const idx = visible.dataIndex;
-        const val = raw[idx];
-        const isTotal = c.totals?.[idx] === true;
-        const label = isTotal ? `Total: ${formatNum(running, fmt)}` : `${val >= 0 ? '+' : ''}${formatNum(val, fmt)}`;
-        return `<strong>${visible.axisValue}</strong><br/>${label}`;
-      },
-    },
-    grid: { left: '3%', right: '4%', bottom: '6%', top: '6%', containLabel: true },
-    xAxis: {
-      type: 'category',
-      data: c.labels,
-      axisLabel: { rotate: c.labels.length > 6 ? 30 : 0 },
-    },
-    yAxis: {
-      type: 'value',
-      axisLabel: { formatter: fmt ? (v: number) => formatNum(v, fmt) : undefined },
-    },
-    series: [
-      {
-        name: 'base',
-        type: 'bar',
-        stack: 'waterfall',
-        data: base,
-        itemStyle: { color: 'transparent' },
-        emphasis: { itemStyle: { color: 'transparent' } },
-      },
-      {
-        name: c.datasets[0]?.label || 'Value',
-        type: 'bar',
-        stack: 'waterfall',
-        data: delta.map((v, i) => ({
-          value: v,
-          itemStyle: {
-            color: vertGrad(colors[i]),
-            borderRadius: [4, 4, 0, 0],
-          },
-        })),
-        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.3)' } },
-        animationDelay: (idx: number) => idx * 80,
-      },
-    ],
-    animationEasing: 'cubicOut',
-    animationDuration: 900,
-  };
-}
-
-function buildTreemap(c: ChartResult, pal: string[]) {
-  const treeData = c.datasets[0]?.data as any[] ?? [];
-  const hasGroups = treeData.some((d: any) => d.group);
-
-  let data: any[];
-  if (hasGroups) {
-    const groups: Record<string, any[]> = {};
-    treeData.forEach((d) => {
-      const g = d.group || 'Other';
-      if (!groups[g]) groups[g] = [];
-      groups[g].push({ name: d.label, value: d.value });
-    });
-    data = Object.entries(groups).map(([name, children]) => ({ name, children }));
-  } else {
-    data = treeData.map((d) => ({ name: d.label, value: d.value }));
-  }
-
-  return {
-    tooltip: {
-      trigger: 'item',
-      formatter: (p: any) => `<strong>${p.name}</strong><br/>Value: ${p.value?.toLocaleString?.() || p.value}`,
-    },
-    series: [{
-      type: 'treemap',
-      data,
-      width: '95%',
-      height: '90%',
-      roam: false,
-      nodeClick: false,
-      breadcrumb: { show: false },
-      label: {
-        show: true,
-        color: '#fff',
-        fontSize: 12,
-        fontWeight: 'bold',
-        fontFamily: 'Inter, sans-serif',
-        formatter: '{b}',
-      },
-      upperLabel: hasGroups ? { show: true, height: 24, color: '#ddd', fontSize: 11 } : undefined,
-      itemStyle: {
-        borderColor: '#0f0f12',
-        borderWidth: 2,
-        gapWidth: 2,
-      },
-      levels: [
-        { itemStyle: { borderWidth: 3, gapWidth: 4 } },
-        {
-          colorSaturation: [0.35, 0.65],
-          itemStyle: { borderWidth: 1, gapWidth: 2, borderColorSaturation: 0.6 },
-        },
-      ],
-      animationDuration: 1000,
-      animationEasing: 'cubicOut',
+    labels: config.labels,
+    datasets: [{
+      label: config.datasets[0]?.label || 'Value',
+      data: floatingBars,
+      backgroundColor: barColors,
+      borderColor: barColors,
+      borderWidth: 1,
+      borderSkipped: false,
     }],
   };
 }
 
-function buildFan(c: ChartResult, fmt: any, pal: string[]) {
-  // Fan: first dataset = central projection, subsequent pairs = upper/lower bounds
-  const bandOpacities = ['55', '30', '18'];
+/* ── Fan builder ────────────────────────────────────────────────── */
 
-  return {
-    tooltip: { trigger: 'axis', ...axisTooltip(fmt) },
-    legend: { show: true, top: 4 },
-    grid: { left: '3%', right: '4%', bottom: '6%', top: '14%', containLabel: true },
-    xAxis: {
-      type: 'category',
-      data: c.labels,
-      name: c.xAxisLabel,
-      nameTextStyle: { color: '#71717a' },
-      boundaryGap: false,
-    },
-    yAxis: {
-      type: 'value',
-      name: c.yAxisLabel,
-      nameTextStyle: { color: '#71717a' },
-      axisLabel: { formatter: fmt ? (v: number) => formatNum(v, fmt) : undefined },
-    },
-    series: c.datasets.map((ds, i) => {
-      if (i === 0) {
-        // Central line
-        return {
-          name: ds.label,
-          type: 'line',
-          data: ds.data,
-          smooth: 0.3,
-          symbol: 'circle',
-          symbolSize: 4,
-          lineStyle: { width: 3, color: pal[0] },
-          itemStyle: { color: pal[0] },
-          z: 10,
-        };
-      }
-      // Confidence bands
-      const bandIdx = Math.floor((i - 1) / 2);
-      const opacity = bandOpacities[Math.min(bandIdx, bandOpacities.length - 1)];
-      const isUpper = i % 2 === 1;
-
-      return {
-        name: ds.label,
-        type: 'line',
-        data: ds.data,
-        smooth: 0.3,
-        symbol: 'none',
-        lineStyle: { width: 0 },
-        areaStyle: isUpper ? {
-          color: pal[0] + opacity,
-        } : {
-          color: pal[0] + opacity,
-        },
-        stack: `band${bandIdx}`,
-        z: 5 - bandIdx,
-      };
-    }),
-    animationDuration: 1200,
-    animationEasing: 'cubicOut',
-  };
-}
-
-function buildRadar(c: ChartResult, pal: string[]) {
-  const maxVal = Math.max(...c.datasets.flatMap((ds) => ds.data as number[]));
-
-  return {
-    tooltip: { trigger: 'item' },
-    legend: { show: c.datasets.length > 1, top: 4, textStyle: { color: '#a1a1aa' } },
-    radar: {
-      indicator: c.labels.map((name) => ({ name, max: maxVal * 1.15 })),
-      shape: 'polygon',
-      splitNumber: 4,
-      axisName: { color: '#a1a1aa', fontSize: 11 },
-      splitLine: { lineStyle: { color: 'rgba(63, 63, 70, 0.3)' } },
-      splitArea: {
-        areaStyle: {
-          color: ['rgba(63, 63, 70, 0.05)', 'rgba(63, 63, 70, 0.1)'],
-        },
-      },
-      axisLine: { lineStyle: { color: 'rgba(63, 63, 70, 0.3)' } },
-    },
-    series: [{
-      type: 'radar',
-      data: c.datasets.map((ds, i) => ({
-        name: ds.label,
-        value: ds.data,
-        symbol: 'circle',
-        symbolSize: 6,
-        lineStyle: { width: 2.5, color: pal[i % pal.length] },
-        itemStyle: { color: pal[i % pal.length] },
-        areaStyle: { color: pal[i % pal.length] + '30' },
-      })),
-      animationDuration: 1000,
-    }],
-  };
-}
-
-function buildPolar(c: ChartResult, fmt: any, pal: string[]) {
-  // Nightingale rose — same-angle slices, variable radius
-  const d0 = c.datasets[0];
-  const data = c.labels.map((label, i) => ({
-    name: label,
-    value: d0.data[i],
-    itemStyle: { color: pal[i % pal.length] },
-  }));
-
-  return {
-    tooltip: {
-      trigger: 'item',
-      formatter: (p: any) => {
-        const val = fmt ? formatNum(p.value, fmt) : p.value;
-        return `<strong>${p.name}</strong><br/>${p.marker} ${val} (${p.percent}%)`;
-      },
-    },
-    legend: {
-      orient: 'vertical',
-      right: '3%',
-      top: 'center',
-      textStyle: { color: '#a1a1aa', fontSize: 11 },
-    },
-    series: [{
-      type: 'pie',
-      roseType: 'area',
-      radius: ['12%', '70%'],
-      center: ['40%', '50%'],
-      data,
-      label: { color: '#a1a1aa', fontSize: 11, formatter: '{b}' },
-      labelLine: { lineStyle: { color: 'rgba(161,161,170,0.4)' } },
-      itemStyle: { borderColor: '#0f0f12', borderWidth: 2 },
-      emphasis: {
-        itemStyle: { shadowBlur: 16, shadowColor: 'rgba(0,0,0,0.35)' },
-        scaleSize: 6,
-      },
-      animationType: 'expansion',
-      animationDuration: 1200,
-      animationEasing: 'cubicOut',
-    }],
-  };
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   MASTER OPTIONS BUILDER
-   ═══════════════════════════════════════════════════════════════════ */
-
-function buildOptions(config: ChartResult, palette: string[]): any | null {
-  const fmt = resolveFmt(config);
-
-  switch (config.chartType) {
-    case 'bar':
-    case 'overlap':
-      return buildBar(config, fmt, palette);
-    case 'line':
-      return buildLine(config, fmt, palette, false, false);
-    case 'area':
-      return buildLine(config, fmt, palette, true, false);
-    case 'scenario':
-      return buildLine(config, fmt, palette, false, true);
-    case 'pie':
-      return buildPie(config, fmt, palette, false);
-    case 'doughnut':
-      return buildPie(config, fmt, palette, true);
-    case 'scatter':
-      return buildScatter(config, fmt, palette);
-    case 'waterfall':
-      return buildWaterfall(config, fmt, palette);
-    case 'treemap':
-      return buildTreemap(config, palette);
-    case 'fan':
-      return buildFan(config, fmt, palette);
-    case 'radar':
-      return buildRadar(config, palette);
-    case 'polar':
-      return buildPolar(config, fmt, palette);
-    case 'rose':
-      return null; // handled by custom RoseChart component
-    default:
-      return buildBar(config, fmt, palette);
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   COMPONENT
-   ═══════════════════════════════════════════════════════════════════ */
-
-interface Props {
-  config: ChartResult;
-  onToggleTable?: () => void;
-}
-
-function ChartRenderer({ config, onToggleTable }: Props) {
-  const chartRef = useRef<any>(null);
+function buildFanDatasets(config: ChartConfig) {
   const palette = config.colors?.length ? config.colors : PALETTE;
-  const isRose = config.chartType === 'rose';
+  const bandOpacities = [0.25, 0.12, 0.06];
+  return config.datasets.map((ds, i) => {
+    if (i === 0) {
+      return {
+        ...ds,
+        backgroundColor: palette[0],
+        borderColor: palette[0],
+        borderWidth: 2,
+        fill: false,
+        tension: 0.3,
+        pointRadius: 2,
+        pointHoverRadius: 5,
+      };
+    }
+    const bandIdx = Math.floor((i - 1) / 2);
+    const opacity = bandOpacities[Math.min(bandIdx, bandOpacities.length - 1)];
+    const isUpper = i % 2 === 1;
+    const fillTarget = isUpper ? (i === 1 ? 0 : i - 2) : (i === 2 ? 0 : i - 2);
+    const fillColor = `rgba(99, 102, 241, ${opacity})`;
 
-  /* ── Download handler ──────────────────────────────────────────── */
+    return {
+      ...ds,
+      backgroundColor: fillColor,
+      borderColor: 'transparent',
+      borderWidth: 0,
+      fill: isUpper
+        ? { target: fillTarget, above: fillColor }
+        : { target: fillTarget, below: fillColor },
+      tension: 0.3,
+      pointRadius: 0,
+    };
+  });
+}
 
-  const handleDownload = useCallback(() => {
-    const instance = chartRef.current?.getEchartsInstance?.();
-    if (!instance) return;
-    const url = instance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#0f0f12' });
+/* ── Treemap builder ────────────────────────────────────────────── */
+
+function buildTreemapData(config: ChartConfig) {
+  const palette = config.colors?.length ? config.colors : PALETTE;
+  const treeData = config.datasets[0]?.data ?? [];
+  const hasGroups = treeData.some((d: any) => d.group);
+  return {
+    datasets: [{
+      tree: treeData,
+      key: 'value',
+      groups: hasGroups ? ['group', 'label'] : ['label'],
+      backgroundColor: (ctx: any) => palette[ctx.dataIndex % palette.length],
+      borderColor: 'rgba(0,0,0,0.1)',
+      borderWidth: 2,
+      spacing: 1,
+      labels: {
+        display: true,
+        formatter: (ctx: any) => ctx.raw?.g || ctx.raw?._data?.label || '',
+        color: '#fff',
+        font: { size: 12, weight: 'bold' as const },
+      },
+    }],
+  };
+}
+
+/* ── Standard defaults ──────────────────────────────────────────── */
+
+function applyDefaults(config: ChartConfig) {
+  const isRadial = config.chartType === 'pie' || config.chartType === 'doughnut';
+  const isScatter = config.chartType === 'scatter';
+  const isScenario = config.chartType === 'scenario';
+  const palette = config.colors?.length ? config.colors : PALETTE;
+
+  return config.datasets.map((ds, i) => {
+    let data = ds.data;
+    if (isScatter && data.length > 0 && typeof data[0] === 'number') {
+      data = (data as number[]).map((y, j) => ({
+        x: parseFloat(config.labels[j]) || j,
+        y,
+      }));
+    }
+
+    if (isRadial) {
+      return {
+        ...ds,
+        data,
+        backgroundColor: (ds.data as number[]).map((_, j) => palette[j % palette.length]),
+        borderColor: '#ffffff',
+        borderWidth: 2,
+      };
+    }
+    return {
+      ...ds,
+      data,
+      backgroundColor: ds.backgroundColor ?? palette[i % palette.length],
+      borderColor: ds.borderColor ?? palette[i % palette.length],
+      borderWidth: isScenario ? 3 : 2,
+      ...(isScatter ? { pointRadius: 6, pointHoverRadius: 8 } : {}),
+      ...(isScenario ? { pointRadius: 4, pointHoverRadius: 7 } : {}),
+      ...(config.chartType === 'area' ? { fill: true } : {}),
+      ...(['line', 'area', 'scenario'].includes(config.chartType) ? { tension: 0.3 } : {}),
+    };
+  });
+}
+
+/* ── Main component ─────────────────────────────────────────────── */
+
+function ChartRendererInner({ config }: { config: ChartConfig }) {
+  const numFmt = resolveNumberFormat(config);
+  const type = config.chartType;
+  const isRose = type === 'rose';
+  const isWaterfall = type === 'waterfall';
+  const isTreemap = type === 'treemap';
+  const isFan = type === 'fan';
+  const isOverlap = type === 'overlap';
+  const useHorizontal = isOverlap || (config.horizontal && type === 'bar');
+  const useStacked = isOverlap || config.stacked || false;
+  const isRadial = type === 'pie' || type === 'doughnut';
+
+  // Build data
+  let data: any;
+  if (isWaterfall) {
+    data = buildWaterfallData(config);
+  } else if (isTreemap) {
+    data = buildTreemapData(config);
+  } else if (isFan) {
+    data = { labels: config.labels, datasets: buildFanDatasets(config) };
+  } else {
+    const datasets = applyDefaults(config);
+    data = {
+      labels: type === 'scatter' ? [] : config.labels,
+      datasets,
+    };
+  }
+
+  // Scatter point labels
+  const scatterPointLabels = config.labels;
+
+  // Tick formatter
+  const tickCallback = numFmt
+    ? (_value: any) => formatNumber(Number(_value), numFmt)
+    : undefined;
+
+  // Tooltip callbacks
+  const tooltipCallbacks: Record<string, any> = {};
+  if (type === 'scatter' && scatterPointLabels.length > 0) {
+    tooltipCallbacks.label = (ctx: any) => {
+      const pointName = scatterPointLabels[ctx.dataIndex] || `Point ${ctx.dataIndex}`;
+      const x = typeof ctx.parsed.x === 'number' ? ctx.parsed.x.toFixed(2) : ctx.parsed.x;
+      const y = typeof ctx.parsed.y === 'number' ? ctx.parsed.y.toFixed(2) : ctx.parsed.y;
+      return `${pointName}: (${x}, ${y})`;
+    };
+  } else if (isWaterfall && numFmt) {
+    tooltipCallbacks.label = (item: any) => {
+      const dsLabel = item.dataset?.label || '';
+      const raw = item.raw;
+      const val = Array.isArray(raw) ? raw[1] - raw[0] : item.parsed?.y ?? 0;
+      return `${dsLabel}: ${formatNumber(val, numFmt)}`;
+    };
+  } else if (numFmt) {
+    tooltipCallbacks.label = (item: any) => {
+      const dsLabel = item.dataset?.label || '';
+      const val = item.parsed?.y ?? item.parsed ?? item.raw;
+      return `${dsLabel}: ${formatNumber(typeof val === 'number' ? val : Number(val), numFmt)}`;
+    };
+  }
+
+  // Annotation config
+  const annotationConfig = config.annotations?.length
+    ? {
+        annotation: {
+          annotations: config.annotations.reduce((acc: Record<string, any>, a, i) => {
+            acc[`anno_${i}`] = {
+              type: 'line',
+              scaleID: a.axis === 'x' ? 'x' : 'y',
+              value: a.value,
+              borderColor: a.color || '#ef4444',
+              borderWidth: 2,
+              borderDash: [6, 3],
+              label: {
+                display: !!a.label,
+                content: a.label,
+                position: 'end',
+                backgroundColor: a.color || '#ef4444',
+                color: '#fff',
+                font: { size: 11 },
+                padding: 4,
+              },
+            };
+            return acc;
+          }, {}),
+        },
+      }
+    : {};
+
+  const cartesianOptions: any = {
+    responsive: true,
+    maintainAspectRatio: false,
+    ...(useHorizontal ? { indexAxis: 'y' } : {}),
+    plugins: {
+      title: { display: !!config.title, text: config.title, color: '#1e293b' },
+      legend: {
+        display: type !== 'scatter',
+        labels: { color: '#374151' },
+      },
+      tooltip: Object.keys(tooltipCallbacks).length
+        ? { callbacks: tooltipCallbacks }
+        : undefined,
+      ...annotationConfig,
+    },
+    scales: {
+      x: {
+        title: { display: !!config.xAxisLabel, text: config.xAxisLabel ?? '' },
+        stacked: useStacked,
+        ticks: {
+          color: '#64748b',
+          ...(useHorizontal && tickCallback ? { callback: tickCallback } : {}),
+        },
+        grid: { color: '#e5e7eb' },
+      },
+      y: {
+        title: { display: !!config.yAxisLabel, text: config.yAxisLabel ?? '' },
+        stacked: useStacked,
+        ticks: {
+          color: '#64748b',
+          ...(!useHorizontal && tickCallback ? { callback: tickCallback } : {}),
+        },
+        grid: { color: '#e5e7eb' },
+      },
+    },
+  };
+
+  const radialOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      title: { display: !!config.title, text: config.title, color: '#1e293b' },
+      legend: { labels: { color: '#374151' } },
+    },
+  };
+
+  const handleDownloadCsv = useCallback(() => {
+    const csv = buildCsv(config);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${config.title.replace(/\s+/g, '_').toLowerCase()}.png`;
-    a.style.display = 'none';
-    document.body.appendChild(a);
+    a.download = `${(config.title || 'chart').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}.csv`;
     a.click();
-    setTimeout(() => document.body.removeChild(a), 100);
-  }, [config.title]);
+    URL.revokeObjectURL(url);
+  }, [config]);
 
-  /* ── Build options ─────────────────────────────────────────────── */
-
-  const options = isRose ? null : buildOptions(config, palette);
-
-  /* ── Render error state ────────────────────────────────────────── */
-
-  if (!isRose && !options) {
-    return (
-      <div className="chart-container" style={{ padding: '24px', color: '#ef4444' }}>
-        <div className="chart-header">
-          <span className="chart-title">📊 {config.title}</span>
-        </div>
-        <p style={{ margin: '16px 0', fontSize: '13px' }}>
-          Unsupported chart type: {config.chartType}
-        </p>
-      </div>
-    );
-  }
-
-  /* ── Render ─────────────────────────────────────────────────────── */
+  // Select component
+  const chartOptions: any = isRadial ? radialOptions : cartesianOptions;
+  const palette = config.colors?.length ? config.colors : PALETTE;
+  const ChartComponent: any = isRadial
+    ? (type === 'pie' ? Pie : Doughnut)
+    : isTreemap
+      ? null
+      : isRose
+        ? null
+        : (isWaterfall || type === 'bar' || isOverlap)
+          ? Bar
+          : (type === 'line' || type === 'area' || isFan || type === 'scenario')
+            ? Line
+            : type === 'scatter'
+              ? Scatter
+              : Bar;
 
   return (
-    <div className="chart-container">
-      <div className="chart-header">
-        <span className="chart-title">📊 {config.title}</span>
-        <div className="chart-actions">
-          {!isRose && <button onClick={handleDownload}>⬇ PNG</button>}
-          {onToggleTable && <button onClick={onToggleTable}>📋 Table</button>}
-        </div>
-      </div>
+    <div className="msg-chart-wrap">
       {isRose ? (
         <RoseChart
           labels={config.labels || []}
@@ -719,18 +474,64 @@ function ChartRenderer({ config, onToggleTable }: Props) {
           thetaLabel={config.datasets[0]?.label || 'Share'}
           radiusLabel={config.datasets[1]?.label || 'Change'}
         />
-      ) : (
-        <ReactECharts
-          ref={chartRef}
-          option={options}
-          theme="pendragon"
-          style={{ height: '420px', width: '100%' }}
-          opts={{ renderer: 'canvas' }}
-          notMerge={true}
+      ) : isTreemap ? (
+        <ChartComponentRaw
+          type="treemap"
+          data={data}
+          options={{
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              title: { display: !!config.title, text: config.title, color: '#1e293b' },
+              legend: { display: false },
+            },
+          }}
         />
-      )}
+      ) : ChartComponent ? (
+        <ChartComponent data={data} options={chartOptions} />
+      ) : null}
+      <button
+        onClick={handleDownloadCsv}
+        className="chart-download-csv"
+        title="Download chart data as CSV"
+      >
+        ↓ Download CSV
+      </button>
     </div>
   );
 }
 
-export default memo(ChartRenderer);
+// Error boundary
+class ChartErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: string }
+> {
+  state = { hasError: false, error: '' };
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error: error.message };
+  }
+  componentDidCatch(error: Error) {
+    console.error('ChartRenderer error:', error);
+  }
+  render() {
+    if (this.state.hasError) {
+      return <p style={{ color: '#ef4444', fontSize: '13px', padding: '16px' }}>Chart error: {this.state.error}</p>;
+    }
+    return this.props.children;
+  }
+}
+
+function ChartRendererWithBoundary({ config }: { config: ChartConfig }) {
+  return (
+    <ChartErrorBoundary>
+      <ChartRendererInner config={config} />
+    </ChartErrorBoundary>
+  );
+}
+
+// Memoize to prevent re-renders during streaming text updates
+const ChartRenderer = memo(ChartRendererWithBoundary, (prev, next) => {
+  return JSON.stringify(prev.config) === JSON.stringify(next.config);
+});
+
+export default ChartRenderer;
