@@ -663,7 +663,16 @@ interface Props {
 function ChartRenderer({ config, onToggleTable }: Props) {
   const chartRef = useRef<any>(null);
   const palette = config.colors?.length ? config.colors : PALETTE;
-  const isRose = config.chartType === 'rose';
+
+  // Smart rose detection: if Arthur sent a bar/polar chart but the datasets
+  // are clearly theta+radius data, auto-upgrade to rose rendering.
+  const looksLikeRose = config.datasets.length === 2
+    && config.datasets.some(d => /theta|share|slice|angle/i.test(d.label))
+    && config.datasets.some(d => /radius|change|magnitude|growth/i.test(d.label))
+    && Array.isArray(config.datasets[0]?.data)
+    && config.datasets[0].data.every((v: any) => typeof v === 'number');
+
+  const isRose = config.chartType === 'rose' || (looksLikeRose && ['bar', 'polar'].includes(config.chartType));
 
   /* ── Download handler ──────────────────────────────────────────── */
 
