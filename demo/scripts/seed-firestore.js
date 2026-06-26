@@ -144,7 +144,7 @@ async function main() {
   console.log(colors.step('Seeding Workspaces'));
 
   for (const ws of workspaces) {
-    await writeDoc(`organizations/${orgId}/workspaces`, ws.id, {
+    const doc = {
       name: ws.name,
       role: ws.role,
       aiProvider: ws.aiProvider,
@@ -157,7 +157,12 @@ async function main() {
       capabilities: ws.capabilities || [],
       status: 'active',
       createdAt: admin.firestore ? FieldValue.serverTimestamp() : new Date().toISOString(),
-    });
+    };
+    // Include systemPrompt if defined (typically only for orchestrators)
+    if (ws.systemPrompt) {
+      doc.systemPrompt = ws.systemPrompt;
+    }
+    await writeDoc(`organizations/${orgId}/workspaces`, ws.id, doc);
   }
 
   // -------------------------------------------------------------------------
@@ -167,13 +172,12 @@ async function main() {
 
   for (const bridge of bridges) {
     await writeDoc(`organizations/${orgId}/bridges`, bridge.bridgeId, {
-      sourceWsId: bridge.sourceWsId,
-      sourceName: bridge.sourceName,
-      targetWsId: bridge.targetWsId,
-      targetName: bridge.targetName,
+      endpointA: { orgId, wsId: bridge.sourceWsId, name: bridge.sourceName },
+      endpointB: { orgId, wsId: bridge.targetWsId, name: bridge.targetName },
       permissions: bridge.permissions,
       status: 'active',
       createdAt: admin.firestore ? FieldValue.serverTimestamp() : new Date().toISOString(),
+      updatedAt: admin.firestore ? FieldValue.serverTimestamp() : new Date().toISOString(),
     });
   }
 
