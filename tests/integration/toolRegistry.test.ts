@@ -389,7 +389,7 @@ describe('executeTool', () => {
 
     const result = await executeTool('test_exec_dynamic', { foo: 'bar' });
     expect(result.data).toBe('dynamic result');
-    expect(mockExecute).toHaveBeenCalledWith({ foo: 'bar' }, {});
+    expect(mockExecute).toHaveBeenCalledWith({ foo: 'bar' }, {}, undefined);
 
     clearDynamicTools('test_');
   });
@@ -408,7 +408,8 @@ describe('executeTool', () => {
     await executeTool('test_config_pass', { arg: 1 }, { dataSources: { bigquery: { project: 'proj' } } });
     expect(mockExecute).toHaveBeenCalledWith(
       { arg: 1 },
-      { dataSources: { bigquery: { project: 'proj' } } }
+      { dataSources: { bigquery: { project: 'proj' } } },
+      undefined
     );
 
     clearDynamicTools('test_');
