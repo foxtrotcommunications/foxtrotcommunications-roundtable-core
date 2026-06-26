@@ -40,13 +40,23 @@ export interface StreamEventError {
   error: string;
 }
 
+export interface StreamEventProgress {
+  type: 'progress';
+  step: string;
+  label: string;
+  state: 'active' | 'completed' | 'pending';
+  parent?: string;
+  durationMs?: number;
+}
+
 export type StreamEvent =
   | StreamEventTextDelta
   | StreamEventToolCall
   | StreamEventToolResult
   | StreamEventUsage
   | StreamEventDone
-  | StreamEventError;
+  | StreamEventError
+  | StreamEventProgress;
 
 // ─── Tool Types ────────────────────────────────────────────
 
@@ -98,6 +108,7 @@ export interface WorkspaceConfig {
   };
   /** @internal — tracing parent span, not persisted */
   _llmSpan?: any;
+  _onProgress?: (step: string, label: string, state: 'active' | 'completed' | 'pending', opts?: { parent?: string; durationMs?: number }) => void;
 }
 
 export interface McpServerConfig {

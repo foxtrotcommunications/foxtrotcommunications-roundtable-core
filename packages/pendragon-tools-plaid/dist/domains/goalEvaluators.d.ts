@@ -16,6 +16,13 @@ interface GoalProgress {
     gap: number | null;
     recommendation: string;
     details: Record<string, unknown>;
+    resource_request: {
+        monthly_requested: number;
+        urgency_score: number;
+        urgency_factors: string[];
+        deferrable: boolean;
+        opportunity_cost: number;
+    } | null;
     error?: string;
 }
 export declare function evaluateGoalProgress(pool: Pool, goalId: string, domainType: DomainType): Promise<GoalProgress>;

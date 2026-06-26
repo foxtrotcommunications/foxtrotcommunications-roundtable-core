@@ -386,12 +386,35 @@ export default function ChatView({
                 )}
                 {aiSteps.length > 0 && (
                   <div className="ai-step-log">
-                    {aiSteps.map((s) => (
-                      <div key={s.step} className={`ai-step ai-step-${s.state}`}>
-                        <span className="ai-step-icon">
-                          {s.state === 'completed' ? '✓' : s.state === 'active' ? '⟳' : '○'}
-                        </span>
-                        <span className="ai-step-label">{s.label}</span>
+                    {aiSteps.filter(s => !s.parent).map(s => (
+                      <div key={s.step}>
+                        <div className={`ai-step ai-step-${s.state}`}>
+                          <span className="ai-step-icon">
+                            {s.state === 'completed' ? '✓' : s.state === 'active' ? '⟳' : '○'}
+                          </span>
+                          <span className="ai-step-label">{s.label}</span>
+                          {s.durationMs != null && s.state === 'completed' && (
+                            <span className="ai-step-duration">{(s.durationMs / 1000).toFixed(1)}s</span>
+                          )}
+                        </div>
+                        {aiSteps.filter(c => c.parent === s.step).length > 0 && (
+                          <div className="ai-step-children">
+                            {aiSteps.filter(c => c.parent === s.step).map((c, i, arr) => (
+                              <div key={c.step} className={`ai-step ai-step-${c.state} ai-step-child`}>
+                                <span className="ai-step-connector">
+                                  {i === arr.length - 1 ? '└─' : '├─'}
+                                </span>
+                                <span className="ai-step-icon">
+                                  {c.state === 'completed' ? '✓' : c.state === 'active' ? '⟳' : '○'}
+                                </span>
+                                <span className="ai-step-label">{c.label}</span>
+                                {c.durationMs != null && c.state === 'completed' && (
+                                  <span className="ai-step-duration">{(c.durationMs / 1000).toFixed(1)}s</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

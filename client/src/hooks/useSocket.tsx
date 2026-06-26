@@ -43,7 +43,9 @@ export function useSocket() {
 export interface AiStep {
   step: string;
   label: string;
-  state: 'pending' | 'active' | 'completed';
+  state: 'active' | 'completed' | 'pending';
+  parent?: string;
+  durationMs?: number;
 }
 
 export interface ChatState {
@@ -187,17 +189,15 @@ export function useChat(socket: Socket | null) {
       setAiSteps([]);
     };
 
-    const onAiStatus = (data: { step: string; label: string; state: 'active' | 'completed' }) => {
+    const onAiStatus = (data: { step: string; label: string; state: 'active' | 'completed' | 'pending'; parent?: string; durationMs?: number }) => {
       setAiSteps(prev => {
         const existing = prev.findIndex(s => s.step === data.step);
         if (existing >= 0) {
-          // Update existing step
           const next = [...prev];
-          next[existing] = { ...next[existing], state: data.state, label: data.label };
+          next[existing] = { ...next[existing], state: data.state, label: data.label, ...(data.durationMs != null ? { durationMs: data.durationMs } : {}), ...(data.parent != null ? { parent: data.parent } : {}) };
           return next;
         }
-        // Add new step
-        return [...prev, { step: data.step, label: data.label, state: data.state }];
+        return [...prev, data];
       });
     };
 

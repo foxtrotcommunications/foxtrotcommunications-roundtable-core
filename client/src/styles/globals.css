@@ -549,6 +549,30 @@ html, body { height: 100%; font-family: 'Inter', system-ui, sans-serif; backgrou
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+.ai-step-children {
+  padding-left: 1.25rem;
+}
+.ai-step-child {
+  display: flex;
+  align-items: center;
+}
+.ai-step-connector {
+  color: var(--text-muted, #888);
+  font-family: monospace;
+  margin-right: 0.25rem;
+  font-size: 0.8rem;
+  line-height: 1;
+}
+.ai-step-duration {
+  color: var(--text-muted, #888);
+  font-size: 0.75rem;
+  margin-left: 0.5rem;
+  opacity: 0.7;
+}
+.ai-step-pending .ai-step-label,
+.ai-step-pending .ai-step-icon {
+  opacity: 0.4;
+}
 
 /* ─── Token Usage Bar ─── */
 .token-usage-bar { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 16px; margin: 4px 0 8px; font-size: 11px; color: var(--text-muted); opacity: 0.6; animation: fadeInUsage 0.4s ease; }
