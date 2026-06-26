@@ -319,11 +319,52 @@ async function buildSnapshot(workspaceConfig: any, onProgress?: any): Promise<Sn
 }
 
 /**
+ * Build a ready-to-render chart block from the snapshot so the LLM
+ * doesn't have to construct chart data (which it consistently gets wrong —
+ * it substitutes array indices for actual values).
+ *
+ * Returns the same { chartBlock, message } shape that render_chart uses
+ * so the LLM just pastes the block verbatim.
+ */
+function buildGoalProgressChart(snapshot: SnapshotResult): { chartBlock: string } {
+  // Flatten all goals across domains, sorted by progress ascending
+  const allGoals: { name: string; progress: number; domain: string }[] = [];
+  for (const domainGroup of snapshot.domains) {
+    for (const goal of domainGroup.goals) {
+      allGoals.push({
+        name: goal.goal_name || goal.name || 'Unknown',
+        progress: Math.round((goal.progress_pct ?? 0) * 10) / 10,
+        domain: domainGroup.workspace_name,
+      });
+    }
+  }
+  allGoals.sort((a, b) => a.progress - b.progress);
+
+  const chartConfig = {
+    chartType: 'bar',
+    title: 'Goal Progress by Plan Area',
+    labels: allGoals.map(g => g.name),
+    datasets: [{
+      label: 'Progress toward target',
+      data: allGoals.map(g => g.progress),
+    }],
+    xAxisLabel: 'Progress',
+    yAxisLabel: 'Goal',
+    horizontal: true,
+    numberFormat: { suffix: '%' },
+  };
+
+  const chartBlock = '```chart\n' + JSON.stringify(chartConfig) + '\n```';
+  return { chartBlock };
+}
+
+/**
  * Run the surplus allocation algorithm across competing goals.
  *
  * Algorithm:
  *   1. Collect all goals with gaps (monthly_required > monthly_current)
  *   2. Score each by urgency (domain-provided or default by goal_type)
+
  *   3. Sort by urgency DESC
  *   4. Allocate available surplus in order (each goal gets min(gap, remaining))
  *   5. Generate trade-off explanations
@@ -502,9 +543,13 @@ const financialPlan: Tool = {
           const totalGoals = snapshot.domains.reduce((sum, d) => sum + d.goals.length, 0);
           const domainsReached = snapshot.domains.length;
 
+          const { chartBlock } = buildGoalProgressChart(snapshot);
+
           return {
             success: true,
             ...snapshot,
+            chartBlock,
+            _chart_instructions: 'IMPORTANT: Include the chartBlock above in your response EXACTLY as provided to display the goal progress chart. Do NOT reconstruct or modify the chart data.',
             _meta: {
               domains_reached: domainsReached,
               total_goals: totalGoals,
