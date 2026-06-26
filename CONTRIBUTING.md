@@ -17,7 +17,7 @@ npm run dev
 
 1. Fork the repository and create a feature branch from `main`
 2. Make your changes
-3. Run `npm test` — all 98+ tests must pass
+3. Run `npm test` — all 414 tests (315 unit + 99 integration) must pass
 4. Write tests for new functionality
 5. Update documentation if needed
 6. Submit a PR against `main`
@@ -46,4 +46,4 @@ Open a GitHub Issue with:
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [Apache License 2.0](LICENSE).
+By contributing, you agree that your contributions will be licensed under the project's proprietary license.

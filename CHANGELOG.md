@@ -21,6 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Debt domain transaction tools** — `plaid.getBalances` and `plaid.getTransactions` capabilities added to the debt domain module, matching the checking/savings toolset for credit card and loan transaction access
 - **Plaid sign normalization** — Universal `normalizeAmount()` negates all Plaid amounts at sync time, converting from Plaid convention (positive=money out) to standard accounting (positive=money in, negative=money out)
 - **Pendragon tools plugin (v1.0.1)** — `@pendragon/tools-plaid` published to Google Artifact Registry with 3 domain modules (checking, debt, investments), Chinese Wall account-type isolation, and domain-scoped capability registration
+- **Goals system** — Hybrid evaluation engine: per-goal snapshots are evaluated first (fast path), then falls back to live domain evaluation if no snapshot exists. Goals support `parameters->>'demo_seed'` tagging for demo data.
+- **Auto-goal generation** — `autoGoals.ts` automatically creates default financial goals (emergency fund, debt payoff, etc.) when a domain workspace has no goals configured
+- **Goal seeding SQL** — Idempotent `seed-goals-*.sql` files for all 6 financial domains (checking, debt, investments, realestate, retirement, taxes) using `INSERT ON CONFLICT UPDATE`
+- **Demographics domain** — New domain workspace with schema (`04-schema-demographics.sql`), seed data, and domain-specific tools
+- **Socket.IO A2A API key auth** — Server-to-server Socket.IO connections can authenticate via `A2A_API_KEY` header (used by Pendragon for step log streaming)
+- **`ai-status` Socket.IO events** — A2A server and chat handler emit real-time step log events (`{ step, label, state }`) to connected Socket.IO clients, enabling routing DAG visualization in consumers like Pendragon
+- **Contract reconciliation** — `reconcile-demo-contracts.ts` ensures all demo workspace contracts match current `DOMAIN_ACTIONS` definitions
 
 ### Changed
 
