@@ -27,6 +27,7 @@ const DOMAIN_REGISTRARS: Record<string, {
   investments: { tools: registerInvestmentTools, capabilities: registerInvestmentCapabilities },
   retirement:  { tools: registerInvestmentTools, capabilities: registerInvestmentCapabilities },
   debt:        { tools: registerDebtTools, capabilities: registerDebtCapabilities },
+  taxes:       { tools: registerCheckingTools, capabilities: registerCheckingCapabilities },
   realestate:     { tools: registerRealEstateTools, capabilities: registerRealEstateCapabilities },
   demographics:   { tools: registerDemographicsTools, capabilities: registerDemographicsCapabilities },
 };
@@ -56,6 +57,7 @@ const DOMAIN_CAPS: Record<string, string[]> = {
   investments: ['plaid.getHoldings', 'plaid.getSecurities', 'plaid.getPortfolioSummary', 'plaid.syncData', ...GOAL_CAPS],
   retirement:  ['plaid.getHoldings', 'plaid.getSecurities', 'plaid.getPortfolioSummary', 'plaid.syncData', ...GOAL_CAPS],
   debt:        ['plaid.getLiabilities', 'plaid.getDebtSummary', 'plaid.getCreditUtilization', 'plaid.syncData', ...GOAL_CAPS],
+  taxes:       ['plaid.getBalances', 'plaid.getTransactions', 'plaid.syncData', ...GOAL_CAPS],
   realestate:  ['property.getPropertySummary', 'property.getMortgageDetails', 'property.getEquityAnalysis', ...GOAL_CAPS],
   demographics:   ['demographics.getUserProfile', 'demographics.getHousehold', 'demographics.getInvestmentPreferences', ...GOAL_CAPS],
 };

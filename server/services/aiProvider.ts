@@ -260,7 +260,15 @@ async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: str
       yield { type: 'tool-call', name: tc.name, args: JSON.parse(tc.arguments), callId: tc.id };
 
       const toolStart = Date.now();
-      const result: Record<string, unknown> = await executeTool(tc.name, JSON.parse(tc.arguments), { ...workspaceConfig, model });
+      const _io = (global as any)._io;
+      const _wsId = workspaceConfig?.workspaceId;
+      const configWithProgress = {
+        ...workspaceConfig, model,
+        _onProgress: _io && _wsId ? (step: string, label: string, state: string, opts?: any) => {
+          _io.to(`ws:${_wsId}`).emit('ai-status', { step, label, state, ...opts });
+        } : undefined,
+      };
+      const result: Record<string, unknown> = await executeTool(tc.name, JSON.parse(tc.arguments), configWithProgress);
       const toolDurationMs = Date.now() - toolStart;
       if (traceCtx) {
         const toolSpan = startSpan({ traceId: traceCtx.traceId, parentSpanId: llmSpan?.spanId || traceCtx.spanId, workspaceId: workspaceConfig?.workspaceId || '', workspaceName: workspaceConfig?.workspaceName || '', operation: 'tool_execution', toolName: tc.name, inputPreview: preview(tc.arguments), sampled: traceCtx.sampled });
@@ -431,7 +439,15 @@ async function* streamAnthropic(model: string, messages: ChatMessage[], apiKey: 
       yield { type: 'tool-call', name: tu.name, args: tu.input, callId: tu.id };
 
       const toolStart = Date.now();
-      const result: Record<string, unknown> = await executeTool(tu.name, tu.input, { ...workspaceConfig, model });
+      const _io = (global as any)._io;
+      const _wsId = workspaceConfig?.workspaceId;
+      const configWithProgress = {
+        ...workspaceConfig, model,
+        _onProgress: _io && _wsId ? (step: string, label: string, state: string, opts?: any) => {
+          _io.to(`ws:${_wsId}`).emit('ai-status', { step, label, state, ...opts });
+        } : undefined,
+      };
+      const result: Record<string, unknown> = await executeTool(tu.name, tu.input, configWithProgress);
       const toolDurationMs = Date.now() - toolStart;
       if (traceCtx) {
         const toolSpan = startSpan({ traceId: traceCtx.traceId, parentSpanId: llmSpan?.spanId || traceCtx.spanId, workspaceId: workspaceConfig?.workspaceId || '', workspaceName: workspaceConfig?.workspaceName || '', operation: 'tool_execution', toolName: tu.name, inputPreview: preview(JSON.stringify(tu.input)), sampled: traceCtx.sampled });
@@ -626,7 +642,15 @@ async function* streamGoogle(model: string, messages: ChatMessage[], apiKey: str
         }
 
         const toolStart = Date.now();
-        const result = await executeTool(fc.name, fc.args, { ...workspaceConfig, model });
+        const _io = (global as any)._io;
+        const _wsId = workspaceConfig?.workspaceId;
+        const configWithProgress = {
+          ...workspaceConfig, model,
+          _onProgress: _io && _wsId ? (step: string, label: string, state: string, opts?: any) => {
+            _io.to(`ws:${_wsId}`).emit('ai-status', { step, label, state, ...opts });
+          } : undefined,
+        };
+        const result = await executeTool(fc.name, fc.args, configWithProgress);
         const toolDurationMs = Date.now() - toolStart;
         if (traceCtx) {
           const toolSpan = startSpan({ traceId: traceCtx.traceId, parentSpanId: llmSpan?.spanId || traceCtx.spanId, workspaceId: workspaceConfig?.workspaceId || '', workspaceName: workspaceConfig?.workspaceName || '', operation: 'tool_execution', toolName: fc.name, inputPreview: preview(JSON.stringify(fc.args)), sampled: traceCtx.sampled });
@@ -797,7 +821,15 @@ async function* streamOllama(model: string, messages: ChatMessage[], enableTools
       yield { type: 'tool-call', name: tc.name, args: JSON.parse(tc.arguments), callId: tc.id };
 
       const toolStart = Date.now();
-      const result: Record<string, unknown> = await executeTool(tc.name, JSON.parse(tc.arguments), { ...workspaceConfig, model });
+      const _io = (global as any)._io;
+      const _wsId = workspaceConfig?.workspaceId;
+      const configWithProgress = {
+        ...workspaceConfig, model,
+        _onProgress: _io && _wsId ? (step: string, label: string, state: string, opts?: any) => {
+          _io.to(`ws:${_wsId}`).emit('ai-status', { step, label, state, ...opts });
+        } : undefined,
+      };
+      const result: Record<string, unknown> = await executeTool(tc.name, JSON.parse(tc.arguments), configWithProgress);
       const toolDurationMs = Date.now() - toolStart;
       if (traceCtx) {
         const toolSpan = startSpan({ traceId: traceCtx.traceId, parentSpanId: llmSpan?.spanId || traceCtx.spanId, workspaceId: workspaceConfig?.workspaceId || '', workspaceName: workspaceConfig?.workspaceName || '', operation: 'tool_execution', toolName: tc.name, inputPreview: preview(tc.arguments), sampled: traceCtx.sampled });
@@ -1063,7 +1095,15 @@ async function* streamVertexAI(model: string, messages: ChatMessage[], enableToo
 
         console.log(`[aiProvider] Executing tool '${fc.name}' with args: ${JSON.stringify(fc.args)}`);
         const toolStart = Date.now();
-        const result = await executeTool(fc.name, fc.args, { ...workspaceConfig, model });
+        const _io = (global as any)._io;
+        const _wsId = workspaceConfig?.workspaceId;
+        const configWithProgress = {
+          ...workspaceConfig, model,
+          _onProgress: _io && _wsId ? (step: string, label: string, state: string, opts?: any) => {
+            _io.to(`ws:${_wsId}`).emit('ai-status', { step, label, state, ...opts });
+          } : undefined,
+        };
+        const result = await executeTool(fc.name, fc.args, configWithProgress);
         const toolDurationMs = Date.now() - toolStart;
         console.log(`[aiProvider] Tool '${fc.name}' completed with length ${JSON.stringify(result)?.length || 0}`);
         if (traceCtx) {
