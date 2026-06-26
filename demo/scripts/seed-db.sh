@@ -6,9 +6,10 @@
 # Useful for resetting demo data or populating a fresh set of databases.
 #
 # Modes:
-#   ./scripts/seed-db.sh              # Full: schema + seed data
-#   ./scripts/seed-db.sh --seed-only  # Seed data only (skip schema)
-#   ./scripts/seed-db.sh --schema-only # Schema only (skip seed data)
+#   ./scripts/seed-db.sh                # Full: schema + seed data + settings sync
+#   ./scripts/seed-db.sh --seed-only    # Seed data only (skip schema)
+#   ./scripts/seed-db.sh --schema-only  # Schema only (skip seed data)
+#   ./scripts/seed-db.sh --sync-settings # Only sync workspace settings (system prompt, etc.)
 #
 # Prerequisites:
 #   - Cloud SQL Proxy running on localhost:5432
@@ -49,12 +50,14 @@ log_step()    { echo -e "\n${CYAN}━━━ $1 ━━━${NC}"; }
 # Parse CLI flags
 SEED_ONLY=false
 SCHEMA_ONLY=false
+SYNC_SETTINGS_ONLY=false
 for arg in "$@"; do
   case $arg in
-    --seed-only)   SEED_ONLY=true ;;
-    --schema-only) SCHEMA_ONLY=true ;;
+    --seed-only)       SEED_ONLY=true ;;
+    --schema-only)     SCHEMA_ONLY=true ;;
+    --sync-settings)   SYNC_SETTINGS_ONLY=true ;;
     --help)
-      echo "Usage: $0 [--seed-only] [--schema-only]"
+      echo "Usage: $0 [--seed-only] [--schema-only] [--sync-settings]"
       exit 0
       ;;
     *)
@@ -175,7 +178,7 @@ fi
 # ---------------------------------------------------------------------------
 # Seed Data
 # ---------------------------------------------------------------------------
-if [[ "$SCHEMA_ONLY" == false ]]; then
+if [[ "$SCHEMA_ONLY" == false && "$SYNC_SETTINGS_ONLY" == false ]]; then
   log_step "Seeding Data"
 
   for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
@@ -213,6 +216,28 @@ if [[ "$SCHEMA_ONLY" == false ]]; then
         ;;
     esac
   done
+
+  # ── Goal Seeds (domain_goals + goal_snapshots) ──
+  log_step "Seeding Goals & Snapshots"
+
+  for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
+    DOMAIN_TYPE=$(jq -r ".[$i].domainType" "$CONFIG_DIR/workspaces.json")
+    DB_NAME=$(jq -r ".[$i].databaseName" "$CONFIG_DIR/workspaces.json")
+    WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
+
+    GOAL_FILE="$SQL_DIR/seed-goals-${DOMAIN_TYPE}.sql"
+    if [[ -f "$GOAL_FILE" ]]; then
+      run_sql "$DB_NAME" "$GOAL_FILE" "Goals & snapshots ($WS_NAME)"
+    fi
+  done
+fi
+
+# ---------------------------------------------------------------------------
+# Workspace Settings Sync
+# ---------------------------------------------------------------------------
+if [[ "$SCHEMA_ONLY" == false ]]; then
+  log_step "Syncing Workspace Settings"
+  "$SCRIPT_DIR/sync-settings.sh"
 fi
 
 # ---------------------------------------------------------------------------
