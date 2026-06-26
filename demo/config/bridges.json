@@ -46,5 +46,13 @@
     "targetWsId": "4x5OQpZSA29iLJIrhmAC",
     "targetName": "Taxes",
     "permissions": ["message", "delegate"]
+  },
+  {
+    "bridgeId": "bridge-arthur-demographics",
+    "sourceWsId": "FY6M0lU0katTXza3Yo1r",
+    "sourceName": "Arthur",
+    "targetWsId": "DemoGraphicsWs01xYz",
+    "targetName": "Demographics",
+    "permissions": ["message", "delegate"]
   }
 ]
