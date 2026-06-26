@@ -30,6 +30,7 @@ import describeWorkspace from './describeWorkspace';
 import verifyWorkspace from './verifyWorkspace';
 import bridgeWorkspace from './bridgeWorkspace';
 import intentBridge from './intentBridge';
+import financialPlan from './financialPlan';
 
 // Protocol integration tools
 import callAgent from './callAgent';
@@ -65,6 +66,8 @@ const tools = {
   // Workspace bridge tools — communicate with other workspaces
   bridge_workspace: bridgeWorkspace,
   intent_bridge: intentBridge,
+  // Cross-domain planning tools
+  financial_plan: financialPlan,
   // Protocol integration tools
   call_agent: callAgent,
 };
@@ -238,7 +241,10 @@ async function executeTool(name: string, args: any, workspaceConfig: any = {}) {
   if (!tool) {
     throw new Error(`Unknown tool: ${name}`);
   }
-  return tool.execute(args, workspaceConfig);
+  const context = workspaceConfig._onProgress
+    ? { onProgress: workspaceConfig._onProgress }
+    : undefined;
+  return tool.execute(args, workspaceConfig, context);
 }
 
 export { 

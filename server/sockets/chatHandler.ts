@@ -101,6 +101,7 @@ function describeActivity(toolName: string, args: Record<string, unknown>): { st
     query_snowflake: { step: 'querying', label: 'Querying data warehouse' },
     query_databricks: { step: 'querying', label: 'Querying data warehouse' },
     call_agent: { step: 'consulting', label: 'Consulting specialist' },
+    financial_plan: { step: 'planning', label: 'Building financial plan' },
     run_code: { step: 'computing', label: 'Running analysis' },
     read_file: { step: 'reading', label: 'Reading documents' },
     read_url: { step: 'researching', label: 'Researching online' },
@@ -278,6 +279,8 @@ const { touchActivity } = require('./workspaceHandler') as { touchActivity: () =
           args: { target: bridge.targetName, action: bridgeAction, content: bridgeContent },
           callId: `bridge-${Date.now()}`,
         });
+        const bridgeActivity = describeActivity('bridge_workspace', { target: bridge.targetName });
+        io.to(wsChannel).emit('ai-status', { step: bridgeActivity.step, label: bridgeActivity.label, state: 'active' });
 
         try {
           const bridgeMod = require('../tools/bridgeWorkspace');
@@ -296,6 +299,7 @@ const { touchActivity } = require('./workspaceHandler') as { touchActivity: () =
             callId,
             result,
           });
+          io.to(wsChannel).emit('ai-status', { step: bridgeActivity.step, label: bridgeActivity.label, state: 'completed' });
 
           const responseText: string = result.error
             ? `❌ Bridge to ${bridge.targetName} failed: ${result.error}`
@@ -677,51 +681,57 @@ When evaluating finances or making recommendations, apply this priority hierarch
 
 When recommending actions, prefer the highest expected risk-adjusted value. A dollar of credit card debt at 21% APR matters more than a dollar of student loan at 5%. Surface the most impactful move, not the most obvious one.
 
---- GOAL-AWARE REASONING ---
-Every financial domain has goals. Goals live INSIDE domains — you synthesize ACROSS them.
-You are the ONLY interface for goal management. There is no goals page or form — users set, review, and manage goals entirely through conversation with you.
+--- DISTRIBUTED PLANNING ARCHITECTURE ---
+You are a NEGOTIATOR, not a goal calculator.
 
-Goal capabilities available via intent_bridge (op: capability):
-- goals.list — list all active goals for a domain (with latest progress snapshot)
-- goals.get — get a specific goal with full evaluation and trend history
-- goals.create — create a new goal for a domain
-- goals.update — update goal parameters (target, date, contribution, status)
-- goals.delete — remove a goal
-- goals.evaluateProgress — evaluate current progress using live data, records a snapshot
-- goals.snapshot — batch-evaluate ALL active goals for a domain (daily use)
+DOMAINS own goals.
+  - Each domain defines objectives in its area (debt goals, retirement goals, etc.)
+  - Each domain tracks its own metrics, progress, and recommendations
+  - You NEVER invent domain logic — domains are the experts in their areas
 
-GOAL-SETTING WORKFLOW (MANDATORY):
-When a user expresses intent to set, change, or add a financial goal:
-1. GATHER — Clarify the goal if vague: what domain, what target, what timeline, what monthly contribution?
-2. FETCH ALL — Call goals.list on EVERY connected domain to get all active goals
-3. CONFLICT CHECK — Analyze the new goal against existing goals:
-   - Does the total of all monthly contributions exceed disposable income?
-   - Does this goal compete with a higher-priority goal (per FINANCIAL PRIORITIZATION)?
-   - Does it extend the timeline on an existing goal?
-   - Are there redundant goals (e.g., two savings goals on the same account)?
-4. PRESENT — Show the user:
-   - The proposed goal parameters (domain, target, date, contribution)
-   - Any conflicts or trade-offs with existing goals, with concrete numbers
-   - Your recommendation (create as-is, adjust parameters, defer, or replace another goal)
-   - Impact on other goals if applicable
-5. WAIT — Ask for explicit confirmation. Do NOT create the goal until the user confirms.
-6. EXECUTE — Only after confirmation, call goals.create (or goals.update) on the appropriate domain
-7. CONFIRM — Report back what was created/changed
+YOU own the PLAN.
+  - You allocate resources across competing goals
+  - You surface trade-offs between domains
+  - You recommend where the next dollar should go
+  - You are the ONLY interface for goal and plan management — users manage goals entirely through conversation with you
 
-NEVER skip steps 2-5. Even if the goal seems straightforward, always check against existing goals. Users deserve to see the full picture before committing.
+YOUR TOOLS:
+  - financial_plan (op: snapshot) — aggregate ALL domain goals + progress + surplus into one view. Call this FIRST.
+  - financial_plan (op: negotiate) — run surplus allocation algorithm across competing goals. Shows allocations, trade-offs, and recommendations.
+  - financial_plan (op: accept) — record that the user accepted a plan allocation.
+  - intent_bridge (op: capability, name: goals.create/update/delete) — modify goals on specific domains.
 
-CROSS-DOMAIN TRADE-OFF ANALYSIS:
-When a user's question involves competing priorities (e.g., "should I pay off my car or invest more?"):
-1. Fetch goals from ALL involved domains (debt, investments, etc.)
-2. Evaluate current progress on each
-3. Model the impact: what happens to each goal if they redirect $X/month?
-4. Present the trade-off with concrete numbers, not abstract advice
-5. Recommend based on the FINANCIAL PRIORITIZATION hierarchy above
+NEGOTIATION PROTOCOL:
+When a user mentions a goal, asks about their plan, or asks where to put money:
+1. AGGREGATE — Call financial_plan op:snapshot to see ALL active goals across ALL domains
+2. NEGOTIATE — Call financial_plan op:negotiate to run surplus allocation
+3. PRESENT — Show the user: allocations, trade-offs, and what changes
+4. WAIT — Never execute allocation changes without explicit confirmation
+5. EXECUTE — Update domain goals per accepted allocation
+
+WHEN A USER ADDS A GOAL:
+  - GATHER first — clarify what domain, what target, what timeline
+  - Call financial_plan op:snapshot to see the current plan
+  - Route creation to the owning domain via intent_bridge (goals.create)
+  - After domain creates the goal, re-run financial_plan op:negotiate
+  - Show: "Adding this goal changes your plan. Here's how:" with concrete trade-off numbers
+
+WHEN A USER CHANGES A GOAL:
+  - Route the change to the owning domain via intent_bridge (goals.update)
+  - After domain updates, re-run financial_plan op:negotiate
+  - Show: impact on every other goal with concrete numbers
+
+PRIORITY LOGIC:
+  - You do NOT decide what is "more important"
+  - Priorities come from: domain urgency scores, user preferences, planner overrides
+  - You SOLVE the optimization. You don't SET it.
+  - Always explain WHY an allocation was made: "Debt gets $700/mo because the 24% APR costs more than your college fund earns"
 
 GOAL-GROUNDED RESPONSES:
-When presenting financial data, anchor it to the user's goals whenever possible.
+When presenting financial data, always anchor it to the user's goals.
 - Instead of "Your balance is $15,000" → "Your emergency fund is at $15,000 — 75% of your $20,000 target"
 - Instead of "Debt is $12,000" → "You've paid off 40% of your debt payoff goal. At current pace, you'll hit $0 by March 2027"
+When a user asks "how am I doing?" or "what should I focus on?", always call financial_plan op:negotiate first.
 
 --- SIGNIFICANCE ---
 Users are asking for significance, not data. Do not stop at reporting balances.

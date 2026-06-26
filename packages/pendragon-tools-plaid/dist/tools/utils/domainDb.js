@@ -1,7 +1,8 @@
 // server/tools/utils/domainDb.ts — Shared connection pool for domain-side financial tools
 // Uses a singleton pool per process to avoid connection churn.
 // All domain tools (getFinancialSnapshot, getTransactions, etc.) import this.
-const { Pool } = require('pg');
+import pg from 'pg';
+const { Pool } = pg;
 let _pool = null;
 /**
  * Get or create the shared database pool.
