@@ -41,25 +41,15 @@ function createGoalCreateHandler(config) {
 function createGoalListHandler(config) {
     return async (_input, _ctx) => {
         return withPool(config.databaseUrl, async (pool) => {
-            const { rows } = await pool.query(`SELECT g.*,
-                s.current_value AS latest_value,
-                s.progress_pct AS latest_progress,
-                s.on_track AS latest_on_track,
-                s.projected_date AS latest_projected_date,
-                s.snapshot_at AS latest_snapshot_at
-         FROM domain_goals g
-         LEFT JOIN LATERAL (
-           SELECT * FROM goal_snapshots
-           WHERE goal_id = g.id
-           ORDER BY snapshot_at DESC
-           LIMIT 1
-         ) s ON true
-         WHERE g.status = 'active'
-         ORDER BY g.created_at DESC`);
+            const { rows } = await pool.query(`SELECT id FROM domain_goals WHERE status = 'active' ORDER BY created_at DESC`);
+            // Evaluate live progress for each goal (matches goals.evaluate behavior).
+            // This ensures consumers like financial_plan get real progress_pct values
+            // even when no goal_snapshots exist yet (e.g. fresh demo workspaces).
+            const goals = await Promise.all(rows.map((row) => evaluateGoalProgress(pool, row.id, config.domainType)));
             return {
-                goals: rows,
+                goals,
                 domain: config.domainType,
-                count: rows.length,
+                count: goals.length,
                 provenance: { source: 'domain_goals', domain: config.domainType },
             };
         });
