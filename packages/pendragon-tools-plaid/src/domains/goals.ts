@@ -58,15 +58,64 @@ function createGoalCreateHandler(config: PlaidPluginConfig): CapabilityHandler {
 function createGoalListHandler(config: PlaidPluginConfig): CapabilityHandler {
   return async (_input, _ctx) => {
     return withPool(config.databaseUrl, async (pool) => {
+      // Fetch all active goals with their latest snapshot (if any).
+      // Snapshots contain per-goal values from the last evaluation,
+      // which are more accurate than domain-level aggregate queries
+      // when multiple goals share a domain (e.g., 3 college funds
+      // all sharing the retirement workspace's plaid_holdings).
       const { rows } = await pool.query(
-        `SELECT id FROM domain_goals WHERE status = 'active' ORDER BY created_at DESC`,
+        `SELECT g.*,
+                s.current_value AS snap_current_value,
+                s.progress_pct  AS snap_progress_pct,
+                s.on_track      AS snap_on_track,
+                s.projected_date AS snap_projected_date,
+                s.details       AS snap_details,
+                s.snapshot_at   AS snap_at
+         FROM domain_goals g
+         LEFT JOIN LATERAL (
+           SELECT * FROM goal_snapshots
+           WHERE goal_id = g.id
+           ORDER BY snapshot_at DESC
+           LIMIT 1
+         ) s ON true
+         WHERE g.status = 'active'
+         ORDER BY g.created_at DESC`,
       );
 
-      // Evaluate live progress for each goal (matches goals.evaluate behavior).
-      // This ensures consumers like financial_plan get real progress_pct values
-      // even when no goal_snapshots exist yet (e.g. fresh demo workspaces).
       const goals = await Promise.all(
-        rows.map((row) => evaluateGoalProgress(pool, row.id, config.domainType)),
+        rows.map(async (row) => {
+          // If a snapshot exists, use its per-goal values
+          if (row.snap_at != null) {
+            const targetAmount = row.target_amount ?? 0;
+            const currentValue = parseFloat(row.snap_current_value) || 0;
+            const progressPct = parseFloat(row.snap_progress_pct) || 0;
+
+            return {
+              goal_id: row.id,
+              goal_name: row.name,
+              goal_type: row.goal_type,
+              target_amount: targetAmount,
+              target_date: row.target_date,
+              current_value: currentValue,
+              progress_pct: Math.round(progressPct * 10) / 10,
+              on_track: row.snap_on_track ?? false,
+              projected_date: row.snap_projected_date || null,
+              monthly_required: null,
+              monthly_current: row.monthly_contribution ? Math.round(row.monthly_contribution) : null,
+              gap: null,
+              recommendation: progressPct >= 100
+                ? 'Goal achieved! 🎉'
+                : `${progressPct.toFixed(1)}% toward $${targetAmount.toLocaleString()} target.`,
+              details: { ...(row.snap_details || {}), source: 'goal_snapshot' },
+              resource_request: null,
+            };
+          }
+
+          // No snapshot — fall back to live domain-level evaluation.
+          // Note: this uses aggregate queries, so values may be inflated
+          // when multiple goals share a domain.
+          return evaluateGoalProgress(pool, row.id, config.domainType);
+        }),
       );
 
       return {
