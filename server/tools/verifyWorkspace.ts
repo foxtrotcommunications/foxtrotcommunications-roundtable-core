@@ -131,7 +131,7 @@ const tool: Tool = {
             } else {
               try {
                 const bqResult = await tool.execute(
-                  { query: 'SELECT 1 AS health_check', projectId: gcpProject },
+                  { sql: 'SELECT 1 AS health_check', project: gcpProject },
                   _workspaceConfig
                 );
                 if (bqResult.error) {
@@ -173,7 +173,7 @@ const tool: Tool = {
 
           // ── Web Search: check API key or grounding config ──
           case 'web_search':
-            if (config.googleSearch?.apiKey || gcpProject) {
+            if (config.googleSearch?.apiKey || config.vertexai?.project) {
               check.status = 'pass';
               check.detail = config.googleSearch?.apiKey
                 ? 'Google Custom Search API key configured'
