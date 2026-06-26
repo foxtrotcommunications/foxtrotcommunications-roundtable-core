@@ -4,7 +4,7 @@
 
 ## Overview
 
-Pendragon Capital is the reference demo for the Roundtable multi-agent platform. It showcases a financial orchestration scenario with seven workspaces:
+Pendragon Capital is the reference demo for the Roundtable multi-agent platform. It showcases a financial orchestration scenario with eight workspaces:
 
 | Workspace | Role | AI Model | Domain |
 |---|---|---|---|
@@ -15,6 +15,7 @@ Pendragon Capital is the reference demo for the Roundtable multi-agent platform.
 | **Investments** | Domain Agent | Gemini 3.5 Flash | `investments` |
 | **Retirement** | Domain Agent | Gemini 3.5 Flash | `retirement` |
 | **Taxes** | Domain Agent | Gemini 3.5 Flash | `taxes` |
+| **Demographics** | Domain Agent | Gemini 3.5 Flash | `demographics` |
 
 Arthur delegates user queries to domain workspaces over A2A bridges, governed by contracts that restrict which capabilities each domain may expose.
 
@@ -27,7 +28,7 @@ demo/
 ├── README.md                        # This file
 ├── config/
 │   ├── org.json                     # Organization-level configuration
-│   ├── workspaces.json              # All 7 workspace definitions
+│   ├── workspaces.json              # All 8 workspace definitions + system prompts
 │   ├── bridges.json                 # A2A bridge definitions (Arthur → domains)
 │   └── contracts.json               # Governance contracts (allowed actions)
 ├── sql/
@@ -35,17 +36,29 @@ demo/
 │   ├── 01-schema-plaid.sql          # Plaid domain schema (accounts, txns, liabilities)
 │   ├── 02-schema-realestate.sql     # Real estate schema (properties, mortgages, valuations)
 │   ├── 03-schema-investments.sql    # Investment domain schema (holdings, securities)
+│   ├── 04-schema-demographics.sql   # Demographics domain schema (profiles, households)
 │   ├── seed-checking.sql            # Seed data for Checking & Savings workspace
 │   ├── seed-debt.sql                # Seed data for Debt Management workspace
 │   ├── seed-realestate.sql          # Seed data for Real Estate workspace
 │   ├── seed-investments.sql         # Seed data for Investments workspace
 │   ├── seed-retirement.sql          # Seed data for Retirement workspace
-│   └── seed-taxes.sql               # Seed data for Taxes workspace
+│   ├── seed-taxes.sql               # Seed data for Taxes workspace
+│   ├── seed-demographics.sql        # Seed data for Demographics workspace
+│   ├── seed-goals-checking.sql      # Financial goals for Checking & Savings
+│   ├── seed-goals-debt.sql          # Financial goals for Debt Management
+│   ├── seed-goals-investments.sql   # Financial goals for Investments
+│   ├── seed-goals-realestate.sql    # Financial goals for Real Estate
+│   ├── seed-goals-retirement.sql    # Financial goals for Retirement
+│   └── seed-goals-taxes.sql         # Financial goals for Taxes
+├── tools/
+│   └── demographics-tools.js        # Custom tools for demographics domain
 └── scripts/
     ├── setup.sh                     # Full end-to-end setup (k8s, SQL, Firestore)
-    ├── seed-db.sh                   # Seed only the Cloud SQL databases
+    ├── seed-db.sh                   # Seed databases + sync workspace settings
+    ├── sync-settings.sh             # Push workspace settings to PostgreSQL
     ├── seed-firestore.js            # Seed Firestore (workspaces, bridges, contracts)
-    ├── verify.sh                    # Verify all pods, databases, and bridges
+    ├── provision-domains.js         # Provision new domains via Roundtable API
+    ├── verify.sh                    # Verify all pods, databases, bridges, and settings
     └── teardown.sh                  # Tear down everything
 ```
 
@@ -217,6 +230,75 @@ To completely remove the demo:
 
 ---
 
+## Managing Deployed State
+
+The `config/` directory is the **single source of truth** for the demo. When you change anything in config (system prompts, AI models, contracts, etc.), push those changes to the live environment:
+
+```bash
+# Sync system prompts and AI settings to all workspace databases
+./scripts/sync-settings.sh
+
+# Sync only a single workspace (e.g., after editing Arthur's system prompt)
+./scripts/sync-settings.sh --workspace Arthur
+
+# Sync only system prompts (skip AI provider/model)
+./scripts/sync-settings.sh --prompt-only
+
+# Preview what would change without modifying anything
+./scripts/sync-settings.sh --dry-run
+
+# Full re-seed: schema + domain data + workspace settings
+./scripts/seed-db.sh
+
+# Update Firestore (bridges, contracts, capabilities)
+node scripts/seed-firestore.js
+```
+
+> [!IMPORTANT]
+> After changing `workspaces.json`, always run `sync-settings.sh` to push settings to the live databases. System prompts, AI provider, and AI model are stored in each workspace's PostgreSQL database and are **not** automatically synced from config.
+
+### Goal Seeding
+
+Financial goals are seeded separately from domain data. Each domain has a `seed-goals-*.sql` file:
+
+```bash
+# Seed goals for a specific domain (via Cloud SQL proxy)
+psql -h 127.0.0.1 -p 5432 -U roundtable -d ws_<db_name> -f sql/seed-goals-checking.sql
+```
+
+- Goal IDs follow the pattern: `goal_demo_<domain>_<name>` (e.g., `goal_demo_chk_emergency`)
+- All seed goals are tagged with `parameters->>'demo_seed' = 'true'`
+- SQL uses `INSERT ... ON CONFLICT UPDATE` for idempotent re-seeding
+
+### Full Demo Rebuild
+
+To fully rebuild the demo from scratch (e.g., after database corruption or schema changes):
+
+```bash
+# 1. Seed domain databases (schema + accounts/transactions/balances)
+./scripts/seed-db.sh
+
+# 2. Seed financial goals for all domains
+for f in sql/seed-goals-*.sql; do
+  domain=$(echo $f | sed 's/.*seed-goals-\(.*\)\.sql/\1/')
+  psql -h 127.0.0.1 -p 5432 -U roundtable -d ws_<${domain}_db> -f $f
+done
+
+# 3. Sync workspace settings (system prompts, AI provider/model)
+./scripts/sync-settings.sh
+
+# 4. Reconcile governance contracts
+npx ts-node scripts/reconcile-demo-contracts.ts
+
+# 5. Rolling restart to clear stale manifest caches
+kubectl rollout restart deployment -n rt-pendragon-demo
+```
+
+> [!TIP]
+> For quick data refreshes without touching schema, just re-run steps 1-2 and restart.
+
+---
+
 ## Key IDs Reference
 
 | Resource | ID |
@@ -226,9 +308,10 @@ To completely remove the demo:
 | Checking & Savings WS | `Narv6OBjpk50aJla6eED` |
 | Debt Management WS | `jmdsbwMzZqelAnliJcGQ` |
 | Real Estate WS | `Qy339ASoBmooIBKdw9mH` |
-| Investments WS | `pK7mWxR2nQ5vJbYs8dFe` |
-| Retirement WS | `hN3cLzV9sT6wMgXa4bKi` |
-| Taxes WS | `eR8fDyU1kP4qJnZm7wCo` |
+| Investments WS | `lYjs7ZeDanzC1FDiO3es` |
+| Retirement WS | `b0njzeX7q4JZ3KeLyASx` |
+| Taxes WS | `4x5OQpZSA29iLJIrhmAC` |
+| Demographics WS | `DemoGraphicsWs01xYz` |
 | K8s Namespace | `rt-pendragon-demo` |
 | GCP Project | `roundtable-public` |
 | Redis | `redis://10.253.40.203:6379` |
@@ -246,3 +329,10 @@ Verify that Firestore bridge documents exist and that the A2A API keys in the wo
 
 ### Missing data
 Re-run `./scripts/seed-db.sh` to repopulate seed data without affecting the schema.
+
+### Goals missing or duplicated
+Goal seed SQL uses `INSERT ... ON CONFLICT UPDATE`, so re-running is safe. If goals appear duplicated, check whether multiple seed runs used different ID patterns. Clean up with:
+```sql
+DELETE FROM goals WHERE parameters->>'demo_seed' = 'true';
+```
+Then re-seed.

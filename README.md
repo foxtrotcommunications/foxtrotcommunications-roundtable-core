@@ -246,14 +246,42 @@ Domain-isolated Plaid financial tools published to Google Artifact Registry.
 ### Domain Modules
 
 | Domain | Account Types | Capabilities |
-|--------|--------------|--------------|
+|--------|--------------|--------------| 
 | **Checking / Savings** | depository | `getBalances`, `getTransactions`, `syncData` |
 | **Debt** | credit, loan | `getBalances`, `getTransactions`, `getLiabilities`, `getDebtSummary`, `getCreditUtilization`, `syncData` |
 | **Investments / Retirement** | investment | `getHoldings`, `getSecurities`, `getPortfolioSummary`, `syncData` |
-| **Taxes, Real Estate** | — | Defined, no registrar yet |
+| **Taxes** | depository | `getTaxSummary`, `getTaxReserve` |
+| **Real Estate** | — | `getProperties`, `getEquity`, `getMortgage` |
+| **Demographics** | — | Profile and household demographic tools |
 
 - **Chinese Wall filter** — each domain only sees its own account types
 - **Amount normalization** — Plaid signs inverted at sync time (positive = money IN, negative = money OUT)
+
+### Goals System
+
+- **Auto-goals** — `autoGoals.ts` creates default financial goals (emergency fund, debt payoff, portfolio growth, etc.) when a domain workspace has no goals configured
+- **Hybrid evaluation** — per-goal snapshots are evaluated first (fast path, ~5ms), falling back to live domain evaluation when no snapshot exists
+- **Goal seeding** — demo workspaces use idempotent SQL seed files (`seed-goals-*.sql`) tagged with `parameters->>'demo_seed' = 'true'`
+
+### Socket.IO Auth & Step Logging
+
+Socket.IO connections support three auth modes:
+
+| Mode | Use Case | Mechanism |
+|------|----------|-----------|
+| **Session** | Browser users | Express session middleware |
+| **A2A API Key** | Server-to-server | `socket.handshake.auth.apiKey` matches `A2A_API_KEY` env var |
+| **Embed** | Embedded widgets | Auto-generated guest identity when `EMBED_MODE=true` |
+
+The A2A server and chat handler emit `ai-status` Socket.IO events during AI processing:
+
+```json
+{ "step": "intent_bridge:checking", "label": "Querying Checking & Savings", "state": "active" }
+{ "step": "intent_bridge:checking", "label": "Querying Checking & Savings", "state": "completed" }
+{ "step": "composing", "label": "Composing response", "state": "active" }
+```
+
+These events power the routing DAG visualization in Pendragon's chat UI.
 
 ---
 

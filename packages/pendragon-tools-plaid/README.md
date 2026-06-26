@@ -8,11 +8,23 @@ Each domain type only gets access to its relevant Plaid APIs:
 
 | Domain | Plaid APIs | Capabilities |
 |--------|-----------|--------------|
-| `checking` / `savings` | `accountsGet`, `transactionsSync` | `plaid.getBalances`, `plaid.getTransactions` |
-| `investments` / `retirement` | `accountsGet`, `investmentsHoldingsGet` | `plaid.getHoldings`, `plaid.getSecurities`, `plaid.getPortfolioSummary` |
-| `debt` | `accountsGet`, `transactionsSync`, `liabilitiesGet` | TBD |
+| `checking` / `savings` | `accountsGet`, `transactionsSync` | `plaid.getBalances`, `plaid.getTransactions`, `plaid.syncData` |
+| `investments` / `retirement` | `accountsGet`, `investmentsHoldingsGet` | `plaid.getHoldings`, `plaid.getSecurities`, `plaid.getPortfolioSummary`, `plaid.syncData` |
+| `debt` | `accountsGet`, `transactionsSync`, `liabilitiesGet` | `plaid.getBalances`, `plaid.getTransactions`, `plaid.getPayoffSchedule`, `plaid.syncData` |
+| `taxes` | `accountsGet`, `transactionsSync` | `plaid.getTaxSummary`, `plaid.getTaxReserve` |
+| `realestate` | `accountsGet` | `plaid.getProperties`, `plaid.getEquity`, `plaid.getMortgage` |
+| `demographics` | — | Profile and household demographic tools |
 
 Cross-domain API calls throw `DOMAIN_ISOLATION_VIOLATION` errors.
+
+### Amount Normalization
+
+All Plaid amounts are normalized at sync time via `normalizeAmount()`, which negates Plaid's convention (positive = money out) to standard accounting (positive = money in, negative = money out).
+
+### Goals System
+
+- **Auto-goals** — `autoGoals.ts` automatically creates default financial goals (emergency fund, debt payoff, etc.) when a domain workspace has no goals configured
+- **Hybrid evaluation** — Per-goal snapshots are evaluated first (fast path), falling back to live domain evaluation when no snapshot exists
 
 ## Usage
 
