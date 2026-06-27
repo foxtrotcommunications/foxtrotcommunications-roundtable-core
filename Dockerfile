@@ -18,6 +18,7 @@ RUN apk add --no-cache git python3 py3-pip && \
     pip3 install --no-cache-dir --break-system-packages matplotlib numpy pandas
 
 # Copy package files and local packages, install production deps
+# tsx handles TypeScript at runtime — no compile step needed for local packages
 COPY package*.json ./
 COPY packages/ ./packages/
 RUN npm install --omit=dev --omit=optional && \
