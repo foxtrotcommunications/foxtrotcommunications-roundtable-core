@@ -1,3 +1,4 @@
+# Image: us-central1-docker.pkg.dev/roundtable-public/roundtable/roundtable-core:latest
 # ─── Stage 1: Build React client ───
 FROM node:20-alpine AS client-build
 
