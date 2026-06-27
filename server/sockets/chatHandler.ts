@@ -856,6 +856,47 @@ NEVER write a wall of text. If your response has more than one idea, it needs st
               contractCtx += `\n  Escalation target: ${c.escalationTarget}`;
             }
           }
+
+          // ── Domain data routing hints ──────────────────────────
+          // Help the LLM understand what data each domain workspace holds.
+          // Derived from the counterparty name in outbound contracts.
+          const domainHints: Record<string, string> = {
+            'checking': 'Checking/savings account balances, bank transactions, income, expenses, recurring charges, cash flow',
+            'savings': 'Savings account balances, bank transactions, income, expenses, recurring charges, cash flow',
+            'debt': 'Credit card transactions (individual charges by merchant/category), credit card balances, loan balances, liabilities, interest rates, minimum payments, credit utilization',
+            'investments': 'Investment holdings (stocks, bonds, ETFs), portfolio value, cost basis, dividends, investment transactions',
+            'retirement': 'Retirement account balances (401k, IRA, Roth), retirement holdings, contributions, projected retirement income',
+            'realestate': 'Property values, mortgage balances, home equity, property-related expenses',
+            'taxes': 'Tax-related accounts, estimated tax payments, tax withholding, deductible expenses',
+          };
+
+          const outboundContracts = contracts.filter(c => c.direction === 'outbound' && c.counterparty?.name);
+          if (outboundContracts.length > 0) {
+            contractCtx += '\n\n--- DOMAIN DATA ROUTING ---\n';
+            contractCtx += 'Each domain workspace holds specific financial data. Route queries to the correct domain:\n';
+            for (const c of outboundContracts) {
+              const name = c.counterparty!.name;
+              // Try to match domain name to data hints
+              const lowerName = name.toLowerCase();
+              let hint = '';
+              for (const [key, value] of Object.entries(domainHints)) {
+                if (lowerName.includes(key)) {
+                  hint = value;
+                  break;
+                }
+              }
+              if (hint) {
+                contractCtx += `\n• **${name}**: ${hint}`;
+              } else {
+                contractCtx += `\n• **${name}**: Use 'discover' to learn what data this domain has`;
+              }
+            }
+            contractCtx += '\n\nCRITICAL ROUTING RULES:\n';
+            contractCtx += '- Credit card spending by merchant or category → query the DEBT domain (it has itemized card transactions)\n';
+            contractCtx += '- Bank account balances and cash flow → query Checking & Savings\n';
+            contractCtx += '- When a question spans multiple domains, query ALL relevant domains and synthesize\n';
+          }
+
           contractCtx += `\n\n--- CROSS-WORKSPACE EXECUTION MODEL ---\nYou are the reasoning layer. ICE is the execution layer.\n\nWhen a user asks something that involves another workspace:\n1. YOU reason about what the user needs — they should NOT direct traffic\n2. YOU decide the best approach:\n   a. Capability call (intent_bridge op:capability) — if a typed capability exists. PREFER THIS.\n   b. Data query (intent_bridge op:query) — if you need raw data from the other workspace.\n   c. Tool invocation (intent_bridge op:tool_call) — if you need a specific tool on the other side.\n   d. Delegation (bridge_workspace op:delegate) — ONLY when you genuinely need the other AI to reason.\n3. YOU execute it, interpret the results, and respond to the user.\n\nCRITICAL: The user should NEVER need to say "ask pharmacy" or "send this to risk".\nThey just ask their question. YOU know the topology, the bridges, the contracts.\nYOU decide where to get the answer and how.\n\nExample:\n  User: "What's the formulary status for Ozempic?"\n  WRONG: Relay the question to Pharmacy AI as a message\n  RIGHT: Call pharmacy.formularyCheck({drug:"Ozempic"}) via ICE, get structured result, present it\n\n  User: "Draft a P&T committee recommendation for switching to a biosimilar"\n  RIGHT: Delegate to Pharmacy AI — this requires their specialized reasoning\n\nintent_bridge — Your execution tool for cross-workspace operations:\n- Capability calls: op capability with name and typed input (PREFERRED)\n- Data queries: op query with SQL or structured params\n- Tool invocations: op tool_call with tool name and args\n- Discovery: op discover to see what a workspace can do\n\nbridge_workspace — Only when you need the OTHER AI to reason (rare):\n- Subjective analysis requiring judgment on the other side\n- Creative synthesis that no capability covers\n- NEVER use this to relay a user's message verbatim\n\nDefault to intent_bridge. Use bridge_workspace delegate only as a last resort.\nIf unsure what a workspace has, discover first.\n`;
         }
       } catch { /* ignore contract fetch errors */ }
