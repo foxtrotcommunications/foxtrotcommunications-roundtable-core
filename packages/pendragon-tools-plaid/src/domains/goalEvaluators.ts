@@ -251,12 +251,20 @@ export async function evaluateGoalProgress(
   // ────────────────────────────────────────────────────────────────────────
 
   // No recent snapshot — fall back to domain-specific evaluator
+  // Within a domain, sub-route by goal_type for specialized evaluators
   switch (domainType) {
     case 'checking':
-    case 'savings':
+    case 'savings': {
+      const goalType = goal.goal_type || '';
+      if (goalType === 'spending_cap') return evaluateSpendingCapGoal(pool, goal);
+      if (goalType === 'savings_target') return evaluateSavingsTargetGoal(pool, goal);
       return evaluateSavingsGoal(pool, goal);
-    case 'debt':
+    }
+    case 'debt': {
+      const debtGoalType = goal.goal_type || '';
+      if (debtGoalType === 'spending_cap') return evaluateSpendingCapGoal(pool, goal);
       return evaluateDebtGoal(pool, goal);
+    }
     case 'investments':
       return evaluateInvestmentGoal(pool, goal, DEFAULT_GROWTH_RATE);
     case 'retirement':
@@ -733,6 +741,245 @@ async function evaluateTaxGoal(pool: Pool, goal: Record<string, any>): Promise<G
     gap: null,
     recommendation: `Current value: $${currentValue.toLocaleString()} of $${targetAmount.toLocaleString()} target.`,
     details: {},
+    resource_request,
+  };
+}
+
+// ─── Spending Cap Goals ─────────────────────────────────────────────────────
+
+async function evaluateSpendingCapGoal(pool: Pool, goal: Record<string, any>): Promise<GoalProgress> {
+  // Spending cap goals track current-month spending against a monthly limit.
+  // The cap is stored in target_amount (total monthly cap) or parameters.monthly_cap.
+  const params = goal.parameters || {};
+  const monthlyCap = params.monthly_cap ?? goal.target_amount ?? 0;
+
+  // Get current month's spending (positive amounts = money out)
+  const spendResult = await pool.query(
+    `SELECT
+       COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as total_spent,
+       COUNT(*) as txn_count
+     FROM plaid_transactions
+     WHERE date >= date_trunc('month', CURRENT_DATE)
+       AND pending = false
+       AND amount > 0`,
+  );
+  const currentSpent = parseFloat(spendResult.rows[0].total_spent) || 0;
+  const txnCount = parseInt(spendResult.rows[0].txn_count, 10) || 0;
+
+  // Get last month's spending for trend comparison
+  const lastMonthResult = await pool.query(
+    `SELECT COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as total_spent
+     FROM plaid_transactions
+     WHERE date >= date_trunc('month', CURRENT_DATE) - INTERVAL '1 month'
+       AND date < date_trunc('month', CURRENT_DATE)
+       AND pending = false
+       AND amount > 0`,
+  );
+  const lastMonthSpent = parseFloat(lastMonthResult.rows[0].total_spent) || 0;
+
+  // Get 3-month average for baseline
+  const avgResult = await pool.query(
+    `SELECT
+       COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as total_spent,
+       COUNT(DISTINCT date_trunc('month', date)) as months_counted
+     FROM plaid_transactions
+     WHERE date >= NOW() - INTERVAL '3 months'
+       AND pending = false
+       AND amount > 0`,
+  );
+  const threeMonthTotal = parseFloat(avgResult.rows[0].total_spent) || 0;
+  const monthsCounted = Math.max(parseFloat(avgResult.rows[0].months_counted) || 1, 1);
+  const monthlyAverage = threeMonthTotal / monthsCounted;
+
+  // Progress: how much of the cap is remaining (inverted — lower spending = more progress)
+  const remaining = Math.max(monthlyCap - currentSpent, 0);
+  // Progress toward staying UNDER the cap: 100% = spent nothing, 0% = at or over cap
+  const progressPct = monthlyCap > 0 ? Math.max(Math.min(((monthlyCap - currentSpent) / monthlyCap) * 100, 100), 0) : 0;
+  const onTrack = currentSpent <= monthlyCap;
+
+  // Day-of-month pacing: are we on track for the month?
+  const dayOfMonth = new Date().getDate();
+  const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+  const pacedBudget = monthlyCap * (dayOfMonth / daysInMonth);
+  const pacing = pacedBudget > 0 ? currentSpent / pacedBudget : 0;
+
+  let recommendation = '';
+  if (currentSpent > monthlyCap) {
+    const over = currentSpent - monthlyCap;
+    recommendation = `Over budget by $${over.toFixed(0)} this month. Consider pausing non-essential spending.`;
+  } else if (pacing > 1.15) {
+    recommendation = `Spending faster than pace — $${currentSpent.toFixed(0)} spent by day ${dayOfMonth}. Budget paces to $${pacedBudget.toFixed(0)} by now.`;
+  } else if (onTrack) {
+    recommendation = `On track: $${currentSpent.toFixed(0)} of $${monthlyCap.toLocaleString()} cap used ($${remaining.toFixed(0)} remaining).`;
+  }
+
+  const resource_request = computeResourceRequest(
+    goal,
+    {
+      monthly_required: null,
+      monthly_current: Math.round(currentSpent),
+      gap: Math.round(Math.max(currentSpent - monthlyCap, 0)),
+      progress_pct: Math.round(progressPct * 10) / 10,
+      on_track: onTrack,
+    },
+    'checking',
+  );
+
+  return {
+    goal_id: goal.id,
+    goal_name: goal.name,
+    goal_type: goal.goal_type,
+    target_amount: monthlyCap,
+    target_date: goal.target_date,
+    current_value: currentSpent,
+    progress_pct: Math.round(progressPct * 10) / 10,
+    on_track: onTrack,
+    projected_date: null,
+    monthly_required: monthlyCap ? Math.round(monthlyCap) : null,
+    monthly_current: Math.round(currentSpent),
+    gap: Math.round(Math.max(currentSpent - monthlyCap, 0)),
+    recommendation,
+    details: {
+      monthly_cap: monthlyCap,
+      current_month_spent: Math.round(currentSpent),
+      current_month_remaining: Math.round(remaining),
+      last_month_spent: Math.round(lastMonthSpent),
+      three_month_average: Math.round(monthlyAverage),
+      pacing_ratio: Math.round(pacing * 100) / 100,
+      day_of_month: dayOfMonth,
+      days_in_month: daysInMonth,
+      transactions_this_month: txnCount,
+      trend: currentSpent < lastMonthSpent ? 'improving' : currentSpent > lastMonthSpent ? 'worsening' : 'stable',
+    },
+    resource_request,
+  };
+}
+
+// ─── Savings Target Goals ───────────────────────────────────────────────────
+
+async function evaluateSavingsTargetGoal(pool: Pool, goal: Record<string, any>): Promise<GoalProgress> {
+  // Savings target goals track reduction in recurring/subscription spending.
+  // The target is the monthly savings amount to find (e.g., $500/month).
+  // We compare recent spending on recurring merchants to a 3-month baseline.
+  const params = goal.parameters || {};
+  const monthlySavingsTarget = params.monthly_savings ?? goal.target_amount ?? 0;
+  const focusMerchants: string[] = params.focus_merchants || [];
+
+  // Build optional merchant filter
+  const merchantFilter = focusMerchants.length > 0
+    ? `AND (${focusMerchants.map((_, i) => `merchant_name ILIKE $${i + 1}`).join(' OR ')})`
+    : '';
+  const merchantParams = focusMerchants.map(m => `%${m}%`);
+
+  // Get baseline: 3-month average spending (before current month)
+  const baselineResult = await pool.query(
+    `SELECT
+       COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as total_spent,
+       COUNT(DISTINCT date_trunc('month', date)) as months_counted
+     FROM plaid_transactions
+     WHERE date >= NOW() - INTERVAL '4 months'
+       AND date < date_trunc('month', CURRENT_DATE)
+       AND pending = false
+       AND amount > 0
+       ${merchantFilter}`,
+    merchantParams,
+  );
+  const baselineTotal = parseFloat(baselineResult.rows[0].total_spent) || 0;
+  const baselineMonths = Math.max(parseFloat(baselineResult.rows[0].months_counted) || 1, 1);
+  const baselineMonthly = baselineTotal / baselineMonths;
+
+  // Get current month spending on same categories/merchants
+  const currentResult = await pool.query(
+    `SELECT COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as total_spent
+     FROM plaid_transactions
+     WHERE date >= date_trunc('month', CURRENT_DATE)
+       AND pending = false
+       AND amount > 0
+       ${merchantFilter}`,
+    merchantParams,
+  );
+  const currentMonthSpent = parseFloat(currentResult.rows[0].total_spent) || 0;
+
+  // Project current month to full month
+  const dayOfMonth = new Date().getDate();
+  const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+  const projectedMonthly = dayOfMonth > 0 ? currentMonthSpent * (daysInMonth / dayOfMonth) : currentMonthSpent;
+
+  // Savings achieved = baseline - projected current month
+  const savingsAchieved = Math.max(baselineMonthly - projectedMonthly, 0);
+  const progressPct = monthlySavingsTarget > 0
+    ? Math.min((savingsAchieved / monthlySavingsTarget) * 100, 100)
+    : 0;
+  const onTrack = savingsAchieved >= monthlySavingsTarget;
+
+  // Get top recurring merchants for actionable recommendations
+  const topMerchantsResult = await pool.query(
+    `SELECT merchant_name, COUNT(*) as txn_count, SUM(amount) as total
+     FROM plaid_transactions
+     WHERE date >= NOW() - INTERVAL '3 months'
+       AND pending = false
+       AND amount > 0
+       AND merchant_name IS NOT NULL
+       ${merchantFilter}
+     GROUP BY merchant_name
+     HAVING COUNT(*) >= 2
+     ORDER BY SUM(amount) DESC
+     LIMIT 10`,
+    merchantParams,
+  );
+  const topMerchants = topMerchantsResult.rows.map(r => ({
+    merchant: r.merchant_name,
+    monthly_avg: Math.round(parseFloat(r.total) / baselineMonths),
+    frequency: parseInt(r.txn_count, 10),
+  }));
+
+  let recommendation = '';
+  if (onTrack) {
+    recommendation = `On track! Projected savings of $${savingsAchieved.toFixed(0)}/mo vs $${monthlySavingsTarget}/mo target.`;
+  } else if (savingsAchieved > 0) {
+    const gap = monthlySavingsTarget - savingsAchieved;
+    recommendation = `Partial progress: $${savingsAchieved.toFixed(0)}/mo saved so far. Find $${gap.toFixed(0)}/mo more to hit target.`;
+  } else {
+    recommendation = `No reduction yet. Baseline: $${baselineMonthly.toFixed(0)}/mo. Review recurring charges to find $${monthlySavingsTarget}/mo in savings.`;
+  }
+
+  const resource_request = computeResourceRequest(
+    goal,
+    {
+      monthly_required: Math.round(monthlySavingsTarget),
+      monthly_current: Math.round(savingsAchieved),
+      gap: Math.round(Math.max(monthlySavingsTarget - savingsAchieved, 0)),
+      progress_pct: Math.round(progressPct * 10) / 10,
+      on_track: onTrack,
+    },
+    'checking',
+  );
+
+  return {
+    goal_id: goal.id,
+    goal_name: goal.name,
+    goal_type: goal.goal_type,
+    target_amount: monthlySavingsTarget,
+    target_date: goal.target_date,
+    current_value: savingsAchieved,
+    progress_pct: Math.round(progressPct * 10) / 10,
+    on_track: onTrack,
+    projected_date: null,
+    monthly_required: Math.round(monthlySavingsTarget),
+    monthly_current: Math.round(savingsAchieved),
+    gap: Math.round(Math.max(monthlySavingsTarget - savingsAchieved, 0)),
+    recommendation,
+    details: {
+      baseline_monthly: Math.round(baselineMonthly),
+      current_month_spent: Math.round(currentMonthSpent),
+      projected_monthly: Math.round(projectedMonthly),
+      savings_achieved: Math.round(savingsAchieved),
+      savings_target: monthlySavingsTarget,
+      top_recurring_merchants: topMerchants,
+      focus_merchants: focusMerchants,
+      day_of_month: dayOfMonth,
+      days_in_month: daysInMonth,
+    },
     resource_request,
   };
 }
