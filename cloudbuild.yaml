@@ -2,8 +2,7 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
-      - '--build-arg'
-      - 'CACHEBUST=${_CACHEBUST}'
+      - '--no-cache'
       - '-t'
       - '${_IMAGE}'
       - '.'
@@ -11,4 +10,3 @@ images:
   - '${_IMAGE}'
 substitutions:
   _IMAGE: us-central1-docker.pkg.dev/roundtable-public/roundtable/workspace:latest
-  _CACHEBUST: '1'
