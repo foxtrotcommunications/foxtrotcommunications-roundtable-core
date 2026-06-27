@@ -19,13 +19,13 @@ RUN apk add --no-cache git python3 py3-pip && \
 
 # Copy package files and local packages, install production deps
 # tsx handles TypeScript at runtime — no compile step needed for local packages
+ARG CACHEBUST=1
 COPY package*.json ./
 COPY packages/ ./packages/
 RUN npm install --omit=dev --omit=optional && \
     npm install tsx
 
-# Copy source (ARG invalidates cache when build arg changes)
-ARG CACHEBUST=1
+# Copy server source
 COPY server/ ./server/
 COPY public/ ./public/
 
