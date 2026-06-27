@@ -5,23 +5,17 @@
 import { ScopedPlaidClient } from '../plaid/client.js';
 import { withPool } from '../db/pool.js';
 import { getSchemaForDomain } from '../db/schemas.js';
+import {
+  syncAccounts,
+  syncTransactions,
+  createGetBalancesHandler,
+  createGetTransactionsHandler,
+} from './shared.js';
 import type {
   PlaidPluginConfig,
   ToolRegistry,
   CapabilityRegistry,
-  CapabilityHandler,
 } from '../types.js';
-
-// ─── Amount Normalization ───────────────────────────────────────────────────
-// Plaid convention: positive = money leaving account (debit/expense),
-//                   negative = money entering account (credit/income).
-// Standard accounting: positive = money in, negative = money out.
-// We negate ALL amounts at sync time so the rest of the system uses
-// conventional accounting signs.
-
-function normalizeAmount(amount: number): number {
-  return -amount;
-}
 
 // ─── Sync Logic ─────────────────────────────────────────────────────────────
 
@@ -35,153 +29,13 @@ async function syncCheckingData(config: PlaidPluginConfig): Promise<Record<strin
     const summary: Record<string, unknown> = { success: true, domain: config.domainType };
 
     // 2. Sync accounts
-    const accountsRes = await plaid.accountsGet(config.accessToken);
-    const accounts = accountsRes.data.accounts;
-
-    for (const acct of accounts) {
-      await pool.query(
-        `INSERT INTO plaid_accounts
-           (account_id, name, mask, type, subtype,
-            balance_available, balance_current, balance_limit, currency, synced_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, NOW())
-         ON CONFLICT (account_id) DO UPDATE SET
-           name = EXCLUDED.name,
-           mask = EXCLUDED.mask,
-           type = EXCLUDED.type,
-           subtype = EXCLUDED.subtype,
-           balance_available = EXCLUDED.balance_available,
-           balance_current = EXCLUDED.balance_current,
-           balance_limit = EXCLUDED.balance_limit,
-           currency = EXCLUDED.currency,
-           synced_at = NOW()`,
-        [
-          acct.account_id,
-          acct.name,
-          acct.mask,
-          acct.type,
-          acct.subtype,
-          acct.balances?.available ?? null,
-          acct.balances?.current ?? null,
-          acct.balances?.limit ?? null,
-          acct.balances?.iso_currency_code ?? acct.balances?.unofficial_currency_code ?? null,
-        ],
-      );
-    }
-    summary.accountsCount = accounts.length;
+    summary.accountsCount = await syncAccounts(plaid, pool, config.accessToken);
 
     // 3. Sync transactions (cursor-based incremental)
-    let cursor: string | undefined;
-    if (config.itemId) {
-      const cursorRes = await pool.query(
-        `SELECT cursor FROM plaid_sync_state WHERE item_id = $1`,
-        [config.itemId],
-      );
-      if (cursorRes.rows.length > 0 && cursorRes.rows[0].cursor) {
-        cursor = cursorRes.rows[0].cursor;
-      }
-    }
-
-    let addedCount = 0;
-    let modifiedCount = 0;
-    let removedCount = 0;
-    let hasMore = true;
-
-    while (hasMore) {
-      const syncRes = await plaid.transactionsSync(config.accessToken, cursor);
-      const data = syncRes.data;
-
-      // Insert/update added transactions
-      for (const txn of data.added) {
-        await pool.query(
-          `INSERT INTO plaid_transactions
-             (transaction_id, account_id, amount, date, name,
-              merchant_name, category, payment_channel, pending, synced_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, NOW())
-           ON CONFLICT (transaction_id) DO UPDATE SET
-             account_id = EXCLUDED.account_id,
-             amount = EXCLUDED.amount,
-             date = EXCLUDED.date,
-             name = EXCLUDED.name,
-             merchant_name = EXCLUDED.merchant_name,
-             category = EXCLUDED.category,
-             payment_channel = EXCLUDED.payment_channel,
-             pending = EXCLUDED.pending,
-             synced_at = NOW()`,
-          [
-            txn.transaction_id,
-            txn.account_id,
-            normalizeAmount(txn.amount),
-            txn.date,
-            txn.name,
-            txn.merchant_name ?? null,
-            txn.category ? txn.category.join(', ') : null,
-            txn.payment_channel,
-            txn.pending,
-          ],
-        );
-        addedCount++;
-      }
-
-      // Update modified transactions
-      for (const txn of data.modified) {
-        await pool.query(
-          `INSERT INTO plaid_transactions
-             (transaction_id, account_id, amount, date, name,
-              merchant_name, category, payment_channel, pending, synced_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, NOW())
-           ON CONFLICT (transaction_id) DO UPDATE SET
-             account_id = EXCLUDED.account_id,
-             amount = EXCLUDED.amount,
-             date = EXCLUDED.date,
-             name = EXCLUDED.name,
-             merchant_name = EXCLUDED.merchant_name,
-             category = EXCLUDED.category,
-             payment_channel = EXCLUDED.payment_channel,
-             pending = EXCLUDED.pending,
-             synced_at = NOW()`,
-          [
-            txn.transaction_id,
-            txn.account_id,
-            normalizeAmount(txn.amount),
-            txn.date,
-            txn.name,
-            txn.merchant_name ?? null,
-            txn.category ? txn.category.join(', ') : null,
-            txn.payment_channel,
-            txn.pending,
-          ],
-        );
-        modifiedCount++;
-      }
-
-      // Delete removed transactions
-      for (const txn of data.removed) {
-        await pool.query(
-          `DELETE FROM plaid_transactions WHERE transaction_id = $1`,
-          [txn.transaction_id],
-        );
-        removedCount++;
-      }
-
-      cursor = data.next_cursor;
-      hasMore = data.has_more;
-    }
-
-    // Persist cursor for incremental sync
-    if (config.itemId && cursor) {
-      await pool.query(
-        `INSERT INTO plaid_sync_state (item_id, cursor, last_sync_at)
-         VALUES ($1, $2, NOW())
-         ON CONFLICT (item_id) DO UPDATE SET
-           cursor = EXCLUDED.cursor,
-           last_sync_at = NOW()`,
-        [config.itemId, cursor],
-      );
-    }
-
-    summary.transactionsAdded = addedCount;
-    summary.transactionsModified = modifiedCount;
-    summary.transactionsRemoved = removedCount;
+    const txnResult = await syncTransactions(plaid, pool, config.accessToken, config.itemId);
+    summary.transactionsAdded = txnResult.added;
+    summary.transactionsModified = txnResult.modified;
+    summary.transactionsRemoved = txnResult.removed;
 
     return summary;
   });
@@ -189,69 +43,8 @@ async function syncCheckingData(config: PlaidPluginConfig): Promise<Record<strin
 
 // ─── Capability Handlers ────────────────────────────────────────────────────
 
-function createGetBalancesHandler(config: PlaidPluginConfig): CapabilityHandler {
-  return async (_input, _ctx) => {
-    return withPool(config.databaseUrl, async (pool) => {
-      const { rows } = await pool.query(
-        `SELECT account_id, name, type, subtype,
-                balance_available, balance_current, balance_limit,
-                currency, synced_at
-         FROM plaid_accounts
-         ORDER BY name`,
-      );
-      return { accounts: rows };
-    });
-  };
-}
-
-function createGetTransactionsHandler(config: PlaidPluginConfig): CapabilityHandler {
-  return async (input, _ctx) => {
-    return withPool(config.databaseUrl, async (pool) => {
-      const conditions: string[] = [];
-      const params: unknown[] = [];
-      let paramIdx = 1;
-
-      if (input.startDate) {
-        conditions.push(`date >= $${paramIdx++}`);
-        params.push(input.startDate);
-      }
-      if (input.endDate) {
-        conditions.push(`date <= $${paramIdx++}`);
-        params.push(input.endDate);
-      }
-      if (input.category) {
-        conditions.push(`category ILIKE $${paramIdx++}`);
-        params.push(`%${input.category}%`);
-      }
-      if (input.merchant) {
-        conditions.push(`merchant_name ILIKE $${paramIdx++}`);
-        params.push(`%${input.merchant}%`);
-      }
-
-      const limit = typeof input.limit === 'number' && input.limit > 0
-        ? Math.min(input.limit as number, 500)
-        : 50;
-
-      const whereClause = conditions.length > 0
-        ? `WHERE ${conditions.join(' AND ')}`
-        : '';
-
-      const sql = `SELECT transaction_id, account_id, amount, date, name,
-                          merchant_name, category, payment_channel, pending, synced_at
-                   FROM plaid_transactions
-                   ${whereClause}
-                   ORDER BY date DESC
-                   LIMIT $${paramIdx}`;
-      params.push(limit);
-
-      const { rows } = await pool.query(sql, params);
-      return { transactions: rows, count: rows.length };
-    });
-  };
-}
-
-function createSyncDataHandler(config: PlaidPluginConfig): CapabilityHandler {
-  return async (_input, _ctx) => {
+function createSyncDataHandler(config: PlaidPluginConfig) {
+  return async (_input: Record<string, unknown>, _ctx: unknown) => {
     return syncCheckingData(config);
   };
 }
@@ -261,22 +54,12 @@ function createSyncDataHandler(config: PlaidPluginConfig): CapabilityHandler {
 export function registerCheckingTools(registry: ToolRegistry, config: PlaidPluginConfig): void {
   registry.register('plaid_sync', {
     name: 'plaid_sync',
-    description:
-      'Sync financial data from Plaid into this workspace\'s database. ' +
-      'Fetches accounts and transactions from the connected Plaid account and stores them in local PostgreSQL tables. ' +
-      'Call this tool when you need to refresh or initially load financial data.',
+    description: `Sync Plaid ${config.domainType} data (accounts + transactions) to local database`,
     parameters: {
       type: 'object',
-      properties: {
-        syncType: {
-          type: 'string',
-          description: 'What to sync.',
-          enum: ['all', 'accounts', 'transactions'],
-        },
-      },
-      required: ['syncType'],
+      properties: {},
     },
-    async execute(_args, _workspaceConfig) {
+    execute: async () => {
       return syncCheckingData(config);
     },
   });
