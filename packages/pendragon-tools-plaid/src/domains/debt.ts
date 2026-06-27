@@ -274,6 +274,67 @@ async function syncDebtData(config: PlaidPluginConfig): Promise<Record<string, u
 
 // ─── Capability Handlers ────────────────────────────────────────────────────
 
+function createGetBalancesHandler(config: PlaidPluginConfig): CapabilityHandler {
+  return async (_input, _ctx) => {
+    return withPool(config.databaseUrl, async (pool) => {
+      const { rows } = await pool.query(
+        `SELECT account_id, name, type, subtype,
+                balance_available, balance_current, balance_limit,
+                currency, synced_at
+         FROM plaid_accounts
+         ORDER BY name`,
+      );
+      return { accounts: rows };
+    });
+  };
+}
+
+function createGetTransactionsHandler(config: PlaidPluginConfig): CapabilityHandler {
+  return async (input, _ctx) => {
+    return withPool(config.databaseUrl, async (pool) => {
+      const conditions: string[] = [];
+      const params: unknown[] = [];
+      let paramIdx = 1;
+
+      if (input.startDate) {
+        conditions.push(`date >= $${paramIdx++}`);
+        params.push(input.startDate);
+      }
+      if (input.endDate) {
+        conditions.push(`date <= $${paramIdx++}`);
+        params.push(input.endDate);
+      }
+      if (input.category) {
+        conditions.push(`category ILIKE $${paramIdx++}`);
+        params.push(`%${input.category}%`);
+      }
+      if (input.merchant) {
+        conditions.push(`merchant_name ILIKE $${paramIdx++}`);
+        params.push(`%${input.merchant}%`);
+      }
+
+      const limit = typeof input.limit === 'number' && input.limit > 0
+        ? Math.min(input.limit as number, 500)
+        : 50;
+
+      const whereClause = conditions.length > 0
+        ? `WHERE ${conditions.join(' AND ')}`
+        : '';
+
+      const sql = `SELECT transaction_id, account_id, amount, date, name,
+                          merchant_name, category, payment_channel, pending, synced_at
+                   FROM plaid_transactions
+                   ${whereClause}
+                   ORDER BY date DESC
+                   LIMIT $${paramIdx}`;
+      params.push(limit);
+
+      const { rows } = await pool.query(sql, params);
+      return { transactions: rows, count: rows.length };
+    });
+  };
+}
+
 function createGetLiabilitiesHandler(config: PlaidPluginConfig): CapabilityHandler {
   return async (_input, _ctx) => {
     return withPool(config.databaseUrl, async (pool) => {
@@ -386,7 +447,48 @@ export function registerDebtTools(registry: ToolRegistry, config: PlaidPluginCon
 // ─── Capability Registration ────────────────────────────────────────────────
 
 export function registerDebtCapabilities(registry: CapabilityRegistry, config: PlaidPluginConfig): void {
-  // 1. Get liabilities
+  // 1. Get balances (credit card and loan account balances)
+  registry.register({
+    name: 'plaid.getBalances',
+    description: 'Get current debt account balances (credit cards, loans) from local database',
+    inputSchema: { type: 'object', properties: {} },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        accounts: {
+          type: 'array',
+          description: 'Debt account records with balance fields',
+        },
+      },
+    },
+    handler: createGetBalancesHandler(config),
+  });
+
+  // 2. Get transactions (credit card charges, loan payments — itemized by merchant/category)
+  registry.register({
+    name: 'plaid.getTransactions',
+    description: 'Get credit card and loan transactions with optional date, category, and merchant filters. Use this to see itemized credit card charges.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        startDate: { type: 'string', description: 'ISO date YYYY-MM-DD' },
+        endDate: { type: 'string', description: 'ISO date YYYY-MM-DD' },
+        category: { type: 'string' },
+        merchant: { type: 'string' },
+        limit: { type: 'number', default: 50 },
+      },
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        transactions: { type: 'array' },
+        count: { type: 'number' },
+      },
+    },
+    handler: createGetTransactionsHandler(config),
+  });
+
+  // 3. Get liabilities
   registry.register({
     name: 'plaid.getLiabilities',
     description: 'Get liability details joined with account information',
