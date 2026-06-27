@@ -35,13 +35,14 @@ const DOMAIN_REGISTRARS: Record<string, {
 // ─── Allowed Operations (static mapping — no runtime client needed) ─────────
 
 const DOMAIN_ALLOWED_OPS: Record<string, string[]> = {
-  checking:    ['accountsGet', 'transactionsSync'],
-  savings:     ['accountsGet', 'transactionsSync'],
-  investments: ['accountsGet', 'investmentsHoldingsGet'],
-  retirement:  ['accountsGet', 'investmentsHoldingsGet'],
-  debt:        ['accountsGet', 'transactionsSync', 'liabilitiesGet'],
-  taxes:       ['accountsGet', 'transactionsSync'],
-  realestate:  ['accountsGet', 'transactionsSync', 'liabilitiesGet'],
+  checking:     ['accountsGet', 'transactionsSync'],
+  savings:      ['accountsGet', 'transactionsSync'],
+  investments:  ['accountsGet', 'investmentsHoldingsGet'],
+  retirement:   ['accountsGet', 'investmentsHoldingsGet'],
+  debt:         ['accountsGet', 'transactionsSync', 'liabilitiesGet'],
+  taxes:        ['accountsGet', 'transactionsSync'],
+  realestate:   ['accountsGet', 'transactionsSync', 'liabilitiesGet'],
+  demographics: [],
 };
 
 // ─── Domain → Capabilities Mapping ──────────────────────────────────────────
@@ -56,7 +57,7 @@ const DOMAIN_CAPS: Record<string, string[]> = {
   savings:     ['plaid.getBalances', 'plaid.getTransactions', 'plaid.syncData', ...GOAL_CAPS],
   investments: ['plaid.getHoldings', 'plaid.getSecurities', 'plaid.getPortfolioSummary', 'plaid.syncData', ...GOAL_CAPS],
   retirement:  ['plaid.getHoldings', 'plaid.getSecurities', 'plaid.getPortfolioSummary', 'plaid.syncData', ...GOAL_CAPS],
-  debt:        ['plaid.getLiabilities', 'plaid.getDebtSummary', 'plaid.getCreditUtilization', 'plaid.syncData', ...GOAL_CAPS],
+  debt:        ['plaid.getBalances', 'plaid.getTransactions', 'plaid.getLiabilities', 'plaid.getDebtSummary', 'plaid.getCreditUtilization', 'plaid.syncData', ...GOAL_CAPS],
   taxes:       ['plaid.getBalances', 'plaid.getTransactions', 'plaid.syncData', ...GOAL_CAPS],
   realestate:  ['property.getPropertySummary', 'property.getMortgageDetails', 'property.getEquityAnalysis', ...GOAL_CAPS],
   demographics:   ['demographics.getUserProfile', 'demographics.getHousehold', 'demographics.getInvestmentPreferences', ...GOAL_CAPS],
