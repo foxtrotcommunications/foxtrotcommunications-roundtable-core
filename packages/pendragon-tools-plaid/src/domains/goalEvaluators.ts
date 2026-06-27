@@ -10,6 +10,116 @@ type Pool = InstanceType<typeof pg.Pool>;
 const DEFAULT_GROWTH_RATE = 0.07; // 7% annual
 const MONTHS_FOR_AVERAGE = 3; // Use 3-month rolling average
 
+/**
+ * Compute a resource_request block for a goal.
+ *
+ * The urgency_score (0.0–1.0) drives cross-domain budget arbitration:
+ *   - Debt: APR-weighted  →  0.3 + 0.7 × min(apr/30, 1)
+ *   - Checking/Savings (emergency fund): below target → 0.8, above → 0.0
+ *   - Retirement: 0.6 base, adjusted by shortfall ratio
+ *   - Investments: 0.5 base
+ *   - Real Estate: equity_ratio < 0.2 → 0.7, else 0.4
+ *   - Taxes: seasonal (Q4/Q1 → 0.6, Q2/Q3 → 0.3)
+ *   - Default: 0.5
+ *
+ * @param goal         The raw goal row from domain_goals
+ * @param progress     Partial GoalProgress computed so far (needs monthly_required, monthly_current, gap, on_track)
+ * @param domainType   Which domain this goal belongs to
+ * @param extras       Domain-specific parameters for urgency tuning
+ */
+function computeResourceRequest(
+  goal: any,
+  progress: Partial<GoalProgress>,
+  domainType: DomainType,
+  extras?: { apr?: number; deadline_months?: number; equity_ratio?: number },
+): GoalProgress['resource_request'] {
+  const monthlyRequired = progress.monthly_required ?? 0;
+  const monthlyCurrent = progress.monthly_current ?? 0;
+  const monthlyRequested = Math.max(monthlyRequired - monthlyCurrent, 0);
+
+  // ── Urgency score by domain ──────────────────────────────────────────────
+  let urgencyScore: number;
+  const urgencyFactors: string[] = [];
+
+  switch (domainType) {
+    case 'debt': {
+      const apr = extras?.apr ?? 0;
+      urgencyScore = 0.3 + 0.7 * Math.min(apr / 30, 1);
+      if (apr > 0) urgencyFactors.push(`${apr.toFixed(1)}% APR`);
+      break;
+    }
+    case 'checking':
+    case 'savings': {
+      // Emergency-fund style: high urgency when below target
+      const belowTarget = (progress.progress_pct ?? 0) < 100;
+      urgencyScore = belowTarget ? 0.8 : 0.0;
+      if (belowTarget) urgencyFactors.push('Below emergency-fund target');
+      break;
+    }
+    case 'retirement': {
+      // 0.6 base, scaled up by shortfall ratio (gap / required)
+      const shortfallRatio =
+        monthlyRequired > 0 ? Math.min((progress.gap ?? 0) / monthlyRequired, 1) : 0;
+      urgencyScore = 0.6 + 0.3 * shortfallRatio;
+      if (shortfallRatio > 0.3) urgencyFactors.push(`${(shortfallRatio * 100).toFixed(0)}% contribution shortfall`);
+      break;
+    }
+    case 'investments': {
+      urgencyScore = 0.5;
+      break;
+    }
+    case 'realestate': {
+      const eqRatio = extras?.equity_ratio ?? 1;
+      urgencyScore = eqRatio < 0.2 ? 0.7 : 0.4;
+      if (eqRatio < 0.2) urgencyFactors.push(`Equity ratio ${(eqRatio * 100).toFixed(0)}% (< 20%)`);
+      break;
+    }
+    case 'taxes': {
+      // Seasonal: Q4 (Oct-Dec) and Q1 (Jan-Mar) are higher urgency
+      const month = new Date().getMonth(); // 0-indexed
+      const highSeason = month >= 9 || month <= 2; // Oct–Mar
+      urgencyScore = highSeason ? 0.6 : 0.3;
+      urgencyFactors.push(highSeason ? 'Tax season (Q4/Q1)' : 'Off-season (Q2/Q3)');
+      break;
+    }
+    default:
+      urgencyScore = 0.5;
+      break;
+  }
+
+  // Deadline pressure: boost urgency when close to target_date
+  if (extras?.deadline_months !== undefined && extras.deadline_months > 0) {
+    const deadlinePressure = Math.min(12 / extras.deadline_months, 0.3);
+    urgencyScore = Math.min(urgencyScore + deadlinePressure, 1.0);
+    if (extras.deadline_months <= 12) {
+      urgencyFactors.push(`${extras.deadline_months} months to deadline`);
+    }
+  }
+
+  // Clamp
+  urgencyScore = Math.round(Math.min(Math.max(urgencyScore, 0), 1) * 100) / 100;
+
+  // ── Opportunity cost ─────────────────────────────────────────────────────
+  let opportunityCost: number;
+  if (domainType === 'debt') {
+    // Monthly interest cost of NOT paying this down
+    const apr = extras?.apr ?? 0;
+    const gap = progress.gap ?? 0;
+    opportunityCost = Math.round(gap * (apr / 100 / 12) * 100) / 100;
+  } else {
+    // Estimated lost growth at default rate
+    opportunityCost = Math.round(monthlyRequested * (DEFAULT_GROWTH_RATE / 12) * 100) / 100;
+  }
+
+  return {
+    monthly_requested: Math.round(monthlyRequested),
+    urgency_score: urgencyScore,
+    urgency_factors: urgencyFactors,
+    deferrable: urgencyScore < 0.5,
+    opportunity_cost: opportunityCost,
+  };
+}
+
 interface GoalProgress {
   goal_id: string;
   goal_name: string;
@@ -25,6 +135,13 @@ interface GoalProgress {
   gap: number | null;
   recommendation: string;
   details: Record<string, unknown>;
+  resource_request: {
+    monthly_requested: number;
+    urgency_score: number;
+    urgency_factors: string[];
+    deferrable: boolean;
+    opportunity_cost: number;
+  } | null;
   error?: string;
 }
 
@@ -54,6 +171,7 @@ export async function evaluateGoalProgress(
       gap: null,
       recommendation: 'Goal not found',
       details: {},
+      resource_request: null,
       error: 'Goal not found',
     };
   }
@@ -127,6 +245,7 @@ export async function evaluateGoalProgress(
       gap,
       recommendation,
       details: { ...details, source: 'goal_snapshot' },
+      resource_request: null, // Snapshots don't store resource_request — it's computed live
     };
   }
   // ────────────────────────────────────────────────────────────────────────
@@ -219,6 +338,30 @@ async function evaluateSavingsGoal(pool: Pool, goal: Record<string, any>): Promi
     recommendation = `Saving $${monthlySavings.toFixed(0)}/mo toward $${targetAmount.toLocaleString()} target.`;
   }
 
+  // Compute resource request with urgency scoring
+  const deadlineMonths = goal.target_date
+    ? Math.max(
+        (new Date(goal.target_date).getFullYear() - new Date().getFullYear()) * 12 +
+          (new Date(goal.target_date).getMonth() - new Date().getMonth()),
+        1,
+      )
+    : undefined;
+
+  const partialProgress: Partial<GoalProgress> = {
+    monthly_required: monthlyRequired ? Math.round(monthlyRequired) : null,
+    monthly_current: Math.round(monthlySavings),
+    gap: gap !== null ? Math.round(gap) : null,
+    progress_pct: Math.round(progressPct * 10) / 10,
+    on_track: onTrack,
+  };
+
+  const resource_request = computeResourceRequest(
+    goal,
+    partialProgress,
+    goal.goal_type === 'emergency_fund' ? 'savings' : 'checking',
+    { deadline_months: deadlineMonths },
+  );
+
   return {
     goal_id: goal.id,
     goal_name: goal.name,
@@ -234,6 +377,7 @@ async function evaluateSavingsGoal(pool: Pool, goal: Record<string, any>): Promi
     gap: gap !== null ? Math.round(gap) : null,
     recommendation,
     details: { monthlyIncome: Math.round(monthlyIncome), monthlyExpenses: Math.round(monthlyExpenses), monthsCounted },
+    resource_request,
   };
 }
 
@@ -335,6 +479,28 @@ async function evaluateDebtGoal(pool: Pool, goal: Record<string, any>): Promise<
     recommendation = `Paying $${monthlyPayment.toFixed(0)}/mo against $${totalDebt.toLocaleString()} total debt (avg ${avgRate.toFixed(1)}% APR).`;
   }
 
+  // Compute resource request with APR-weighted urgency
+  const debtDeadlineMonths = goal.target_date
+    ? Math.max(
+        (new Date(goal.target_date).getFullYear() - new Date().getFullYear()) * 12 +
+          (new Date(goal.target_date).getMonth() - new Date().getMonth()),
+        1,
+      )
+    : undefined;
+
+  const resource_request = computeResourceRequest(
+    goal,
+    {
+      monthly_required: monthlyRequired ? Math.round(monthlyRequired) : null,
+      monthly_current: Math.round(monthlyPayment),
+      gap: gap !== null ? Math.round(gap) : null,
+      progress_pct: Math.round(Math.max(progressPct, 0) * 10) / 10,
+      on_track: onTrack,
+    },
+    'debt',
+    { apr: avgRate, deadline_months: debtDeadlineMonths },
+  );
+
   return {
     goal_id: goal.id,
     goal_name: goal.name,
@@ -350,6 +516,7 @@ async function evaluateDebtGoal(pool: Pool, goal: Record<string, any>): Promise<
     gap: gap !== null ? Math.round(gap) : null,
     recommendation,
     details: { totalDebt, avgRate, monthlyInterest: Math.round(monthlyInterest), principalPayment: Math.round(principalPayment), totalMinimum },
+    resource_request,
   };
 }
 
@@ -427,6 +594,28 @@ async function evaluateInvestmentGoal(pool: Pool, goal: Record<string, any>, gro
     recommendation = `Portfolio at $${currentValue.toLocaleString()} of $${targetAmount.toLocaleString()} target.`;
   }
 
+  // Compute resource request — domain type is 'investments' (retirement delegates here too)
+  const investDeadlineMonths = goal.target_date
+    ? Math.max(
+        (new Date(goal.target_date).getFullYear() - new Date().getFullYear()) * 12 +
+          (new Date(goal.target_date).getMonth() - new Date().getMonth()),
+        1,
+      )
+    : undefined;
+
+  const resource_request = computeResourceRequest(
+    goal,
+    {
+      monthly_required: monthlyRequired ? Math.round(monthlyRequired) : null,
+      monthly_current: Math.round(monthlyContrib),
+      gap: gap !== null ? Math.round(gap) : null,
+      progress_pct: Math.round(progressPct * 10) / 10,
+      on_track: onTrack,
+    },
+    'investments',
+    { deadline_months: investDeadlineMonths },
+  );
+
   return {
     goal_id: goal.id,
     goal_name: goal.name,
@@ -442,6 +631,7 @@ async function evaluateInvestmentGoal(pool: Pool, goal: Record<string, any>, gro
     gap: gap !== null ? Math.round(gap) : null,
     recommendation,
     details: { growthRateAssumption: growthRate, currentValue },
+    resource_request,
   };
 }
 
@@ -469,6 +659,21 @@ async function evaluateRealEstateGoal(pool: Pool, goal: Record<string, any>): Pr
   const targetAmount = goal.target_amount || 0;
   const progressPct = targetAmount > 0 ? Math.min((equity / targetAmount) * 100, 100) : 0;
 
+  // Compute resource request with equity-ratio urgency
+  const equityRatio = assetValue > 0 ? equity / assetValue : 1;
+  const resource_request = computeResourceRequest(
+    goal,
+    {
+      monthly_required: null,
+      monthly_current: null,
+      gap: null,
+      progress_pct: Math.round(progressPct * 10) / 10,
+      on_track: equity >= targetAmount,
+    },
+    'realestate',
+    { equity_ratio: equityRatio },
+  );
+
   return {
     goal_id: goal.id,
     goal_name: goal.name,
@@ -486,24 +691,32 @@ async function evaluateRealEstateGoal(pool: Pool, goal: Record<string, any>): Pr
       ? `Equity target met. Current equity: $${equity.toLocaleString()}`
       : `Equity at $${equity.toLocaleString()} of $${targetAmount.toLocaleString()} target.`,
     details: { assetValue, loanBalance, equity },
+    resource_request,
   };
 }
 
 // ─── Tax Goals ──────────────────────────────────────────────────────────────
 
 async function evaluateTaxGoal(pool: Pool, goal: Record<string, any>): Promise<GoalProgress> {
-  return evaluateGenericGoal(pool, goal);
-}
-
-// ─── Generic Fallback ───────────────────────────────────────────────────────
-
-async function evaluateGenericGoal(pool: Pool, goal: Record<string, any>): Promise<GoalProgress> {
+  // Tax goals use generic balance logic but with seasonal urgency scoring
   const balanceResult = await pool.query(
     `SELECT COALESCE(SUM(balance_current), 0) as total FROM plaid_accounts`,
   );
   const currentValue = parseFloat(balanceResult.rows[0].total) || 0;
   const targetAmount = goal.target_amount || 0;
   const progressPct = targetAmount > 0 ? Math.min((currentValue / targetAmount) * 100, 100) : 0;
+
+  const resource_request = computeResourceRequest(
+    goal,
+    {
+      monthly_required: null,
+      monthly_current: null,
+      gap: null,
+      progress_pct: Math.round(progressPct * 10) / 10,
+      on_track: currentValue >= targetAmount,
+    },
+    'taxes',
+  );
 
   return {
     goal_id: goal.id,
@@ -520,5 +733,47 @@ async function evaluateGenericGoal(pool: Pool, goal: Record<string, any>): Promi
     gap: null,
     recommendation: `Current value: $${currentValue.toLocaleString()} of $${targetAmount.toLocaleString()} target.`,
     details: {},
+    resource_request,
+  };
+}
+
+// ─── Generic Fallback ───────────────────────────────────────────────────────
+
+async function evaluateGenericGoal(pool: Pool, goal: Record<string, any>): Promise<GoalProgress> {
+  const balanceResult = await pool.query(
+    `SELECT COALESCE(SUM(balance_current), 0) as total FROM plaid_accounts`,
+  );
+  const currentValue = parseFloat(balanceResult.rows[0].total) || 0;
+  const targetAmount = goal.target_amount || 0;
+  const progressPct = targetAmount > 0 ? Math.min((currentValue / targetAmount) * 100, 100) : 0;
+
+  const resource_request = computeResourceRequest(
+    goal,
+    {
+      monthly_required: null,
+      monthly_current: null,
+      gap: null,
+      progress_pct: Math.round(progressPct * 10) / 10,
+      on_track: currentValue >= targetAmount,
+    },
+    'demographics', // generic fallback — uses default 0.5 urgency
+  );
+
+  return {
+    goal_id: goal.id,
+    goal_name: goal.name,
+    goal_type: goal.goal_type,
+    target_amount: targetAmount,
+    target_date: goal.target_date,
+    current_value: currentValue,
+    progress_pct: Math.round(progressPct * 10) / 10,
+    on_track: currentValue >= targetAmount,
+    projected_date: null,
+    monthly_required: null,
+    monthly_current: null,
+    gap: null,
+    recommendation: `Current value: $${currentValue.toLocaleString()} of $${targetAmount.toLocaleString()} target.`,
+    details: {},
+    resource_request,
   };
 }

@@ -33,6 +33,55 @@ ORG_ID=$(jq -r '.orgId' "$CONFIG_DIR/org.json")
 DB_HOST="${DB_HOST:-127.0.0.1}"
 DB_PORT="${DB_PORT:-5432}"
 DB_USER="${DB_USER:-roundtable}"
+DB_PASS="${DB_PASS:-yXmA7986!}"
+PF_PORT="${PF_PORT:-5435}"
+
+# Track active port-forward PID for cleanup
+ACTIVE_PF_PID=""
+ACTIVE_PF_DEPLOY=""
+
+cleanup_pf() {
+  if [[ -n "$ACTIVE_PF_PID" ]]; then
+    kill "$ACTIVE_PF_PID" 2>/dev/null || true
+    wait "$ACTIVE_PF_PID" 2>/dev/null || true
+    ACTIVE_PF_PID=""
+    ACTIVE_PF_DEPLOY=""
+  fi
+}
+trap cleanup_pf EXIT
+
+# Start a port-forward to a deployment's cloud-sql-proxy sidecar
+ensure_pf() {
+  local deploy_name="$1"
+  if [[ "$ACTIVE_PF_DEPLOY" == "$deploy_name" && -n "$ACTIVE_PF_PID" ]]; then
+    # Already forwarding to this deployment
+    if kill -0 "$ACTIVE_PF_PID" 2>/dev/null; then
+      return 0
+    fi
+  fi
+  cleanup_pf
+  kubectl port-forward -n "$NAMESPACE" "deploy/$deploy_name" "$PF_PORT:5432" &>/dev/null &
+  ACTIVE_PF_PID=$!
+  ACTIVE_PF_DEPLOY="$deploy_name"
+  local retries=0
+  while ! pg_isready -h 127.0.0.1 -p "$PF_PORT" -q 2>/dev/null; do
+    retries=$((retries + 1))
+    if [[ $retries -ge 20 ]]; then
+      cleanup_pf
+      return 1
+    fi
+    sleep 0.3
+  done
+  return 0
+}
+
+# Run a psql query through the port-forward
+pf_query() {
+  local db="$1"
+  local sql="$2"
+  PGPASSWORD="$DB_PASS" psql -h 127.0.0.1 -p "$PF_PORT" -U "$DB_USER" -d "$db" \
+    -tAc "$sql" 2>/dev/null
+}
 
 # CLI flags
 QUIET=false
@@ -103,18 +152,20 @@ done
 # ---------------------------------------------------------------------------
 log_step "Check 2: Database Tables"
 
-# Helper: check if a table exists in a database
+# Helper: check if a table exists in a database (uses active port-forward)
 table_exists() {
   local db="$1"
   local table="$2"
-  psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$db" \
-    -tAc "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = '$table');" 2>/dev/null
+  pf_query "$db" "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = '$table');"
 }
 
 for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
   DB_NAME=$(jq -r ".[$i].databaseName" "$CONFIG_DIR/workspaces.json")
+  DEPLOY_NAME=$(jq -r ".[$i].deploymentName" "$CONFIG_DIR/workspaces.json")
   WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
   DOMAIN_TYPE=$(jq -r ".[$i].domainType" "$CONFIG_DIR/workspaces.json")
+  # Ensure port-forward is active for this deployment
+  ensure_pf "$DEPLOY_NAME" || { check_fail "$WS_NAME: cannot connect to database"; continue; }
 
   # Core tables (all workspaces)
   for table in users messages workspaces audit_log workspace_usage; do
@@ -176,18 +227,20 @@ done
 # ---------------------------------------------------------------------------
 log_step "Check 3: Seed Data"
 
-# Helper: count rows in a table
+# Helper: count rows in a table (uses active port-forward)
 row_count() {
   local db="$1"
   local table="$2"
-  psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$db" \
-    -tAc "SELECT COUNT(*) FROM $table;" 2>/dev/null || echo "0"
+  pf_query "$db" "SELECT COUNT(*) FROM $table;" || echo "0"
 }
 
 for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
   DB_NAME=$(jq -r ".[$i].databaseName" "$CONFIG_DIR/workspaces.json")
+  DEPLOY_NAME=$(jq -r ".[$i].deploymentName" "$CONFIG_DIR/workspaces.json")
   WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
   DOMAIN_TYPE=$(jq -r ".[$i].domainType" "$CONFIG_DIR/workspaces.json")
+
+  ensure_pf "$DEPLOY_NAME" || { check_fail "$WS_NAME: cannot connect to database"; continue; }
 
   case "$DOMAIN_TYPE" in
     checking)
@@ -278,6 +331,66 @@ for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
 done
 
 # ---------------------------------------------------------------------------
+# Check 3.5: Workspace Settings (system_prompt, ai_provider, ai_model)
+# ---------------------------------------------------------------------------
+log_step "Check 3.5: Workspace Settings"
+
+# Helper: read a column value from the workspaces table (uses active port-forward)
+ws_field() {
+  local db="$1"
+  local ws_id="$2"
+  local field="$3"
+  pf_query "$db" "SELECT COALESCE($field, '') FROM workspaces WHERE id = '$ws_id';" || echo ""
+}
+
+for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
+  WS_ID=$(jq -r ".[$i].id" "$CONFIG_DIR/workspaces.json")
+  WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
+  DB_NAME=$(jq -r ".[$i].databaseName" "$CONFIG_DIR/workspaces.json")
+  DEPLOY_NAME=$(jq -r ".[$i].deploymentName" "$CONFIG_DIR/workspaces.json")
+  EXPECTED_PROVIDER=$(jq -r ".[$i].aiProvider" "$CONFIG_DIR/workspaces.json")
+  EXPECTED_MODEL=$(jq -r ".[$i].aiModel" "$CONFIG_DIR/workspaces.json")
+  HAS_PROMPT=$(jq -r "if .[$i].systemPrompt then \"yes\" else \"no\" end" "$CONFIG_DIR/workspaces.json")
+
+  ensure_pf "$DEPLOY_NAME" || { check_fail "$WS_NAME: cannot connect to database"; continue; }
+
+  # Check workspace row exists
+  ROW_EXISTS=$(pf_query "$DB_NAME" "SELECT EXISTS (SELECT 1 FROM workspaces WHERE id = '$WS_ID');" || echo "f")
+
+  if [[ "$ROW_EXISTS" != "t" ]]; then
+    check_fail "$WS_NAME: workspace row not found in database"
+    continue
+  fi
+  check_pass "$WS_NAME: workspace row exists"
+
+  # Check AI provider
+  ACTUAL_PROVIDER=$(ws_field "$DB_NAME" "$WS_ID" "ai_provider")
+  if [[ "$ACTUAL_PROVIDER" == "$EXPECTED_PROVIDER" ]]; then
+    check_pass "$WS_NAME: ai_provider = $ACTUAL_PROVIDER"
+  else
+    check_fail "$WS_NAME: ai_provider = '$ACTUAL_PROVIDER' (expected '$EXPECTED_PROVIDER')"
+  fi
+
+  # Check AI model
+  ACTUAL_MODEL=$(ws_field "$DB_NAME" "$WS_ID" "ai_model")
+  if [[ "$ACTUAL_MODEL" == "$EXPECTED_MODEL" ]]; then
+    check_pass "$WS_NAME: ai_model = $ACTUAL_MODEL"
+  else
+    check_fail "$WS_NAME: ai_model = '$ACTUAL_MODEL' (expected '$EXPECTED_MODEL')"
+  fi
+
+  # Check system_prompt (just verify non-empty for workspaces that should have one)
+  if [[ "$HAS_PROMPT" == "yes" ]]; then
+    PROMPT_LEN=$(pf_query "$DB_NAME" "SELECT LENGTH(COALESCE(system_prompt, '')) FROM workspaces WHERE id = '$WS_ID';" || echo "0")
+    if [[ "$PROMPT_LEN" -gt 100 ]]; then
+      check_pass "$WS_NAME: system_prompt set (${PROMPT_LEN} chars)"
+    else
+      check_fail "$WS_NAME: system_prompt missing or too short (${PROMPT_LEN} chars)"
+    fi
+  fi
+done
+
+# ---------------------------------------------------------------------------
 # Check 4: Workspace Health Endpoints
 # ---------------------------------------------------------------------------
 log_step "Check 4: Health Endpoints"
@@ -286,15 +399,17 @@ for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
   WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
   DEPLOY_NAME=$(jq -r ".[$i].deploymentName" "$CONFIG_DIR/workspaces.json")
 
-  # Port-forward briefly and check /health (use kubectl exec instead for speed)
+  # Use kubectl exec to hit the backend health endpoint directly
   HEALTH=$(kubectl exec -n "$NAMESPACE" \
     "deploy/$DEPLOY_NAME" -c workspace -- \
-    wget -qO- --timeout=5 http://localhost:3000/health 2>/dev/null || echo "unreachable")
+    wget -qO- --timeout=5 http://localhost:3000/api/health 2>/dev/null || echo "unreachable")
 
-  if echo "$HEALTH" | grep -qi "ok\|healthy\|status" &> /dev/null; then
+  if echo "$HEALTH" | grep -qi '"status"' &> /dev/null; then
     check_pass "$WS_NAME: health endpoint responding"
+  elif echo "$HEALTH" | grep -qi 'unreachable' &> /dev/null; then
+    check_fail "$WS_NAME: health endpoint unreachable"
   else
-    check_warn "$WS_NAME: health endpoint returned: $HEALTH"
+    check_warn "$WS_NAME: unexpected health response (${#HEALTH} bytes)"
   fi
 done
 
@@ -303,20 +418,31 @@ done
 # ---------------------------------------------------------------------------
 log_step "Check 5: Firestore Documents"
 
-# Use gcloud firestore to check document existence
-# (This requires the gcloud CLI with Firestore access)
+# Use Firestore REST API to check document existence
+FIRESTORE_TOKEN=$(gcloud auth print-access-token 2>/dev/null || echo "")
+FIRESTORE_BASE="https://firestore.googleapis.com/v1/projects/$GCP_PROJECT/databases/(default)/documents"
+
 check_firestore_doc() {
   local collection="$1"
   local doc_id="$2"
   local label="$3"
 
-  # Use the REST API via gcloud for quick checks
-  if gcloud firestore documents get \
-    "projects/$GCP_PROJECT/databases/(default)/documents/$collection/$doc_id" \
-    --project="$GCP_PROJECT" &> /dev/null; then
+  if [[ -z "$FIRESTORE_TOKEN" ]]; then
+    check_warn "$label: no auth token (skipped)"
+    return
+  fi
+
+  local http_code
+  http_code=$(curl -s -o /dev/null -w '%{http_code}' \
+    -H "Authorization: Bearer $FIRESTORE_TOKEN" \
+    "$FIRESTORE_BASE/$collection/$doc_id" 2>/dev/null || echo "000")
+
+  if [[ "$http_code" == "200" ]]; then
     check_pass "$label"
-  else
+  elif [[ "$http_code" == "404" ]]; then
     check_fail "$label: Firestore document not found"
+  else
+    check_warn "$label: Firestore returned HTTP $http_code"
   fi
 }
 

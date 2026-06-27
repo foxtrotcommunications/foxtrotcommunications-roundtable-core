@@ -5,31 +5,11 @@ import { ScopedPlaidClient } from '../plaid/client.js';
 import { withPool } from '../db/pool.js';
 import { getSchemaForDomain } from '../db/schemas.js';
 // ─── Amount Normalization ───────────────────────────────────────────────────
-const CREDIT_PATTERNS = [
-    'ach electronic credit',
-    'ach credit',
-    'direct dep',
-    'direct deposit',
-    'payroll',
-    'gusto pay',
-    'adp payroll',
-    'intuit payroll',
-    'employer',
-    'salary',
-    'wage',
-    'tax refund',
-    'irs treas',
-];
-function normalizeAmount(amount, name) {
-    if (amount <= 0 || !name)
-        return amount;
-    const lower = name.toLowerCase();
-    for (const pattern of CREDIT_PATTERNS) {
-        if (lower.includes(pattern)) {
-            return -amount;
-        }
-    }
-    return amount;
+// Plaid: positive = money out, negative = money in.
+// Accounting: positive = money in, negative = money out.
+// Negate all amounts at sync time.
+function normalizeAmount(amount) {
+    return -amount;
 }
 // ─── Sync Logic ─────────────────────────────────────────────────────────────
 async function syncDebtData(config) {
@@ -99,7 +79,7 @@ async function syncDebtData(config) {
              synced_at = NOW()`, [
                     txn.transaction_id,
                     txn.account_id,
-                    normalizeAmount(txn.amount, txn.name),
+                    normalizeAmount(txn.amount),
                     txn.date,
                     txn.name,
                     txn.merchant_name ?? null,
@@ -126,7 +106,7 @@ async function syncDebtData(config) {
              synced_at = NOW()`, [
                     txn.transaction_id,
                     txn.account_id,
-                    normalizeAmount(txn.amount, txn.name),
+                    normalizeAmount(txn.amount),
                     txn.date,
                     txn.name,
                     txn.merchant_name ?? null,

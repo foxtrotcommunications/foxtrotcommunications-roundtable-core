@@ -161,8 +161,13 @@ const tool: Tool = {
             .filter((a: string) => a.startsWith('tool:'))
             .map((a: string) => a.replace('tool:', ''));
 
+          // Extract capability actions to highlight them
+          const capActions = (c.allowedActions || [])
+            .filter((a: string) => a.startsWith('capability:'))
+            .map((a: string) => a.replace('capability:', ''));
+
           const discoverHint = c.direction === 'outbound' && toolActions.length > 0
-            ? ` To see all available tools, call intent_bridge({ target: '${counterpartyName}', op: 'discover', scope: 'tools' }). Prefer op:'tool_call' over op:'capability' for better performance.`
+            ? ` To see all available tools, call intent_bridge({ target: '${counterpartyName}', op: 'discover', scope: 'tools' }). To see capabilities, use scope: 'capabilities'.`
             : '';
 
           contracts.push({
@@ -173,6 +178,7 @@ const tool: Tool = {
             counterpartyWsId: c.counterparty?.wsId,
             allowedActions: c.allowedActions || [],
             availableTools: toolActions.length > 0 ? toolActions : undefined,
+            availableCapabilities: capActions.length > 0 ? capActions : undefined,
             escalationTarget: c.escalationTarget || null,
             summary: `${c.type} contract (${dirLabel}). Allowed actions: [${actionList}].${discoverHint}`,
           });
