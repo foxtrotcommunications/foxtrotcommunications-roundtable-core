@@ -9,4 +9,4 @@ steps:
 images:
   - '${_IMAGE}'
 substitutions:
-  _IMAGE: us-central1-docker.pkg.dev/roundtable-public/roundtable/workspace:latest
+  _IMAGE: us-central1-docker.pkg.dev/roundtable-public/roundtable/roundtable-core:latest
