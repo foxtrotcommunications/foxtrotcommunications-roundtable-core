@@ -5,35 +5,13 @@ import { ScopedPlaidClient } from '../plaid/client.js';
 import { withPool } from '../db/pool.js';
 import { getSchemaForDomain } from '../db/schemas.js';
 // ─── Amount Normalization ───────────────────────────────────────────────────
-// Plaid convention: positive = debit (money out), negative = credit (money in).
-// Some institutions (and sandbox) return credits with positive amounts.
-// This function detects known credit patterns and normalizes the sign.
-const CREDIT_PATTERNS = [
-    'ach electronic credit',
-    'ach credit',
-    'direct dep',
-    'direct deposit',
-    'payroll',
-    'gusto pay',
-    'adp payroll',
-    'intuit payroll',
-    'employer',
-    'salary',
-    'wage',
-    'tax refund',
-    'irs treas',
-];
-function normalizeAmount(amount, name) {
-    // Only fix positive amounts that look like credits
-    if (amount <= 0 || !name)
-        return amount;
-    const lower = name.toLowerCase();
-    for (const pattern of CREDIT_PATTERNS) {
-        if (lower.includes(pattern)) {
-            return -amount; // Flip to negative (credit)
-        }
-    }
-    return amount;
+// Plaid convention: positive = money leaving account (debit/expense),
+//                   negative = money entering account (credit/income).
+// Standard accounting: positive = money in, negative = money out.
+// We negate ALL amounts at sync time so the rest of the system uses
+// conventional accounting signs.
+function normalizeAmount(amount) {
+    return -amount;
 }
 // ─── Sync Logic ─────────────────────────────────────────────────────────────
 async function syncCheckingData(config) {
@@ -105,7 +83,7 @@ async function syncCheckingData(config) {
              synced_at = NOW()`, [
                     txn.transaction_id,
                     txn.account_id,
-                    normalizeAmount(txn.amount, txn.name),
+                    normalizeAmount(txn.amount),
                     txn.date,
                     txn.name,
                     txn.merchant_name ?? null,
@@ -133,7 +111,7 @@ async function syncCheckingData(config) {
              synced_at = NOW()`, [
                     txn.transaction_id,
                     txn.account_id,
-                    normalizeAmount(txn.amount, txn.name),
+                    normalizeAmount(txn.amount),
                     txn.date,
                     txn.name,
                     txn.merchant_name ?? null,

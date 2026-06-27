@@ -13,32 +13,12 @@ import type {
 } from '../types.js';
 
 // ─── Amount Normalization ───────────────────────────────────────────────────
+// Plaid: positive = money out, negative = money in.
+// Accounting: positive = money in, negative = money out.
+// Negate all amounts at sync time.
 
-const CREDIT_PATTERNS = [
-  'ach electronic credit',
-  'ach credit',
-  'direct dep',
-  'direct deposit',
-  'payroll',
-  'gusto pay',
-  'adp payroll',
-  'intuit payroll',
-  'employer',
-  'salary',
-  'wage',
-  'tax refund',
-  'irs treas',
-];
-
-function normalizeAmount(amount: number, name: string | null): number {
-  if (amount <= 0 || !name) return amount;
-  const lower = name.toLowerCase();
-  for (const pattern of CREDIT_PATTERNS) {
-    if (lower.includes(pattern)) {
-      return -amount;
-    }
-  }
-  return amount;
+function normalizeAmount(amount: number): number {
+  return -amount;
 }
 
 // ─── Sync Logic ─────────────────────────────────────────────────────────────
@@ -126,7 +106,7 @@ async function syncDebtData(config: PlaidPluginConfig): Promise<Record<string, u
           [
             txn.transaction_id,
             txn.account_id,
-            normalizeAmount(txn.amount, txn.name),
+            normalizeAmount(txn.amount),
             txn.date,
             txn.name,
             txn.merchant_name ?? null,
@@ -157,7 +137,7 @@ async function syncDebtData(config: PlaidPluginConfig): Promise<Record<string, u
           [
             txn.transaction_id,
             txn.account_id,
-            normalizeAmount(txn.amount, txn.name),
+            normalizeAmount(txn.amount),
             txn.date,
             txn.name,
             txn.merchant_name ?? null,

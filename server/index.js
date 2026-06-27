@@ -271,6 +271,56 @@ app.use('/api/sync', syncRoute);
 app.use('/api', requireAuth, fileRoutes);
 app.use('/api/insights', requireAuth, insightRoutes);
 
+// ─── Tool Execution API ────────────────────────────────────
+// Allows control plane to invoke tools programmatically (e.g. financial_plan proxy).
+// Authenticated via HMAC signature (same shared secret as bridge calls) — NOT
+// session-based, since the control plane makes server-to-server requests.
+app.post('/api/tools/execute', async (req, res) => {
+  try {
+    // ── Verify HMAC signature from control plane ──
+    const signature = req.headers['x-control-plane-signature'];
+    const timestamp = req.headers['x-control-plane-timestamp'];
+
+    if (!signature || !timestamp) {
+      return res.status(401).json({ error: 'Missing control-plane signature' });
+    }
+
+    // Reject stale requests (5 min window)
+    if (Math.abs(Date.now() - parseInt(timestamp)) > 5 * 60 * 1000) {
+      return res.status(401).json({ error: 'Control-plane timestamp expired' });
+    }
+
+    const crypto = require('crypto');
+    const secret = config.bridgeHmacSecret;
+    const { tool, args } = req.body;
+    const expectedSig = crypto
+      .createHmac('sha256', secret)
+      .update(`tools/execute:${timestamp}:${tool || ''}`)
+      .digest('hex');
+
+    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
+      return res.status(401).json({ error: 'Invalid control-plane signature' });
+    }
+
+    // ── Execute the tool ──
+    if (!tool) return res.status(400).json({ error: 'tool name required' });
+
+    const { executeTool } = require('./tools');
+    const db = getAdapter();
+    const ws = await db.getWorkspace(config.workspaceId);
+
+    const result = await executeTool(tool, args || {}, {
+      workspaceId: config.workspaceId,
+      workspaceName: ws?.name,
+      traceContext: { spanId: `api-${Date.now()}` },
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error('[tools/execute] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ─── Protocol Integrations (MCP + A2A) ─────────────────────
 if (config.mcpServerEnabled) {

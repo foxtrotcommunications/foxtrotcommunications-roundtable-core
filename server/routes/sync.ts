@@ -138,7 +138,7 @@ router.post('/', async (req, res) => {
                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
                ON CONFLICT (transaction_id) DO UPDATE SET
                  amount=EXCLUDED.amount, name=EXCLUDED.name, pending=EXCLUDED.pending, synced_at=NOW()`,
-              [tx.transaction_id, tx.account_id, tx.amount, tx.name, tx.merchant_name,
+              [tx.transaction_id, tx.account_id, -(tx.amount), tx.name, tx.merchant_name,
                tx.category, tx.date, tx.pending, tx.payment_channel]
             );
             added++;

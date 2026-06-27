@@ -2,7 +2,8 @@
 // Uses a singleton pool per process to avoid connection churn.
 // All domain tools (getFinancialSnapshot, getTransactions, etc.) import this.
 
-const { Pool } = require('pg');
+import pg from 'pg';
+const { Pool } = pg;
 
 let _pool: any = null;
 
