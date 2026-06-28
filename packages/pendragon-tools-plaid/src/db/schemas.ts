@@ -80,7 +80,8 @@ CREATE TABLE IF NOT EXISTS plaid_holdings (
   institution_price NUMERIC,
   institution_value NUMERIC,
   cost_basis NUMERIC,
-  synced_at TIMESTAMPTZ DEFAULT NOW()
+  synced_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (account_id, security_id)
 );
 
 CREATE TABLE IF NOT EXISTS plaid_securities (
