@@ -63,6 +63,13 @@ export async function buildProvenance(
       };
     });
 
+    // If no Plaid connections are configured (synthetic/demo data),
+    // treat data as always fresh — there's no external sync source.
+    const hasConnections = !!process.env.RT_CONNECTIONS?.trim();
+    const effectiveSyncedAt = hasConnections
+      ? latestSyncedAt
+      : new Date().toISOString();
+
     return {
       // All Plaid balances are institution-verified
       balance_verified: totalBalance,
@@ -70,7 +77,7 @@ export async function buildProvenance(
       historical_verified: isHistorical && hasTransactionData ? totalBalance : 0,
       total_balance: totalBalance,
       accounts,
-      last_synced: latestSyncedAt,
+      last_synced: effectiveSyncedAt,
     };
   } catch (err: any) {
     console.warn('[buildProvenance] Failed to build provenance:', err.message);
