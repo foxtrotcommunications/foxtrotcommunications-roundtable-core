@@ -1,0 +1,10 @@
+{
+  "id": "pendragon-demographics",
+  "name": "Demographics",
+  "icon": "👤",
+  "description": "User profile, household composition, and investment preferences",
+  "category": "pendragon",
+  "suggestedProvider": "vertexai",
+  "suggestedModel": "gemini-2.5-flash",
+  "toolsEnabled": ["bigquery", "calculator", "file_manager", "web_search"]
+}
