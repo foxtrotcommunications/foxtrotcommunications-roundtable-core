@@ -189,7 +189,7 @@ const DOMAIN_SCHEMAS: Record<DomainType, string> = {
   debt:        COMMON_TABLES + TRANSACTION_TABLES + LIABILITY_TABLES + GOAL_TABLES,
   taxes:       COMMON_TABLES + TRANSACTION_TABLES + GOAL_TABLES,
   realestate:  COMMON_TABLES + TRANSACTION_TABLES + LIABILITY_TABLES + GOAL_TABLES,
-  demographics: DEMOGRAPHICS_TABLES + GOAL_TABLES,
+  demographics: DEMOGRAPHICS_TABLES,
 };
 
 export function getSchemaForDomain(domainType: DomainType): string {

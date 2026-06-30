@@ -81,8 +81,12 @@ export const pendragonPlaid = {
     }
     registrar.tools(toolRegistry, config);
     registrar.capabilities(capabilityRegistry, config);
-    registerGoalCapabilities(capabilityRegistry, config);
-    console.log(`[pendragon-plaid] Registered tools + capabilities + goals for domain: ${config.domainType}`);
+    // Goals are for financial domains only — demographics doesn't get goals
+    const hasGoals = config.domainType !== 'demographics';
+    if (hasGoals) {
+      registerGoalCapabilities(capabilityRegistry, config);
+    }
+    console.log(`[pendragon-plaid] Registered tools + capabilities${hasGoals ? ' + goals' : ''} for domain: ${config.domainType}`);
 
     // Ensure domain schema tables exist, then seed default goals (non-blocking)
     // Uses retry loop because Cloud SQL proxy sidecar may not be ready yet
@@ -97,7 +101,7 @@ export const pendragonPlaid = {
               await pool.query(getSchemaForDomain(config.domainType as DomainType));
             });
             console.log(`[pendragon-plaid] Schema ensured for domain: ${config.domainType}`);
-            await ensureDefaultGoals(config);
+            if (hasGoals) await ensureDefaultGoals(config);
             return;
           } catch (err: any) {
             if (attempt === maxRetries) {

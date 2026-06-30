@@ -269,6 +269,10 @@ app.use('/api/bridge', bridgeReceive);  // HMAC-authed, no user session needed
 const syncRoute = require('./routes/sync').default;
 app.use('/api/sync', syncRoute);
 
+// Demographics seed endpoint (called by Pendragon onboarding to populate user profile)
+const demographicsSeedRoute = require('./routes/demographics-seed').default;
+app.use('/api/demographics/seed', demographicsSeedRoute);
+
 app.use('/api', requireAuth, fileRoutes);
 app.use('/api/insights', requireAuth, insightRoutes);
 
