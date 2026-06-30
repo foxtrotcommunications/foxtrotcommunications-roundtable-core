@@ -44,9 +44,13 @@ class PostgreSQLAdapter {
   async initialize() {
     this.pool = new Pool({
       connectionString: this.connectionString,
-      max: 10,
-      idleTimeoutMillis: 30000,
+      max: 5,
+      idleTimeoutMillis: 10000,
       connectionTimeoutMillis: 5000,
+    });
+
+    this.pool.on('error', (err) => {
+      console.error('[DB] Unexpected pool error:', err.message);
     });
 
     // Test connection

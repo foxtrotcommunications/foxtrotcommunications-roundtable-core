@@ -20,7 +20,7 @@ function getPool(): any {
     _pool = new Pool({
       connectionString,
       max: 5,              // max concurrent connections
-      idleTimeoutMillis: 30_000,
+      idleTimeoutMillis: 10_000,
       connectionTimeoutMillis: 5_000,
     });
     _pool.on('error', (err: Error) => {
@@ -28,6 +28,17 @@ function getPool(): any {
     });
   }
   return _pool;
+}
+
+/**
+ * Gracefully close the pool (call on process shutdown).
+ */
+async function endPool(): Promise<void> {
+  if (_pool) {
+    await _pool.end();
+    _pool = null;
+    console.log('[DomainDB] Pool closed');
+  }
 }
 
 /**
@@ -45,4 +56,4 @@ async function query(sql: string, params: any[] = []): Promise<{ rows: any[]; ro
   };
 }
 
-export { getPool, query };
+export { getPool, query, endPool };

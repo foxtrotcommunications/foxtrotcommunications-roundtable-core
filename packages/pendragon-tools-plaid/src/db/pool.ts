@@ -9,6 +9,7 @@ export function createPool(databaseUrl: string): InstanceType<typeof Pool> {
     connectionString: databaseUrl,
     max: 3,
     idleTimeoutMillis: 10000,
+    connectionTimeoutMillis: 5000,
   });
 }
 
