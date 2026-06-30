@@ -68,20 +68,20 @@ router.post('/', async (req, res) => {
     let syncModule;
     try {
       if (domainType === 'debt' || domainType === 'realestate') {
-        syncModule = require('@pendragon/tools-plaid/dist/domains/debt.js');
+        syncModule = require('@pendragon/tools-plaid/src/domains/debt.ts');
       } else if (domainType === 'investments' || domainType === 'retirement') {
-        syncModule = require('@pendragon/tools-plaid/dist/domains/investments.js');
+        syncModule = require('@pendragon/tools-plaid/src/domains/investments.ts');
       } else if (domainType === 'demographics') {
-        syncModule = require('@pendragon/tools-plaid/dist/domains/demographics.js');
+        syncModule = require('@pendragon/tools-plaid/src/domains/demographics.ts');
       } else {
-        syncModule = require('@pendragon/tools-plaid/dist/domains/checking.js');
+        syncModule = require('@pendragon/tools-plaid/src/domains/checking.ts');
       }
     } catch (importErr: any) {
-      return res.status(501).json({ error: `Cannot import domain module: ${importErr.message}` });
+      console.warn(`[sync] Domain module import failed (will use direct Plaid API): ${importErr.message}`);
     }
 
     // Domain modules export a syncXxxData function
-    const syncFnName = Object.keys(syncModule).find(k => k.startsWith('sync') && k.endsWith('Data'));
+    const syncFnName = syncModule ? Object.keys(syncModule).find(k => k.startsWith('sync') && k.endsWith('Data')) : null;
     const syncFn = syncFnName ? syncModule[syncFnName] : null;
 
     if (!syncFn) {
