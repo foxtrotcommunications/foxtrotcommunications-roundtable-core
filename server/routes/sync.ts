@@ -26,35 +26,20 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Invalid RT_CONNECTIONS JSON' });
     }
 
-    const plaidConn = connections.find((c: any) => c.type === 'plaid');
-    if (!plaidConn) {
+    const plaidConns = connections.filter((c: any) => c.type === 'plaid');
+    if (!plaidConns.length) {
       return res.status(400).json({ error: 'No Plaid connection found in RT_CONNECTIONS' });
     }
 
-    // Build config from env vars
-    const prefix = plaidConn.envPrefix || 'PLAID';
-    const domainType = process.env[`${prefix}_DOMAIN_TYPE`] || plaidConn.domainType || 'checking';
-    const config = {
-      domainType,
-      accessToken: process.env[`${prefix}_ACCESS_TOKEN`] || '',
-      clientId: process.env[`${prefix}_CLIENT_ID`] || process.env.PLAID_CLIENT_ID || '',
-      secret: process.env[`${prefix}_PLAID_SECRET`] || process.env.PLAID_SECRET || '',
-      env: process.env[`${prefix}_PLAID_ENV`] || process.env.PLAID_ENV || 'sandbox',
-      itemId: process.env[`${prefix}_ITEM_ID`],
-      databaseUrl: process.env.DATABASE_URL || '',
-    };
-
-    if (!config.accessToken) {
-      return res.status(400).json({ error: 'Missing Plaid access token' });
-    }
-    if (!config.databaseUrl) {
+    const databaseUrl = process.env.DATABASE_URL || '';
+    if (!databaseUrl) {
       return res.status(400).json({ error: 'Missing DATABASE_URL' });
     }
 
     // Import the capability registry which has the syncData handler
     const { capabilityRegistry } = require('../protocols/capabilityRegistry');
 
-    // Try to invoke the plaid.syncData capability (registered by @pendragon/tools-plaid)
+    // Try the plaid.syncData capability once (it handles all connections internally)
     const syncHandler = capabilityRegistry.getHandler?.('plaid.syncData');
     if (syncHandler) {
       console.log('[sync] Invoking plaid.syncData capability...');
@@ -63,103 +48,148 @@ router.post('/', async (req, res) => {
       return res.json(result);
     }
 
-    // Fallback: directly import and call the domain sync function
-    console.log(`[sync] Capability not found, using direct domain sync for: ${domainType}`);
-    let syncModule;
+    // Fallback: iterate every Plaid connection individually
+    console.log(`[sync] Capability not found, syncing ${plaidConns.length} Plaid connection(s) directly...`);
+
+    /**
+     * Helper: resolve an env var with legacy fallback.
+     * Tries `{prefix}_{field}` first (e.g. CONN_PLAID_0_ACCESS_TOKEN),
+     * then falls back to `CONN_PLAID_{field}` (legacy, no index).
+     */
+    const envWithFallback = (prefix: string, field: string, globalFallback?: string): string => {
+      return process.env[`${prefix}_${field}`]
+        || process.env[`CONN_PLAID_${field}`]
+        || globalFallback
+        || '';
+    };
+
+    const results: any[] = [];
+
+    // Pre-create tables once (shared across all connections)
+    const { Pool } = require('pg');
+    const pool = new Pool({ connectionString: databaseUrl });
     try {
-      if (domainType === 'debt' || domainType === 'realestate') {
-        syncModule = require('@pendragon/tools-plaid/src/domains/debt.ts');
-      } else if (domainType === 'investments' || domainType === 'retirement') {
-        syncModule = require('@pendragon/tools-plaid/src/domains/investments.ts');
-      } else if (domainType === 'demographics') {
-        syncModule = require('@pendragon/tools-plaid/src/domains/demographics.ts');
-      } else {
-        syncModule = require('@pendragon/tools-plaid/src/domains/checking.ts');
-      }
-    } catch (importErr: any) {
-      console.warn(`[sync] Domain module import failed (will use direct Plaid API): ${importErr.message}`);
-    }
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS plaid_accounts (
+          account_id TEXT PRIMARY KEY,
+          name TEXT, mask TEXT, type TEXT, subtype TEXT,
+          balance_available NUMERIC, balance_current NUMERIC, balance_limit NUMERIC,
+          currency TEXT DEFAULT 'USD', synced_at TIMESTAMPTZ
+        );
+        CREATE TABLE IF NOT EXISTS plaid_transactions (
+          transaction_id TEXT PRIMARY KEY,
+          account_id TEXT REFERENCES plaid_accounts(account_id),
+          amount NUMERIC, name TEXT, merchant_name TEXT,
+          category TEXT[], date DATE, pending BOOLEAN DEFAULT false,
+          payment_channel TEXT, synced_at TIMESTAMPTZ
+        );
+      `);
 
-    // Domain modules export a syncXxxData function
-    const syncFnName = syncModule ? Object.keys(syncModule).find(k => k.startsWith('sync') && k.endsWith('Data')) : null;
-    const syncFn = syncFnName ? syncModule[syncFnName] : null;
+      // --- Loop over each Plaid connection ---
+      for (const plaidConn of plaidConns) {
+        const connLabel = plaidConn.envPrefix || plaidConn.id || 'unknown';
+        try {
+          const prefix = plaidConn.envPrefix || 'PLAID';
+          const domainType = process.env[`${prefix}_DOMAIN_TYPE`] || plaidConn.domainType || 'checking';
+          const config = {
+            domainType,
+            accessToken: envWithFallback(prefix, 'ACCESS_TOKEN'),
+            clientId: envWithFallback(prefix, 'CLIENT_ID', process.env.PLAID_CLIENT_ID),
+            secret: envWithFallback(prefix, 'PLAID_SECRET', process.env.PLAID_SECRET),
+            env: envWithFallback(prefix, 'PLAID_ENV', process.env.PLAID_ENV) || 'sandbox',
+            itemId: process.env[`${prefix}_ITEM_ID`] || process.env['CONN_PLAID_ITEM_ID'],
+            databaseUrl,
+          };
 
-    if (!syncFn) {
-      // Last resort: use ScopedPlaidClient directly for basic account + transaction sync
-      console.log('[sync] No domain sync function found, using direct Plaid API...');
-      const { ScopedPlaidClient } = require('@pendragon/tools-plaid');
-      const { Pool } = require('pg');
-      const plaid = new ScopedPlaidClient(config.clientId, config.secret, config.env, config.domainType);
-      const pool = new Pool({ connectionString: config.databaseUrl });
-
-      try {
-        // Ensure tables exist
-        await pool.query(`
-          CREATE TABLE IF NOT EXISTS plaid_accounts (
-            account_id TEXT PRIMARY KEY,
-            name TEXT, mask TEXT, type TEXT, subtype TEXT,
-            balance_available NUMERIC, balance_current NUMERIC, balance_limit NUMERIC,
-            currency TEXT DEFAULT 'USD', synced_at TIMESTAMPTZ
-          );
-          CREATE TABLE IF NOT EXISTS plaid_transactions (
-            transaction_id TEXT PRIMARY KEY,
-            account_id TEXT REFERENCES plaid_accounts(account_id),
-            amount NUMERIC, name TEXT, merchant_name TEXT,
-            category TEXT[], date DATE, pending BOOLEAN DEFAULT false,
-            payment_channel TEXT, synced_at TIMESTAMPTZ
-          );
-        `);
-
-        // Sync accounts
-        const accountsRes = await plaid.accountsGet(config.accessToken);
-        const accounts = accountsRes.data.accounts;
-        for (const acct of accounts) {
-          await pool.query(
-            `INSERT INTO plaid_accounts (account_id, name, mask, type, subtype, balance_available, balance_current, balance_limit, currency, synced_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
-             ON CONFLICT (account_id) DO UPDATE SET
-               name=EXCLUDED.name, mask=EXCLUDED.mask, balance_available=EXCLUDED.balance_available,
-               balance_current=EXCLUDED.balance_current, balance_limit=EXCLUDED.balance_limit, synced_at=NOW()`,
-            [acct.account_id, acct.name, acct.mask, acct.type, acct.subtype,
-             acct.balances.available, acct.balances.current, acct.balances.limit, acct.balances.iso_currency_code || 'USD']
-          );
-        }
-
-        // Sync transactions
-        let cursor = undefined;
-        let added = 0;
-        let hasMore = true;
-        while (hasMore) {
-          const txRes = await plaid.transactionsSync(config.accessToken, cursor);
-          const txData = txRes.data;
-          for (const tx of txData.added || []) {
-            await pool.query(
-              `INSERT INTO plaid_transactions (transaction_id, account_id, amount, name, merchant_name, category, date, pending, payment_channel, synced_at)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
-               ON CONFLICT (transaction_id) DO UPDATE SET
-                 amount=EXCLUDED.amount, name=EXCLUDED.name, pending=EXCLUDED.pending, synced_at=NOW()`,
-              [tx.transaction_id, tx.account_id, -(tx.amount), tx.name, tx.merchant_name,
-               tx.category, tx.date, tx.pending, tx.payment_channel]
-            );
-            added++;
+          if (!config.accessToken) {
+            console.warn(`[sync] Skipping connection "${connLabel}": missing access token`);
+            results.push({ connection: connLabel, success: false, error: 'Missing Plaid access token' });
+            continue;
           }
-          cursor = txData.next_cursor;
-          hasMore = txData.has_more;
-        }
 
-        const result = { success: true, accountsCount: accounts.length, transactionsAdded: added };
-        console.log('[sync] Direct sync complete:', JSON.stringify(result));
-        return res.json(result);
-      } finally {
-        await pool.end();
+          // Try domain-specific sync module
+          let syncModule;
+          try {
+            if (domainType === 'debt' || domainType === 'realestate') {
+              syncModule = require('@pendragon/tools-plaid/src/domains/debt.ts');
+            } else if (domainType === 'investments' || domainType === 'retirement') {
+              syncModule = require('@pendragon/tools-plaid/src/domains/investments.ts');
+            } else if (domainType === 'demographics') {
+              syncModule = require('@pendragon/tools-plaid/src/domains/demographics.ts');
+            } else {
+              syncModule = require('@pendragon/tools-plaid/src/domains/checking.ts');
+            }
+          } catch (importErr: any) {
+            console.warn(`[sync] Domain module import failed for "${connLabel}" (will use direct Plaid API): ${importErr.message}`);
+          }
+
+          const syncFnName = syncModule ? Object.keys(syncModule).find(k => k.startsWith('sync') && k.endsWith('Data')) : null;
+          const syncFn = syncFnName ? syncModule[syncFnName] : null;
+
+          if (syncFn) {
+            // Use the domain's sync function
+            console.log(`[sync] Calling ${syncFnName} for connection "${connLabel}"...`);
+            const result = await syncFn(config);
+            console.log(`[sync] Connection "${connLabel}" sync complete:`, JSON.stringify(result).substring(0, 200));
+            results.push({ connection: connLabel, success: true, ...result });
+            continue;
+          }
+
+          // Last resort: use ScopedPlaidClient directly for basic account + transaction sync
+          console.log(`[sync] No domain sync function found for "${connLabel}", using direct Plaid API...`);
+          const { ScopedPlaidClient } = require('@pendragon/tools-plaid');
+          const plaid = new ScopedPlaidClient(config.clientId, config.secret, config.env, config.domainType);
+
+          // Sync accounts
+          const accountsRes = await plaid.accountsGet(config.accessToken);
+          const accounts = accountsRes.data.accounts;
+          for (const acct of accounts) {
+            await pool.query(
+              `INSERT INTO plaid_accounts (account_id, name, mask, type, subtype, balance_available, balance_current, balance_limit, currency, synced_at)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
+               ON CONFLICT (account_id) DO UPDATE SET
+                 name=EXCLUDED.name, mask=EXCLUDED.mask, balance_available=EXCLUDED.balance_available,
+                 balance_current=EXCLUDED.balance_current, balance_limit=EXCLUDED.balance_limit, synced_at=NOW()`,
+              [acct.account_id, acct.name, acct.mask, acct.type, acct.subtype,
+               acct.balances.available, acct.balances.current, acct.balances.limit, acct.balances.iso_currency_code || 'USD']
+            );
+          }
+
+          // Sync transactions
+          let cursor = undefined;
+          let added = 0;
+          let hasMore = true;
+          while (hasMore) {
+            const txRes = await plaid.transactionsSync(config.accessToken, cursor);
+            const txData = txRes.data;
+            for (const tx of txData.added || []) {
+              await pool.query(
+                `INSERT INTO plaid_transactions (transaction_id, account_id, amount, name, merchant_name, category, date, pending, payment_channel, synced_at)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
+                 ON CONFLICT (transaction_id) DO UPDATE SET
+                   amount=EXCLUDED.amount, name=EXCLUDED.name, pending=EXCLUDED.pending, synced_at=NOW()`,
+                [tx.transaction_id, tx.account_id, -(tx.amount), tx.name, tx.merchant_name,
+                 tx.category, tx.date, tx.pending, tx.payment_channel]
+              );
+              added++;
+            }
+            cursor = txData.next_cursor;
+            hasMore = txData.has_more;
+          }
+
+          console.log(`[sync] Connection "${connLabel}" direct sync complete: ${accounts.length} accounts, ${added} transactions`);
+          results.push({ connection: connLabel, success: true, accountsCount: accounts.length, transactionsAdded: added });
+        } catch (connErr: any) {
+          console.error(`[sync] Error syncing connection "${connLabel}":`, connErr.message);
+          results.push({ connection: connLabel, success: false, error: connErr.message });
+        }
       }
+    } finally {
+      await pool.end();
     }
 
-    // Call the domain's sync function
-    console.log(`[sync] Calling ${syncFnName}...`);
-    const result = await syncFn(config);
-    console.log('[sync] Sync complete:', JSON.stringify(result).substring(0, 200));
-    return res.json(result);
+    console.log(`[sync] All connections processed: ${results.filter(r => r.success).length}/${results.length} succeeded`);
+    return res.json({ success: true, synced: results });
   } catch (err: any) {
     console.error('[sync] Error:', err.message);
     res.status(500).json({ error: err.message });
