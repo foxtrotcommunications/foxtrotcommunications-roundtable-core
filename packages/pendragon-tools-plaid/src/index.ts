@@ -85,17 +85,30 @@ export const pendragonPlaid = {
     console.log(`[pendragon-plaid] Registered tools + capabilities + goals for domain: ${config.domainType}`);
 
     // Ensure domain schema tables exist, then seed default goals (non-blocking)
+    // Uses retry loop because Cloud SQL proxy sidecar may not be ready yet
     if (config.databaseUrl) {
-      import('./db/schemas.js').then(({ getSchemaForDomain }) => {
-        import('./db/pool.js').then(({ withPool: wp }) => {
-          wp(config.databaseUrl, async (pool) => {
-            await pool.query(getSchemaForDomain(config.domainType as DomainType));
+      const initSchema = async () => {
+        const { getSchemaForDomain } = await import('./db/schemas.js');
+        const { withPool: wp } = await import('./db/pool.js');
+        const maxRetries = 12;
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            await wp(config.databaseUrl, async (pool) => {
+              await pool.query(getSchemaForDomain(config.domainType as DomainType));
+            });
             console.log(`[pendragon-plaid] Schema ensured for domain: ${config.domainType}`);
-          }).then(() => ensureDefaultGoals(config)).catch((err) =>
-            console.warn(`[pendragon-plaid] Schema/goal init failed: ${err.message}`),
-          );
-        });
-      });
+            await ensureDefaultGoals(config);
+            return;
+          } catch (err: any) {
+            if (attempt === maxRetries) {
+              console.warn(`[pendragon-plaid] Schema/goal init failed after ${maxRetries} attempts: ${err.message}`);
+              return;
+            }
+            await new Promise(r => setTimeout(r, 3000));
+          }
+        }
+      };
+      initSchema();
     }
   },
 
