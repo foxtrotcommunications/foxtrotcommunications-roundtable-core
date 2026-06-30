@@ -146,7 +146,7 @@ const DEMOGRAPHICS_TABLES = `
 CREATE TABLE IF NOT EXISTS user_profile (
   id SERIAL PRIMARY KEY,
   display_name TEXT NOT NULL,
-  date_of_birth DATE NOT NULL,
+  date_of_birth DATE,
   gender TEXT,
   state_of_residence TEXT,
   filing_status TEXT,
