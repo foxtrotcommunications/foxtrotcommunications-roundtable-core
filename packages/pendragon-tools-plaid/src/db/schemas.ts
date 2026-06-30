@@ -140,6 +140,44 @@ CREATE TABLE IF NOT EXISTS goal_snapshots (
   snapshot_at TIMESTAMPTZ DEFAULT NOW()
 );
 `;
+// ─── Demographics Tables ────────────────────────────────────────────────────
+
+const DEMOGRAPHICS_TABLES = `
+CREATE TABLE IF NOT EXISTS user_profile (
+  id SERIAL PRIMARY KEY,
+  display_name TEXT NOT NULL,
+  date_of_birth DATE NOT NULL,
+  gender TEXT,
+  state_of_residence TEXT,
+  filing_status TEXT,
+  education TEXT,
+  employment_status TEXT,
+  annual_income_estimate NUMERIC,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS household_members (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES user_profile(id),
+  relationship TEXT NOT NULL,
+  name TEXT,
+  date_of_birth DATE,
+  age_years INTEGER,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS investment_preferences (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES user_profile(id),
+  risk_tolerance TEXT NOT NULL,
+  liquidity_preference TEXT,
+  time_horizon TEXT,
+  preferred_asset_classes TEXT[],
+  avoided_asset_classes TEXT[],
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+`;
 
 // ─── Domain → Tables Mapping (strict isolation) ────────────────────────────
 
@@ -151,7 +189,7 @@ const DOMAIN_SCHEMAS: Record<DomainType, string> = {
   debt:        COMMON_TABLES + TRANSACTION_TABLES + LIABILITY_TABLES + GOAL_TABLES,
   taxes:       COMMON_TABLES + TRANSACTION_TABLES + GOAL_TABLES,
   realestate:  COMMON_TABLES + TRANSACTION_TABLES + LIABILITY_TABLES + GOAL_TABLES,
-  demographics: GOAL_TABLES,  // Demographics uses its own schema (04-schema-demographics.sql), only needs goal tables
+  demographics: DEMOGRAPHICS_TABLES + GOAL_TABLES,
 };
 
 export function getSchemaForDomain(domainType: DomainType): string {
