@@ -608,6 +608,15 @@ async function shutdown(signal) {
     await db.updateWorkspaceStatus(config.workspaceId, 'stopped');
     if (typeof db.close === 'function') await db.close();
   } catch { /* intentionally empty */ }
+  // Close domainDb singleton pools (server and pendragon copies)
+  try {
+    const { endPool } = require('./tools/utils/domainDb');
+    if (typeof endPool === 'function') await endPool();
+  } catch { /* domainDb may not be loaded */ }
+  try {
+    const { endPool } = require('../packages/pendragon-tools-plaid/dist/tools/utils/domainDb');
+    if (typeof endPool === 'function') await endPool();
+  } catch { /* pendragon domainDb may not be loaded */ }
   process.exit(0);
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));
