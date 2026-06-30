@@ -367,7 +367,7 @@ async function* streamAnthropic(model: string, messages: ChatMessage[], apiKey: 
     const body: Record<string, unknown> = {
       model,
       messages: currentMessages,
-      max_tokens: 16384,
+      max_completion_tokens: 16384,
       stream: true,
     };
 
