@@ -216,7 +216,8 @@ app.use(express.static(path.join(__dirname, '..', 'public'), {
 
 // React client catch-all (for client-side routing)
 app.get('*', (req, res, next) => {
-  if (req.path.startsWith('/api/') || req.path.startsWith('/socket.io/')) {
+  if (req.path.startsWith('/api/') || req.path.startsWith('/socket.io/') ||
+      req.path.startsWith('/.well-known/') || req.path === '/a2a') {
     return next();
   }
   
