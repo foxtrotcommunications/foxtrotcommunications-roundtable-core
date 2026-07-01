@@ -24,7 +24,7 @@ VALUES (
   NULL,
   '{"properties": 3, "demo_seed": true}',
   'active',
-  'rt_realestate'
+  'Qy339ASoBmooIBKdw9mH'
 ) ON CONFLICT (id) DO UPDATE SET
   target_amount = EXCLUDED.target_amount,
   updated_at = NOW();
@@ -37,5 +37,5 @@ VALUES (
   true,
   '2028-06-01',
   '{"source": "demo_seed", "totalPropertyValue": 1565000, "totalMortgages": 926400, "properties": 3}',
-  'rt_realestate'
+  'Qy339ASoBmooIBKdw9mH'
 );
