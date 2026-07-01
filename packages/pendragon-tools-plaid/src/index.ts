@@ -101,8 +101,8 @@ export const pendragonPlaid = {
               // Create tables (new tables already have workspace_id NOT NULL)
               await pool.query(getSchemaForDomain(config.domainType as DomainType));
               // Migrate existing tables — add workspace_id if missing, backfill with current workspace
-              const migration = getMigrationSQL(config.workspaceId);
-              await pool.query(migration.sql, migration.params);
+              const migrationSQL = getMigrationSQL(config.workspaceId);
+              await pool.query(migrationSQL);
             });
             console.log(`[pendragon-plaid] Schema ensured for domain: ${config.domainType} (workspace: ${config.workspaceId})`);
             if (hasGoals) await ensureDefaultGoals(config);
