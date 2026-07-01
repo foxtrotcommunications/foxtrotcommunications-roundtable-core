@@ -21,7 +21,7 @@ VALUES (
   985,
   '{"strategy": "avalanche", "demo_seed": true}',
   'active',
-  'rt_debt'
+  'jmdsbwMzZqelAnliJcGQ'
 ) ON CONFLICT (id) DO UPDATE SET
   target_amount = EXCLUDED.target_amount,
   monthly_contribution = EXCLUDED.monthly_contribution,
@@ -36,7 +36,7 @@ VALUES (
   false,
   '2029-08-01',
   '{"source": "demo_seed_baseline", "originalDebt": 40000}',
-  'rt_debt'
+  'jmdsbwMzZqelAnliJcGQ'
 );
 
 -- Current snapshot
@@ -48,7 +48,7 @@ VALUES (
   false,
   '2029-08-01',
   '{"source": "demo_seed", "totalDebt": 34578, "avgRate": 15.66, "monthlyPayment": 985}',
-  'rt_debt'
+  'jmdsbwMzZqelAnliJcGQ'
 );
 
 -- Goal 2: Improve Credit Score
@@ -63,7 +63,7 @@ VALUES (
   NULL,
   '{"current_score": 712, "demo_seed": true}',
   'active',
-  'rt_debt'
+  'jmdsbwMzZqelAnliJcGQ'
 ) ON CONFLICT (id) DO UPDATE SET
   target_amount = EXCLUDED.target_amount,
   updated_at = NOW();
@@ -76,5 +76,5 @@ VALUES (
   true,
   '2027-03-01',
   '{"source": "demo_seed", "currentScore": 712, "targetScore": 780, "utilizationPct": 12.3}',
-  'rt_debt'
+  'jmdsbwMzZqelAnliJcGQ'
 );

@@ -20,7 +20,7 @@ VALUES (
   600,
   '{"quarterly_federal": 3200, "quarterly_state": 640, "demo_seed": true}',
   'active',
-  'rt_taxes'
+  '4x5OQpZSA29iLJIrhmAC'
 ) ON CONFLICT (id) DO UPDATE SET
   target_amount = EXCLUDED.target_amount,
   monthly_contribution = EXCLUDED.monthly_contribution,
@@ -34,5 +34,5 @@ VALUES (
   true,
   NULL,
   '{"source": "demo_seed", "taxSavings": 8500, "hsa": 4236, "quarterlyObligation": 3840}',
-  'rt_taxes'
+  '4x5OQpZSA29iLJIrhmAC'
 );

@@ -20,7 +20,7 @@ VALUES (
   500,
   '{"months_coverage": 3, "demo_seed": true}',
   'active',
-  'rt_checking'
+  'Narv6OBjpk50aJla6eED'
 ) ON CONFLICT (id) DO UPDATE SET
   target_amount = EXCLUDED.target_amount,
   monthly_contribution = EXCLUDED.monthly_contribution,
@@ -34,7 +34,7 @@ VALUES (
   true,
   NULL,
   '{"source": "demo_seed", "account": "Emergency Fund", "monthlyExpenses": 4450}',
-  'rt_checking'
+  'Narv6OBjpk50aJla6eED'
 );
 
 -- Goal 2: Family Vacation Fund — saving toward a $8,000 trip
@@ -50,7 +50,7 @@ VALUES (
   500,
   '{"demo_seed": true}',
   'active',
-  'rt_checking'
+  'Narv6OBjpk50aJla6eED'
 ) ON CONFLICT (id) DO UPDATE SET
   target_amount = EXCLUDED.target_amount,
   monthly_contribution = EXCLUDED.monthly_contribution,
@@ -64,5 +64,5 @@ VALUES (
   true,
   '2026-12-01',
   '{"source": "demo_seed", "savingsRate": 500}',
-  'rt_checking'
+  'Narv6OBjpk50aJla6eED'
 );

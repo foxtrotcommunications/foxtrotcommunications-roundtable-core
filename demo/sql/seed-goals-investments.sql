@@ -19,7 +19,7 @@ VALUES (
   1500,
   '{"growth_rate": 0.07, "demo_seed": true}',
   'active',
-  'rt_investments'
+  'lYjs7ZeDanzC1FDiO3es'
 ) ON CONFLICT (id) DO UPDATE SET
   target_amount = EXCLUDED.target_amount,
   monthly_contribution = EXCLUDED.monthly_contribution,
@@ -33,5 +33,5 @@ VALUES (
   true,
   '2029-04-01',
   '{"source": "demo_seed", "growthRateAssumption": 0.07, "holdings": 10}',
-  'rt_investments'
+  'lYjs7ZeDanzC1FDiO3es'
 );
