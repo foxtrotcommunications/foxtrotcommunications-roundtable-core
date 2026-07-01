@@ -305,41 +305,6 @@ if [[ "$SKIP_K8S" == false ]]; then
   done
 fi
 
-# ---------------------------------------------------------------------------
-# Phase 4.75: PgBouncer Deployment
-# ---------------------------------------------------------------------------
-if [[ "$SKIP_K8S" == false ]]; then
-  log_step "Phase 4.75: PgBouncer Deployment"
-
-  # 4.75a. Generate userlist.txt with all DB roles
-  log_info "Generating PgBouncer userlist ConfigMap..."
-  USERLIST_CONTENT="\"${DB_USER}\" \"${DB_PASS}\""
-  for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
-    DB_ROLE=$(jq -r ".[$i].dbRole" "$CONFIG_DIR/workspaces.json")
-    DB_ROLE_PASS="demo_${DB_ROLE}"
-    USERLIST_CONTENT="${USERLIST_CONTENT}
-\"${DB_ROLE}\" \"${DB_ROLE_PASS}\""
-  done
-
-  kubectl create configmap pgbouncer-userlist -n "$NAMESPACE" \
-    --from-literal="userlist.txt=${USERLIST_CONTENT}" \
-    --dry-run=client -o yaml | kubectl apply -f -
-  log_success "ConfigMap: pgbouncer-userlist ($(( WORKSPACE_COUNT + 1 )) entries)"
-
-  # 4.75b. Deploy PgBouncer using the GCP overlay template
-  log_info "Deploying PgBouncer..."
-  export CLOUDSQL_CONNECTION="${GCP_PROJECT}:us-central1:${CLOUD_SQL_INSTANCE}"
-  export GCP_SA_EMAIL="roundtable-gke@${GCP_PROJECT}.iam.gserviceaccount.com"
-  export PGBOUNCER_ADMIN_PASS="${DB_PASS}"
-  export NAMESPACE
-  envsubst < "$REPO_ROOT/k8s/overlays/gcp/pgbouncer.yaml" | kubectl apply -n "$NAMESPACE" -f -
-  log_success "PgBouncer deployment applied"
-
-  # 4.75c. Wait for PgBouncer to be ready
-  log_info "Waiting for PgBouncer rollout..."
-  kubectl rollout status deployment/pgbouncer -n "$NAMESPACE" --timeout=120s
-  log_success "PgBouncer is ready"
-fi
 
 # ---------------------------------------------------------------------------
 # Phase 5: Kubernetes Deployments
@@ -363,7 +328,7 @@ if [[ "$SKIP_K8S" == false ]]; then
 
     # Build the DATABASE_URL via centralized PgBouncer with per-workspace role
     DB_ROLE_PASS="demo_${DB_ROLE}"
-    DATABASE_URL="postgresql://${DB_ROLE}:${DB_ROLE_PASS}@pgbouncer:5432/${SHARED_DB}"
+    DATABASE_URL="postgresql://${DB_ROLE}:${DB_ROLE_PASS}@pgbouncer.roundtable.svc.cluster.local:5432/${SHARED_DB}"
 
     # Build orchestrator-specific env block (RT_BRIDGES, RT_CONTRACTS, OPENAI_API_KEY)
     ORCH_ENV=""
