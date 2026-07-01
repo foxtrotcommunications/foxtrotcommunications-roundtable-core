@@ -5,7 +5,11 @@
     "sourceName": "Arthur",
     "targetWsId": "Qy339ASoBmooIBKdw9mH",
     "targetName": "Real Estate",
-    "permissions": ["message", "delegate"]
+    "permissions": [
+      "message",
+      "delegate"
+    ],
+    "targetUrl": "http://rt-ws-qy339asobmoo"
   },
   {
     "bridgeId": "bridge-arthur-debt",
@@ -13,7 +17,11 @@
     "sourceName": "Arthur",
     "targetWsId": "jmdsbwMzZqelAnliJcGQ",
     "targetName": "Debt Management",
-    "permissions": ["message", "delegate"]
+    "permissions": [
+      "message",
+      "delegate"
+    ],
+    "targetUrl": "http://rt-ws-jmdsbwmzzqel"
   },
   {
     "bridgeId": "bridge-arthur-cs",
@@ -21,7 +29,11 @@
     "sourceName": "Arthur",
     "targetWsId": "Narv6OBjpk50aJla6eED",
     "targetName": "Checking & Savings",
-    "permissions": ["message", "delegate"]
+    "permissions": [
+      "message",
+      "delegate"
+    ],
+    "targetUrl": "http://rt-ws-narv6objpk50"
   },
   {
     "bridgeId": "bridge-arthur-investments",
@@ -29,7 +41,11 @@
     "sourceName": "Arthur",
     "targetWsId": "lYjs7ZeDanzC1FDiO3es",
     "targetName": "Investments",
-    "permissions": ["message", "delegate"]
+    "permissions": [
+      "message",
+      "delegate"
+    ],
+    "targetUrl": "http://rt-ws-lyjs7zedanzc"
   },
   {
     "bridgeId": "bridge-arthur-retirement",
@@ -37,7 +53,11 @@
     "sourceName": "Arthur",
     "targetWsId": "b0njzeX7q4JZ3KeLyASx",
     "targetName": "Retirement",
-    "permissions": ["message", "delegate"]
+    "permissions": [
+      "message",
+      "delegate"
+    ],
+    "targetUrl": "http://rt-ws-b0njzex7q4jz"
   },
   {
     "bridgeId": "bridge-arthur-taxes",
@@ -45,7 +65,11 @@
     "sourceName": "Arthur",
     "targetWsId": "4x5OQpZSA29iLJIrhmAC",
     "targetName": "Taxes",
-    "permissions": ["message", "delegate"]
+    "permissions": [
+      "message",
+      "delegate"
+    ],
+    "targetUrl": "http://rt-ws-4x5oqpzsa29i"
   },
   {
     "bridgeId": "bridge-arthur-demographics",
@@ -53,6 +77,10 @@
     "sourceName": "Arthur",
     "targetWsId": "DemoGraphicsWs01xYz",
     "targetName": "Demographics",
-    "permissions": ["message", "delegate"]
+    "permissions": [
+      "message",
+      "delegate"
+    ],
+    "targetUrl": "http://rt-ws-demographicsws01"
   }
 ]
