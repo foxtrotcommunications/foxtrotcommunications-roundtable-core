@@ -10,7 +10,7 @@
 -- Goal 1: Debt Payoff — eliminate all outstanding debt
 -- Total debt is $34,578. Assuming ~$5,000 already paid down from ~$40,000
 -- original balances → 15% progress
-INSERT INTO domain_goals (id, goal_type, name, description, target_amount, target_date, monthly_contribution, parameters, status)
+INSERT INTO domain_goals (id, goal_type, name, description, target_amount, target_date, monthly_contribution, parameters, status, workspace_id)
 VALUES (
   'goal_demo_debt_payoff',
   'debt',
@@ -20,36 +20,39 @@ VALUES (
   '2029-06-01',
   985,
   '{"strategy": "avalanche", "demo_seed": true}',
-  'active'
+  'active',
+  'rt_debt'
 ) ON CONFLICT (id) DO UPDATE SET
   target_amount = EXCLUDED.target_amount,
   monthly_contribution = EXCLUDED.monthly_contribution,
   updated_at = NOW();
 
 -- Baseline snapshot (original debt) — needed for progress calculation
-INSERT INTO goal_snapshots (goal_id, current_value, progress_pct, on_track, projected_date, details)
+INSERT INTO goal_snapshots (goal_id, current_value, progress_pct, on_track, projected_date, details, workspace_id)
 VALUES (
   'goal_demo_debt_payoff',
   40000,
   0.0,
   false,
   '2029-08-01',
-  '{"source": "demo_seed_baseline", "originalDebt": 40000}'
+  '{"source": "demo_seed_baseline", "originalDebt": 40000}',
+  'rt_debt'
 );
 
 -- Current snapshot
-INSERT INTO goal_snapshots (goal_id, current_value, progress_pct, on_track, projected_date, details)
+INSERT INTO goal_snapshots (goal_id, current_value, progress_pct, on_track, projected_date, details, workspace_id)
 VALUES (
   'goal_demo_debt_payoff',
   34578,
   13.6,
   false,
   '2029-08-01',
-  '{"source": "demo_seed", "totalDebt": 34578, "avgRate": 15.66, "monthlyPayment": 985}'
+  '{"source": "demo_seed", "totalDebt": 34578, "avgRate": 15.66, "monthlyPayment": 985}',
+  'rt_debt'
 );
 
 -- Goal 2: Improve Credit Score
-INSERT INTO domain_goals (id, goal_type, name, description, target_amount, target_date, monthly_contribution, parameters, status)
+INSERT INTO domain_goals (id, goal_type, name, description, target_amount, target_date, monthly_contribution, parameters, status, workspace_id)
 VALUES (
   'goal_demo_debt_credit',
   'credit_score',
@@ -59,17 +62,19 @@ VALUES (
   '2027-06-01',
   NULL,
   '{"current_score": 712, "demo_seed": true}',
-  'active'
+  'active',
+  'rt_debt'
 ) ON CONFLICT (id) DO UPDATE SET
   target_amount = EXCLUDED.target_amount,
   updated_at = NOW();
 
-INSERT INTO goal_snapshots (goal_id, current_value, progress_pct, on_track, projected_date, details)
+INSERT INTO goal_snapshots (goal_id, current_value, progress_pct, on_track, projected_date, details, workspace_id)
 VALUES (
   'goal_demo_debt_credit',
   712,
   71.2,
   true,
   '2027-03-01',
-  '{"source": "demo_seed", "currentScore": 712, "targetScore": 780, "utilizationPct": 12.3}'
+  '{"source": "demo_seed", "currentScore": 712, "targetScore": 780, "utilizationPct": 12.3}',
+  'rt_debt'
 );

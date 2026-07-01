@@ -1,6 +1,6 @@
 // @ts-nocheck
 // server/tools/getPayoffProjection.ts — Snowball vs avalanche payoff projections
-import { query } from './utils/domainDb.js';
+import { query, getWorkspaceId } from './utils/domainDb.js';
 import type { Tool } from '../../types.js';
 import { buildProvenance } from './utils/buildProvenance.js';
 
@@ -104,6 +104,7 @@ const tool: Tool = {
   },
   async execute(args: any, _workspaceConfig: any = {}) {
     const start = Date.now();
+    const wsId = getWorkspaceId();
     try {
       const sql = `
         SELECT l.account_id, l.type, l.interest_rate, l.minimum_payment_amount,
@@ -111,10 +112,11 @@ const tool: Tool = {
         FROM plaid_liabilities l
         LEFT JOIN plaid_accounts a ON a.account_id = l.account_id
         WHERE a.balance_current > 0
+          AND l.workspace_id = $1
         ORDER BY a.balance_current ASC
       `;
 
-      const result = await query(sql);
+      const result = await query(sql, [wsId]);
 
       const debts: Debt[] = result.rows.map((row: any) => ({
         account_id: row.account_id,

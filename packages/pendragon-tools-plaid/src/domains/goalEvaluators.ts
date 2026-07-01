@@ -149,11 +149,12 @@ export async function evaluateGoalProgress(
   pool: Pool,
   goalId: string,
   domainType: DomainType,
+  workspaceId: string,
 ): Promise<GoalProgress> {
   // Read the goal
   const goalResult = await pool.query(
-    `SELECT * FROM domain_goals WHERE id = $1`,
-    [goalId],
+    `SELECT * FROM domain_goals WHERE id = $1 AND workspace_id = $2`,
+    [goalId, workspaceId],
   );
   if (goalResult.rows.length === 0) {
     return {
@@ -186,10 +187,11 @@ export async function evaluateGoalProgress(
   const snapshotResult = await pool.query(
     `SELECT * FROM goal_snapshots
      WHERE goal_id = $1
+       AND workspace_id = $2
        AND snapshot_at >= NOW() - INTERVAL '7 days'
      ORDER BY snapshot_at DESC
      LIMIT 1`,
-    [goalId],
+    [goalId, workspaceId],
   );
 
   if (snapshotResult.rows.length > 0) {
@@ -256,34 +258,35 @@ export async function evaluateGoalProgress(
     case 'checking':
     case 'savings': {
       const goalType = goal.goal_type || '';
-      if (goalType === 'spending_cap') return evaluateSpendingCapGoal(pool, goal);
-      if (goalType === 'savings_target') return evaluateSavingsTargetGoal(pool, goal);
-      return evaluateSavingsGoal(pool, goal);
+      if (goalType === 'spending_cap') return evaluateSpendingCapGoal(pool, goal, workspaceId);
+      if (goalType === 'savings_target') return evaluateSavingsTargetGoal(pool, goal, workspaceId);
+      return evaluateSavingsGoal(pool, goal, workspaceId);
     }
     case 'debt': {
       const debtGoalType = goal.goal_type || '';
-      if (debtGoalType === 'spending_cap') return evaluateSpendingCapGoal(pool, goal);
-      return evaluateDebtGoal(pool, goal);
+      if (debtGoalType === 'spending_cap') return evaluateSpendingCapGoal(pool, goal, workspaceId);
+      return evaluateDebtGoal(pool, goal, workspaceId);
     }
     case 'investments':
-      return evaluateInvestmentGoal(pool, goal, DEFAULT_GROWTH_RATE);
+      return evaluateInvestmentGoal(pool, goal, DEFAULT_GROWTH_RATE, workspaceId);
     case 'retirement':
-      return evaluateRetirementGoal(pool, goal, DEFAULT_GROWTH_RATE);
+      return evaluateRetirementGoal(pool, goal, DEFAULT_GROWTH_RATE, workspaceId);
     case 'realestate':
-      return evaluateRealEstateGoal(pool, goal);
+      return evaluateRealEstateGoal(pool, goal, workspaceId);
     case 'taxes':
-      return evaluateTaxGoal(pool, goal);
+      return evaluateTaxGoal(pool, goal, workspaceId);
     default:
-      return evaluateGenericGoal(pool, goal);
+      return evaluateGenericGoal(pool, goal, workspaceId);
   }
 }
 
 // ─── Checking / Savings Goals ───────────────────────────────────────────────
 
-async function evaluateSavingsGoal(pool: Pool, goal: Record<string, any>): Promise<GoalProgress> {
+async function evaluateSavingsGoal(pool: Pool, goal: Record<string, any>, workspaceId: string): Promise<GoalProgress> {
   // Get current total balance
   const balanceResult = await pool.query(
-    `SELECT COALESCE(SUM(balance_current), 0) as total_balance FROM plaid_accounts`,
+    `SELECT COALESCE(SUM(balance_current), 0) as total_balance FROM plaid_accounts WHERE workspace_id = $1`,
+    [workspaceId],
   );
   const currentBalance = parseFloat(balanceResult.rows[0].total_balance) || 0;
 
@@ -294,8 +297,10 @@ async function evaluateSavingsGoal(pool: Pool, goal: Record<string, any>): Promi
        COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as total_expenses,
        COUNT(DISTINCT date_trunc('month', date)) as months_counted
      FROM plaid_transactions
-     WHERE date >= NOW() - INTERVAL '${MONTHS_FOR_AVERAGE} months'
+     WHERE workspace_id = $1
+       AND date >= NOW() - INTERVAL '${MONTHS_FOR_AVERAGE} months'
        AND pending = false`,
+    [workspaceId],
   );
   const { total_income, total_expenses, months_counted } = savingsResult.rows[0];
   const monthsCounted = Math.max(parseFloat(months_counted) || 1, 1);
@@ -391,7 +396,7 @@ async function evaluateSavingsGoal(pool: Pool, goal: Record<string, any>): Promi
 
 // ─── Debt Goals ─────────────────────────────────────────────────────────────
 
-async function evaluateDebtGoal(pool: Pool, goal: Record<string, any>): Promise<GoalProgress> {
+async function evaluateDebtGoal(pool: Pool, goal: Record<string, any>, workspaceId: string): Promise<GoalProgress> {
   // Get current total debt
   const debtResult = await pool.query(
     `SELECT
@@ -399,7 +404,9 @@ async function evaluateDebtGoal(pool: Pool, goal: Record<string, any>): Promise<
        COALESCE(SUM(l.minimum_payment_amount), 0) as total_minimum,
        COALESCE(AVG(l.interest_rate), 0) as avg_rate
      FROM plaid_liabilities l
-     LEFT JOIN plaid_accounts a ON a.account_id = l.account_id`,
+     LEFT JOIN plaid_accounts a ON a.account_id = l.account_id
+     WHERE l.workspace_id = $1`,
+    [workspaceId],
   );
   const totalDebt = Math.abs(parseFloat(debtResult.rows[0].total_debt) || 0);
   const totalMinimum = parseFloat(debtResult.rows[0].total_minimum) || 0;
@@ -411,9 +418,11 @@ async function evaluateDebtGoal(pool: Pool, goal: Record<string, any>): Promise<
        COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END), 0) as total_payments,
        COUNT(DISTINCT date_trunc('month', date)) as months_counted
      FROM plaid_transactions
-     WHERE date >= NOW() - INTERVAL '${MONTHS_FOR_AVERAGE} months'
+     WHERE workspace_id = $1
+       AND date >= NOW() - INTERVAL '${MONTHS_FOR_AVERAGE} months'
        AND pending = false
        AND amount < 0`,
+    [workspaceId],
   );
   const monthsCounted = Math.max(parseFloat(paymentResult.rows[0].months_counted) || 1, 1);
   const monthlyPayment = parseFloat(paymentResult.rows[0].total_payments) / monthsCounted;
@@ -425,8 +434,8 @@ async function evaluateDebtGoal(pool: Pool, goal: Record<string, any>): Promise<
   // Progress: how much of the original debt has been paid toward target
   // If we have snapshots, use the first snapshot as baseline
   const baselineResult = await pool.query(
-    `SELECT current_value FROM goal_snapshots WHERE goal_id = $1 ORDER BY snapshot_at ASC LIMIT 1`,
-    [goal.id],
+    `SELECT current_value FROM goal_snapshots WHERE goal_id = $1 AND workspace_id = $2 ORDER BY snapshot_at ASC LIMIT 1`,
+    [goal.id, workspaceId],
   );
   const baseline = baselineResult.rows.length > 0 ? parseFloat(baselineResult.rows[0].current_value) : totalDebt;
   const totalReduction = Math.max(baseline - targetAmount, 1);
@@ -530,10 +539,11 @@ async function evaluateDebtGoal(pool: Pool, goal: Record<string, any>): Promise<
 
 // ─── Investment Goals ───────────────────────────────────────────────────────
 
-async function evaluateInvestmentGoal(pool: Pool, goal: Record<string, any>, growthRate: number): Promise<GoalProgress> {
+async function evaluateInvestmentGoal(pool: Pool, goal: Record<string, any>, growthRate: number, workspaceId: string): Promise<GoalProgress> {
   // Get current portfolio value
   const holdingsResult = await pool.query(
-    `SELECT COALESCE(SUM(institution_value), 0) as total_value FROM plaid_holdings`,
+    `SELECT COALESCE(SUM(institution_value), 0) as total_value FROM plaid_holdings WHERE workspace_id = $1`,
+    [workspaceId],
   );
   const currentValue = parseFloat(holdingsResult.rows[0].total_value) || 0;
 
@@ -645,20 +655,22 @@ async function evaluateInvestmentGoal(pool: Pool, goal: Record<string, any>, gro
 
 // ─── Retirement Goals ───────────────────────────────────────────────────────
 
-async function evaluateRetirementGoal(pool: Pool, goal: Record<string, any>, growthRate: number): Promise<GoalProgress> {
+async function evaluateRetirementGoal(pool: Pool, goal: Record<string, any>, growthRate: number, workspaceId: string): Promise<GoalProgress> {
   // Retirement goals use the same math as investment but may use target_age from parameters
-  return evaluateInvestmentGoal(pool, goal, growthRate);
+  return evaluateInvestmentGoal(pool, goal, growthRate, workspaceId);
 }
 
 // ─── Real Estate Goals ──────────────────────────────────────────────────────
 
-async function evaluateRealEstateGoal(pool: Pool, goal: Record<string, any>): Promise<GoalProgress> {
+async function evaluateRealEstateGoal(pool: Pool, goal: Record<string, any>, workspaceId: string): Promise<GoalProgress> {
   // Get current equity from accounts (value - mortgage)
   const equityResult = await pool.query(
     `SELECT
        COALESCE(SUM(CASE WHEN a.type != 'loan' THEN a.balance_current ELSE 0 END), 0) as asset_value,
        COALESCE(SUM(CASE WHEN a.type = 'loan' THEN ABS(a.balance_current) ELSE 0 END), 0) as loan_balance
-     FROM plaid_accounts a`,
+     FROM plaid_accounts a
+     WHERE a.workspace_id = $1`,
+    [workspaceId],
   );
   const assetValue = parseFloat(equityResult.rows[0].asset_value) || 0;
   const loanBalance = parseFloat(equityResult.rows[0].loan_balance) || 0;
@@ -705,10 +717,11 @@ async function evaluateRealEstateGoal(pool: Pool, goal: Record<string, any>): Pr
 
 // ─── Tax Goals ──────────────────────────────────────────────────────────────
 
-async function evaluateTaxGoal(pool: Pool, goal: Record<string, any>): Promise<GoalProgress> {
+async function evaluateTaxGoal(pool: Pool, goal: Record<string, any>, workspaceId: string): Promise<GoalProgress> {
   // Tax goals use generic balance logic but with seasonal urgency scoring
   const balanceResult = await pool.query(
-    `SELECT COALESCE(SUM(balance_current), 0) as total FROM plaid_accounts`,
+    `SELECT COALESCE(SUM(balance_current), 0) as total FROM plaid_accounts WHERE workspace_id = $1`,
+    [workspaceId],
   );
   const currentValue = parseFloat(balanceResult.rows[0].total) || 0;
   const targetAmount = goal.target_amount || 0;
@@ -747,7 +760,7 @@ async function evaluateTaxGoal(pool: Pool, goal: Record<string, any>): Promise<G
 
 // ─── Spending Cap Goals ─────────────────────────────────────────────────────
 
-async function evaluateSpendingCapGoal(pool: Pool, goal: Record<string, any>): Promise<GoalProgress> {
+async function evaluateSpendingCapGoal(pool: Pool, goal: Record<string, any>, workspaceId: string): Promise<GoalProgress> {
   // Spending cap goals track current-month spending against a monthly limit.
   // The cap is stored in target_amount (total monthly cap) or parameters.monthly_cap.
   const params = goal.parameters || {};
@@ -759,9 +772,11 @@ async function evaluateSpendingCapGoal(pool: Pool, goal: Record<string, any>): P
        COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as total_spent,
        COUNT(*) as txn_count
      FROM plaid_transactions
-     WHERE date >= date_trunc('month', CURRENT_DATE)
+     WHERE workspace_id = $1
+       AND date >= date_trunc('month', CURRENT_DATE)
        AND pending = false
        AND amount > 0`,
+    [workspaceId],
   );
   const currentSpent = parseFloat(spendResult.rows[0].total_spent) || 0;
   const txnCount = parseInt(spendResult.rows[0].txn_count, 10) || 0;
@@ -770,10 +785,12 @@ async function evaluateSpendingCapGoal(pool: Pool, goal: Record<string, any>): P
   const lastMonthResult = await pool.query(
     `SELECT COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as total_spent
      FROM plaid_transactions
-     WHERE date >= date_trunc('month', CURRENT_DATE) - INTERVAL '1 month'
+     WHERE workspace_id = $1
+       AND date >= date_trunc('month', CURRENT_DATE) - INTERVAL '1 month'
        AND date < date_trunc('month', CURRENT_DATE)
        AND pending = false
        AND amount > 0`,
+    [workspaceId],
   );
   const lastMonthSpent = parseFloat(lastMonthResult.rows[0].total_spent) || 0;
 
@@ -783,9 +800,11 @@ async function evaluateSpendingCapGoal(pool: Pool, goal: Record<string, any>): P
        COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as total_spent,
        COUNT(DISTINCT date_trunc('month', date)) as months_counted
      FROM plaid_transactions
-     WHERE date >= NOW() - INTERVAL '3 months'
+     WHERE workspace_id = $1
+       AND date >= NOW() - INTERVAL '3 months'
        AND pending = false
        AND amount > 0`,
+    [workspaceId],
   );
   const threeMonthTotal = parseFloat(avgResult.rows[0].total_spent) || 0;
   const monthsCounted = Math.max(parseFloat(avgResult.rows[0].months_counted) || 1, 1);
@@ -857,7 +876,7 @@ async function evaluateSpendingCapGoal(pool: Pool, goal: Record<string, any>): P
 
 // ─── Savings Target Goals ───────────────────────────────────────────────────
 
-async function evaluateSavingsTargetGoal(pool: Pool, goal: Record<string, any>): Promise<GoalProgress> {
+async function evaluateSavingsTargetGoal(pool: Pool, goal: Record<string, any>, workspaceId: string): Promise<GoalProgress> {
   // Savings target goals track reduction in recurring/subscription spending.
   // The target is the monthly savings amount to find (e.g., $500/month).
   // We compare recent spending on recurring merchants to a 3-month baseline.
@@ -865,9 +884,9 @@ async function evaluateSavingsTargetGoal(pool: Pool, goal: Record<string, any>):
   const monthlySavingsTarget = params.monthly_savings ?? goal.target_amount ?? 0;
   const focusMerchants: string[] = params.focus_merchants || [];
 
-  // Build optional merchant filter
+  // Build optional merchant filter — workspace_id is always $1
   const merchantFilter = focusMerchants.length > 0
-    ? `AND (${focusMerchants.map((_, i) => `merchant_name ILIKE $${i + 1}`).join(' OR ')})`
+    ? `AND (${focusMerchants.map((_, i) => `merchant_name ILIKE $${i + 2}`).join(' OR ')})`
     : '';
   const merchantParams = focusMerchants.map(m => `%${m}%`);
 
@@ -877,12 +896,13 @@ async function evaluateSavingsTargetGoal(pool: Pool, goal: Record<string, any>):
        COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as total_spent,
        COUNT(DISTINCT date_trunc('month', date)) as months_counted
      FROM plaid_transactions
-     WHERE date >= NOW() - INTERVAL '4 months'
+     WHERE workspace_id = $1
+       AND date >= NOW() - INTERVAL '4 months'
        AND date < date_trunc('month', CURRENT_DATE)
        AND pending = false
        AND amount > 0
        ${merchantFilter}`,
-    merchantParams,
+    [workspaceId, ...merchantParams],
   );
   const baselineTotal = parseFloat(baselineResult.rows[0].total_spent) || 0;
   const baselineMonths = Math.max(parseFloat(baselineResult.rows[0].months_counted) || 1, 1);
@@ -892,11 +912,12 @@ async function evaluateSavingsTargetGoal(pool: Pool, goal: Record<string, any>):
   const currentResult = await pool.query(
     `SELECT COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as total_spent
      FROM plaid_transactions
-     WHERE date >= date_trunc('month', CURRENT_DATE)
+     WHERE workspace_id = $1
+       AND date >= date_trunc('month', CURRENT_DATE)
        AND pending = false
        AND amount > 0
        ${merchantFilter}`,
-    merchantParams,
+    [workspaceId, ...merchantParams],
   );
   const currentMonthSpent = parseFloat(currentResult.rows[0].total_spent) || 0;
 
@@ -916,7 +937,8 @@ async function evaluateSavingsTargetGoal(pool: Pool, goal: Record<string, any>):
   const topMerchantsResult = await pool.query(
     `SELECT merchant_name, COUNT(*) as txn_count, SUM(amount) as total
      FROM plaid_transactions
-     WHERE date >= NOW() - INTERVAL '3 months'
+     WHERE workspace_id = $1
+       AND date >= NOW() - INTERVAL '3 months'
        AND pending = false
        AND amount > 0
        AND merchant_name IS NOT NULL
@@ -925,7 +947,7 @@ async function evaluateSavingsTargetGoal(pool: Pool, goal: Record<string, any>):
      HAVING COUNT(*) >= 2
      ORDER BY SUM(amount) DESC
      LIMIT 10`,
-    merchantParams,
+    [workspaceId, ...merchantParams],
   );
   const topMerchants = topMerchantsResult.rows.map(r => ({
     merchant: r.merchant_name,
@@ -986,9 +1008,10 @@ async function evaluateSavingsTargetGoal(pool: Pool, goal: Record<string, any>):
 
 // ─── Generic Fallback ───────────────────────────────────────────────────────
 
-async function evaluateGenericGoal(pool: Pool, goal: Record<string, any>): Promise<GoalProgress> {
+async function evaluateGenericGoal(pool: Pool, goal: Record<string, any>, workspaceId: string): Promise<GoalProgress> {
   const balanceResult = await pool.query(
-    `SELECT COALESCE(SUM(balance_current), 0) as total FROM plaid_accounts`,
+    `SELECT COALESCE(SUM(balance_current), 0) as total FROM plaid_accounts WHERE workspace_id = $1`,
+    [workspaceId],
   );
   const currentValue = parseFloat(balanceResult.rows[0].total) || 0;
   const targetAmount = goal.target_amount || 0;

@@ -2,7 +2,7 @@
 // server/tools/getRecurringCharges.ts — Smart recurring charge detection
 // Handles price changes (Netflix $15.49 → $15.99 → $16.32) by using
 // date-gap cadence detection + amount std-deviation tolerance.
-import { query } from './utils/domainDb.js';
+import { query, getWorkspaceId } from './utils/domainDb.js';
 import type { Tool } from '../../types.js';
 import { buildProvenance } from './utils/buildProvenance.js';
 
@@ -64,13 +64,14 @@ const tool: Tool = {
   },
   async execute(args: any, _workspaceConfig: any = {}) {
     const start = Date.now();
+    const wsId = getWorkspaceId();
     try {
       const { account_id, min_occurrences = 2 } = args;
 
       // Pull all debit (positive amount) transactions with date + amount + merchant
-      const conditions: string[] = ['amount > 0'];
-      const params: any[] = [];
-      let idx = 1;
+      const conditions: string[] = ['workspace_id = $1', 'amount > 0'];
+      const params: any[] = [wsId];
+      let idx = 2;
 
       if (account_id) {
         conditions.push(`account_id = $${idx++}`);
@@ -102,7 +103,7 @@ const tool: Tool = {
       }
 
       // Provenance metadata
-      const acctCountResult = await query('SELECT COUNT(*)::int AS cnt FROM plaid_accounts');
+      const acctCountResult = await query('SELECT COUNT(*)::int AS cnt FROM plaid_accounts WHERE workspace_id = $1', [wsId]);
       const accountsAnalyzed = acctCountResult.rows[0]?.cnt || 0;
       const transactionsScanned = result.rows.length;
 

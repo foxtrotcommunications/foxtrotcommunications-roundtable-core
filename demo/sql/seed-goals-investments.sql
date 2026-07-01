@@ -8,7 +8,7 @@
 
 -- Goal: Portfolio Growth — grow brokerage to $350K
 -- Current: $187,433 → 53.6%
-INSERT INTO domain_goals (id, goal_type, name, description, target_amount, target_date, monthly_contribution, parameters, status)
+INSERT INTO domain_goals (id, goal_type, name, description, target_amount, target_date, monthly_contribution, parameters, status, workspace_id)
 VALUES (
   'goal_demo_inv_growth',
   'portfolio_growth',
@@ -18,18 +18,20 @@ VALUES (
   '2030-01-01',
   1500,
   '{"growth_rate": 0.07, "demo_seed": true}',
-  'active'
+  'active',
+  'rt_investments'
 ) ON CONFLICT (id) DO UPDATE SET
   target_amount = EXCLUDED.target_amount,
   monthly_contribution = EXCLUDED.monthly_contribution,
   updated_at = NOW();
 
-INSERT INTO goal_snapshots (goal_id, current_value, progress_pct, on_track, projected_date, details)
+INSERT INTO goal_snapshots (goal_id, current_value, progress_pct, on_track, projected_date, details, workspace_id)
 VALUES (
   'goal_demo_inv_growth',
   187433,
   53.6,
   true,
   '2029-04-01',
-  '{"source": "demo_seed", "growthRateAssumption": 0.07, "holdings": 10}'
+  '{"source": "demo_seed", "growthRateAssumption": 0.07, "holdings": 10}',
+  'rt_investments'
 );

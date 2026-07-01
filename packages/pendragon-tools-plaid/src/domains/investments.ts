@@ -31,8 +31,8 @@ async function syncInvestmentData(config: PlaidPluginConfig): Promise<Record<str
       await pool.query(
         `INSERT INTO plaid_accounts
            (account_id, name, mask, type, subtype,
-            balance_available, balance_current, balance_limit, currency, synced_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, NOW())
+            balance_available, balance_current, balance_limit, currency, workspace_id, synced_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, NOW())
          ON CONFLICT (account_id) DO UPDATE SET
            name = EXCLUDED.name,
            mask = EXCLUDED.mask,
@@ -53,6 +53,7 @@ async function syncInvestmentData(config: PlaidPluginConfig): Promise<Record<str
           acct.balances?.current ?? null,
           acct.balances?.limit ?? null,
           acct.balances?.iso_currency_code ?? acct.balances?.unofficial_currency_code ?? null,
+          config.workspaceId,
         ],
       );
     }
@@ -66,8 +67,8 @@ async function syncInvestmentData(config: PlaidPluginConfig): Promise<Record<str
     for (const sec of securities) {
       await pool.query(
         `INSERT INTO plaid_securities
-           (security_id, ticker_symbol, name, type, close_price, currency, synced_at)
-         VALUES ($1,$2,$3,$4,$5,$6, NOW())
+           (security_id, ticker_symbol, name, type, close_price, currency, workspace_id, synced_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7, NOW())
          ON CONFLICT (security_id) DO UPDATE SET
            ticker_symbol = EXCLUDED.ticker_symbol,
            name = EXCLUDED.name,
@@ -82,18 +83,19 @@ async function syncInvestmentData(config: PlaidPluginConfig): Promise<Record<str
           sec.type ?? null,
           sec.close_price ?? null,
           sec.iso_currency_code ?? sec.unofficial_currency_code ?? null,
+          config.workspaceId,
         ],
       );
     }
 
     // Clear and re-insert holdings (no natural PK from Plaid)
-    await pool.query(`DELETE FROM plaid_holdings`);
+    await pool.query(`DELETE FROM plaid_holdings WHERE workspace_id = $1`, [config.workspaceId]);
     for (const h of holdings) {
       await pool.query(
         `INSERT INTO plaid_holdings
            (account_id, security_id, quantity, institution_price,
-            institution_value, cost_basis, synced_at)
-         VALUES ($1,$2,$3,$4,$5,$6, NOW())`,
+            institution_value, cost_basis, workspace_id, synced_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7, NOW())`,
         [
           h.account_id,
           h.security_id,
@@ -101,6 +103,7 @@ async function syncInvestmentData(config: PlaidPluginConfig): Promise<Record<str
           h.institution_price,
           h.institution_value,
           h.cost_basis ?? null,
+          config.workspaceId,
         ],
       );
     }
@@ -125,7 +128,9 @@ function createGetHoldingsHandler(config: PlaidPluginConfig): CapabilityHandler 
                 s.type AS security_type, s.close_price, s.currency
          FROM plaid_holdings h
          LEFT JOIN plaid_securities s ON s.security_id = h.security_id
+         WHERE h.workspace_id = $1
          ORDER BY h.institution_value DESC`,
+        [config.workspaceId],
       );
       return { holdings: rows };
     });
@@ -144,15 +149,16 @@ function createGetSecuritiesHandler(config: PlaidPluginConfig): CapabilityHandle
         sql = `SELECT security_id, ticker_symbol, name, type,
                       close_price, currency, synced_at
                FROM plaid_securities
-               WHERE ticker_symbol = $1
+               WHERE workspace_id = $1 AND ticker_symbol = $2
                ORDER BY name`;
-        params = [ticker.toUpperCase()];
+        params = [config.workspaceId, ticker.toUpperCase()];
       } else {
         sql = `SELECT security_id, ticker_symbol, name, type,
                       close_price, currency, synced_at
                FROM plaid_securities
+               WHERE workspace_id = $1
                ORDER BY name`;
-        params = [];
+        params = [config.workspaceId];
       }
 
       const { rows } = await pool.query(sql, params);
@@ -168,7 +174,9 @@ function createGetPortfolioSummaryHandler(config: PlaidPluginConfig): Capability
       const totalsResult = await pool.query(
         `SELECT COALESCE(SUM(institution_value), 0) AS total_value,
                 COUNT(*) AS holdings_count
-         FROM plaid_holdings`,
+         FROM plaid_holdings
+         WHERE workspace_id = $1`,
+        [config.workspaceId],
       );
       const { total_value, holdings_count } = totalsResult.rows[0];
 
@@ -179,8 +187,10 @@ function createGetPortfolioSummaryHandler(config: PlaidPluginConfig): Capability
                 COUNT(*) AS count
          FROM plaid_holdings h
          LEFT JOIN plaid_securities s ON s.security_id = h.security_id
+         WHERE h.workspace_id = $1
          GROUP BY s.type
          ORDER BY value DESC`,
+        [config.workspaceId],
       );
 
       return {

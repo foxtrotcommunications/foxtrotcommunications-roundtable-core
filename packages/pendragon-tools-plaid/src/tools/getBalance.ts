@@ -1,6 +1,6 @@
 // @ts-nocheck
 // server/tools/getBalance.ts — Get current balance for one or all accounts
-import { query } from './utils/domainDb.js';
+import { query, getWorkspaceId } from './utils/domainDb.js';
 import type { Tool } from '../../types.js';
 import { buildProvenance } from './utils/buildProvenance.js';
 
@@ -20,6 +20,7 @@ const tool: Tool = {
   },
   async execute(args: any, _workspaceConfig: any = {}) {
     const start = Date.now();
+    const wsId = getWorkspaceId();
     try {
       const { account_id } = args;
 
@@ -34,8 +35,9 @@ const tool: Tool = {
             currency, synced_at
           FROM plaid_accounts
           WHERE account_id = $1
+            AND workspace_id = $2
         `;
-        params = [account_id];
+        params = [account_id, wsId];
       } else {
         sql = `
           SELECT
@@ -43,9 +45,10 @@ const tool: Tool = {
             balance_available, balance_current, balance_limit,
             currency, synced_at
           FROM plaid_accounts
+          WHERE workspace_id = $1
           ORDER BY type, name
         `;
-        params = [];
+        params = [wsId];
       }
 
       const result = await query(sql, params);
