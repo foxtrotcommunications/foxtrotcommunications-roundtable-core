@@ -256,11 +256,14 @@ const MIGRATION_TABLES = [
  * Safe to run on both new and existing databases.
  * Must be run as the `roundtable` owner role (which has BYPASSRLS).
  */
-export function getMigrationSQL(workspaceId: string): { sql: string; params: (string)[] } {
+export function getMigrationSQL(workspaceId: string): string {
+  // Simple escaping for safety, though workspaceId is alphanumeric
+  const escapedWsId = workspaceId.replace(/'/g, "''");
+  
   const statements = MIGRATION_TABLES.map(table => `
     -- Workspace ID column
     ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS workspace_id TEXT;
-    UPDATE ${table} SET workspace_id = $1 WHERE workspace_id IS NULL;
+    UPDATE ${table} SET workspace_id = '${escapedWsId}' WHERE workspace_id IS NULL;
     ALTER TABLE ${table} ALTER COLUMN workspace_id SET NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_${table}_ws ON ${table}(workspace_id);
 
@@ -278,7 +281,7 @@ export function getMigrationSQL(workspaceId: string): { sql: string; params: (st
     ALTER TABLE ${table} FORCE ROW LEVEL SECURITY;
   `).join('\n');
 
-  return { sql: statements, params: [workspaceId] };
+  return statements;
 }
 
 
