@@ -191,7 +191,7 @@ log_success "Admin role $DB_USER has BYPASSRLS"
 log_info "Creating per-workspace DB roles..."
 for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
   WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
-  DB_ROLE=$(jq -r ".[$i].dbRole" "$CONFIG_DIR/workspaces.json")
+  DB_ROLE=$(jq -r ".[$i].id" "$CONFIG_DIR/workspaces.json")
   DB_ROLE_PASS="demo_${DB_ROLE}"
 
   # Create role if it doesn't exist, set password, grant DML privileges
@@ -200,19 +200,19 @@ for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
     DO \$\$
     BEGIN
       IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '${DB_ROLE}') THEN
-        CREATE ROLE ${DB_ROLE} WITH LOGIN PASSWORD '${DB_ROLE_PASS}';
+        CREATE ROLE "${DB_ROLE}" WITH LOGIN PASSWORD '${DB_ROLE_PASS}';
         RAISE NOTICE 'Created role: ${DB_ROLE}';
       ELSE
-        ALTER ROLE ${DB_ROLE} WITH LOGIN PASSWORD '${DB_ROLE_PASS}';
+        ALTER ROLE "${DB_ROLE}" WITH LOGIN PASSWORD '${DB_ROLE_PASS}';
       END IF;
     END
     \$\$;
-    GRANT CONNECT ON DATABASE ${SHARED_DB} TO ${DB_ROLE};
-    GRANT ALL ON SCHEMA public TO ${DB_ROLE};
-    GRANT ALL ON ALL TABLES IN SCHEMA public TO ${DB_ROLE};
-    GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO ${DB_ROLE};
-    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ${DB_ROLE};
-    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${DB_ROLE};
+    GRANT CONNECT ON DATABASE ${SHARED_DB} TO "${DB_ROLE}";
+    GRANT ALL ON SCHEMA public TO "${DB_ROLE}";
+    GRANT ALL ON ALL TABLES IN SCHEMA public TO "${DB_ROLE}";
+    GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO "${DB_ROLE}";
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO "${DB_ROLE}";
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO "${DB_ROLE}";
 EOSQL
   log_success "Role: $DB_ROLE ($WS_NAME)"
 done
@@ -252,7 +252,7 @@ log_step "Phase 4: Seed Data"
 for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
   DOMAIN_TYPE=$(jq -r ".[$i].domainType" "$CONFIG_DIR/workspaces.json")
   WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
-  DB_ROLE=$(jq -r ".[$i].dbRole // empty" "$CONFIG_DIR/workspaces.json")
+  DB_ROLE=$(jq -r ".[$i].id" "$CONFIG_DIR/workspaces.json")
 
   case "$DOMAIN_TYPE" in
     checking)     run_sql "$SHARED_DB" "$SQL_DIR/seed-checking.sql" "Seed data ($WS_NAME → role: $DB_ROLE)" ;;
@@ -322,7 +322,7 @@ if [[ "$SKIP_K8S" == false ]]; then
     A2A_KEY=$(jq -r ".[$i].a2aApiKey" "$CONFIG_DIR/workspaces.json")
     WS_ROLE=$(jq -r ".[$i].role" "$CONFIG_DIR/workspaces.json")
     DOMAIN_TYPE=$(jq -r ".[$i].domainType" "$CONFIG_DIR/workspaces.json")
-    DB_ROLE=$(jq -r ".[$i].dbRole" "$CONFIG_DIR/workspaces.json")
+    DB_ROLE=$(jq -r ".[$i].id" "$CONFIG_DIR/workspaces.json")
 
     log_info "Deploying $WS_NAME ($DEPLOY_NAME)..."
 

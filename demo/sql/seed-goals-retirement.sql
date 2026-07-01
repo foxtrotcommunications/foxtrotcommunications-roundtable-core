@@ -19,7 +19,7 @@ VALUES (
   2500,
   '{"growth_rate": 0.07, "retirement_age": 60, "demo_seed": true}',
   'active',
-  'rt_retirement'
+  'b0njzeX7q4JZ3KeLyASx'
 ) ON CONFLICT (id) DO UPDATE SET
   target_amount = EXCLUDED.target_amount,
   monthly_contribution = EXCLUDED.monthly_contribution,
@@ -33,7 +33,7 @@ VALUES (
   true,
   '2039-08-01',
   '{"source": "demo_seed", "growthRateAssumption": 0.07, "accounts": ["401k", "Roth IRA"]}',
-  'rt_retirement'
+  'b0njzeX7q4JZ3KeLyASx'
 );
 
 -- Goal 2: College Fund — Child 1 (age 12, 6 years to college)
@@ -49,7 +49,7 @@ VALUES (
   800,
   '{"child": 1, "child_age": 12, "demo_seed": true}',
   'active',
-  'rt_retirement'
+  'b0njzeX7q4JZ3KeLyASx'
 ) ON CONFLICT (id) DO UPDATE SET
   target_amount = EXCLUDED.target_amount,
   monthly_contribution = EXCLUDED.monthly_contribution,
@@ -63,7 +63,7 @@ VALUES (
   true,
   '2032-06-01',
   '{"source": "demo_seed", "childAge": 12, "yearsToCollege": 6}',
-  'rt_retirement'
+  'b0njzeX7q4JZ3KeLyASx'
 );
 
 -- Goal 3: College Fund — Child 2 (age 9, 9 years to college)
@@ -79,7 +79,7 @@ VALUES (
   600,
   '{"child": 2, "child_age": 9, "demo_seed": true}',
   'active',
-  'rt_retirement'
+  'b0njzeX7q4JZ3KeLyASx'
 ) ON CONFLICT (id) DO UPDATE SET
   target_amount = EXCLUDED.target_amount,
   monthly_contribution = EXCLUDED.monthly_contribution,
@@ -93,7 +93,7 @@ VALUES (
   true,
   '2035-05-01',
   '{"source": "demo_seed", "childAge": 9, "yearsToCollege": 9}',
-  'rt_retirement'
+  'b0njzeX7q4JZ3KeLyASx'
 );
 
 -- Goal 4: College Fund — Child 3 (age 5, 13 years to college)
@@ -109,7 +109,7 @@ VALUES (
   400,
   '{"child": 3, "child_age": 5, "demo_seed": true}',
   'active',
-  'rt_retirement'
+  'b0njzeX7q4JZ3KeLyASx'
 ) ON CONFLICT (id) DO UPDATE SET
   target_amount = EXCLUDED.target_amount,
   monthly_contribution = EXCLUDED.monthly_contribution,
@@ -123,5 +123,5 @@ VALUES (
   true,
   '2039-04-01',
   '{"source": "demo_seed", "childAge": 5, "yearsToCollege": 13}',
-  'rt_retirement'
+  'b0njzeX7q4JZ3KeLyASx'
 );
