@@ -131,6 +131,14 @@ export function registerFromEnv(
   toolRegistry: ToolRegistry,
   capabilityRegistry: CapabilityRegistry,
 ): void {
+  // Orchestrator workspaces (e.g. Arthur) delegate via bridges — they should
+  // NOT register local financial tools that query their own empty tables.
+  const explicitDomain = process.env.DOMAIN_TYPE || process.env.PLAID_DOMAIN_TYPE || '';
+  if (explicitDomain === 'arthur' || explicitDomain === 'orchestrator') {
+    console.log(`[pendragon-plaid] Skipping local tool registration for domain type: ${explicitDomain} (uses bridge delegation)`);
+    return;
+  }
+
   // Always register generic financial tools if DB is present
   if (process.env.DATABASE_URL) {
     for (const [name, tool] of Object.entries(financialTools)) {

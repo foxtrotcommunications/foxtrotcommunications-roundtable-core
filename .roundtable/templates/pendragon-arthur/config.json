@@ -1,0 +1,13 @@
+{
+  "id": "pendragon-arthur",
+  "name": "Arthur",
+  "icon": "🛡️",
+  "description": "Pendragon financial orchestrator — delegates to domain workspaces via bridges",
+  "category": "pendragon",
+  "suggestedProvider": "openai",
+  "suggestedModel": "gpt-5.5",
+  "toolsEnabled": ["bigquery", "calculator", "web_search", "render_chart"],
+  "env": {
+    "DOMAIN_TYPE": "arthur"
+  }
+}
