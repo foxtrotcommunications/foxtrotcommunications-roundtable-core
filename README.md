@@ -33,9 +33,9 @@ Roundtable auto-detects the environment: if no `DATABASE_URL` is set, it uses SQ
 | Path | Database | Command | Use Case |
 |------|----------|---------|----------|
 | **Local dev** | SQLite (auto) | `npm run dev` | Development, testing |
-| **Docker Compose** | PostgreSQL | `docker compose up` | Quick demo on a VM |
+| **Docker Compose** | PostgreSQL + PgBouncer | `docker compose up` | Quick demo on a VM |
 | **Cloud Run** | Cloud SQL (PostgreSQL) | `gcloud run deploy` | Serverless production |
-| **GKE** | Cloud SQL (PostgreSQL) | `./deploy-gke.sh dev Development` | Enterprise deployment |
+| **GKE** | Cloud SQL + PgBouncer + RLS | `./deploy-gke.sh dev Development` | Enterprise deployment |
 
 ### Prerequisites
 
@@ -73,7 +73,7 @@ graph TB
 
 ### Workspace-per-Container
 
-Every workspace runs as an isolated container with its own identity (`WORKSPACE_ID`), AI configuration, and tool surface. All workspaces share a common PostgreSQL instance. Deployments scale independently on Kubernetes.
+Every workspace runs as an isolated container with its own identity (`WORKSPACE_ID`), AI configuration, and tool surface. All workspaces share a single PostgreSQL database (`roundtable`) with **per-workspace database roles** and **Row-Level Security (RLS)** for data isolation. A centralized **PgBouncer** connection pool handles all backend connections — workspace pods connect to PgBouncer, not directly to PostgreSQL. Deployments scale independently on Kubernetes.
 
 ### Intent Compilation Engine (ICE)
 
@@ -92,6 +92,20 @@ LLM → intent_bridge → IntentToken (signed)
 | Cold start (wake-on-request) | ~15 s |
 | Token savings per call | ~4,300 vs `bridge_workspace` |
 | Cache | LRU, 1000 entries, 60 s TTL |
+
+### Database Architecture
+
+Roundtable uses a **shared-database, shared-schema** model with per-workspace isolation via PostgreSQL Row-Level Security.
+
+| Component | Purpose |
+|-----------|--------|
+| **Shared database** | Single `roundtable` PostgreSQL database for all workspaces |
+| **Per-workspace roles** | Each workspace connects as its own DB role (e.g., `rt_checking`, `rt_debt`) |
+| **Row-Level Security** | Every table has `workspace_id` column with RLS policy: `USING (workspace_id = current_user)` |
+| **PgBouncer** | Centralized connection pooler (transaction mode) — sits between all workspace pods and the database |
+| **Superuser access** | The `roundtable` admin role has `BYPASSRLS` for cross-workspace visibility |
+
+This architecture provides strong tenant isolation while maintaining a single schema and simplifying migrations.
 
 ---
 
