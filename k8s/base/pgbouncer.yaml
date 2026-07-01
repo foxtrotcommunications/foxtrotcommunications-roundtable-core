@@ -1,0 +1,191 @@
+# PgBouncer connection pooler — shared by all Roundtable workspace pods
+# Sits between workspace pods and PostgreSQL to multiplex connections.
+#
+# Usage (standalone):
+#   kubectl apply -f k8s/base/pgbouncer.yaml
+#
+# For GKE + Cloud SQL, use the overlay instead:
+#   envsubst < k8s/overlays/gcp/pgbouncer.yaml | kubectl apply -f -
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pgbouncer-config
+  labels:
+    app: pgbouncer
+data:
+  pgbouncer.ini: |
+    [databases]
+    * = host=${POSTGRESQL_HOST:-127.0.0.1} port=5432
+
+    [pgbouncer]
+    listen_addr = 0.0.0.0
+    listen_port = 6432
+    auth_type = md5
+    auth_file = /etc/pgbouncer/userlist.txt
+
+    ; Transaction-mode pooling: connections returned to pool after each transaction.
+    ; This is the key setting that enables multiplexing — N client connections
+    ; share a smaller pool of real Postgres connections.
+    pool_mode = transaction
+
+    ; Real Postgres connections per user/db pair
+    default_pool_size = 20
+
+    ; Keep some connections warm even when idle
+    min_pool_size = 5
+
+    ; Hard cap on total real Postgres connections (across all pools)
+    max_db_connections = 30
+
+    ; Max concurrent client connections (workspace pods)
+    max_client_conn = 400
+
+    ; Reserve connections for admin queries when pool is full
+    reserve_pool_size = 5
+    reserve_pool_timeout = 3
+
+    ; Clean session state when returning connection to pool
+    server_reset_query = DISCARD ALL
+
+    ; Health checks
+    server_check_query = SELECT 1
+    server_check_delay = 30
+
+    ; Logging (minimal for production)
+    log_connections = 0
+    log_disconnections = 0
+    log_pooler_errors = 1
+    stats_period = 60
+
+    ; node-postgres sends these startup parameters that PgBouncer must ignore
+    ; in transaction pooling mode
+    ignore_startup_parameters = extra_float_digits,search_path
+
+    ; Admin access (for pgbouncer SHOW commands)
+    admin_users = roundtable
+    stats_users = roundtable
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer
+  labels:
+    app: pgbouncer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pgbouncer
+  template:
+    metadata:
+      labels:
+        app: pgbouncer
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      initContainers:
+        # Generate userlist.txt from secrets at startup
+        - name: init-userlist
+          image: postgres:16-alpine
+          command: ['sh', '-c']
+          args:
+            - |
+              echo "\"${PGUSER}\" \"${PGPASSWORD}\"" > /etc/pgbouncer/userlist.txt
+              chmod 600 /etc/pgbouncer/userlist.txt
+          env:
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: roundtable-secrets
+                  key: PGBOUNCER_DB_USER
+                  optional: true
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: roundtable-secrets
+                  key: PGBOUNCER_DB_PASSWORD
+                  optional: true
+          volumeMounts:
+            - name: pgbouncer-auth
+              mountPath: /etc/pgbouncer
+          securityContext:
+            runAsUser: 1001
+      containers:
+        - name: pgbouncer
+          image: bitnami/pgbouncer:1
+          ports:
+            - containerPort: 6432
+              name: pgbouncer
+          volumeMounts:
+            - name: pgbouncer-config
+              mountPath: /bitnami/pgbouncer/conf/pgbouncer.ini
+              subPath: pgbouncer.ini
+            - name: pgbouncer-auth
+              mountPath: /etc/pgbouncer
+          env:
+            # Bitnami image also reads these for its own setup
+            - name: POSTGRESQL_HOST
+              value: "127.0.0.1"
+            - name: POSTGRESQL_PORT
+              value: "5432"
+            - name: POSTGRESQL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: roundtable-secrets
+                  key: PGBOUNCER_DB_USER
+                  optional: true
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: roundtable-secrets
+                  key: PGBOUNCER_DB_PASSWORD
+                  optional: true
+            - name: POSTGRESQL_DATABASE
+              value: "roundtable"
+            - name: PGBOUNCER_PORT
+              value: "6432"
+            - name: PGBOUNCER_BIND_ADDRESS
+              value: "0.0.0.0"
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+          livenessProbe:
+            tcpSocket:
+              port: 6432
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            tcpSocket:
+              port: 6432
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: pgbouncer-config
+          configMap:
+            name: pgbouncer-config
+        - name: pgbouncer-auth
+          emptyDir: {}
+---
+# ClusterIP service — workspace pods connect here instead of directly to Postgres.
+# Exposed on port 5432 so DATABASE_URL only needs a hostname change.
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgbouncer
+  labels:
+    app: pgbouncer
+spec:
+  selector:
+    app: pgbouncer
+  ports:
+    - port: 5432
+      targetPort: 6432
+      name: postgres
+  type: ClusterIP

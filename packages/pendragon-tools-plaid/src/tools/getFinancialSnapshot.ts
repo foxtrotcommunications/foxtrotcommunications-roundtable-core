@@ -1,7 +1,7 @@
 // @ts-nocheck
 // server/tools/getFinancialSnapshot.ts — Complete financial summary in a single call
 // Combines account balances + 30-day transaction analysis into one response
-import { query } from './utils/domainDb.js';
+import { query, getWorkspaceId } from './utils/domainDb.js';
 import type { Tool } from '../../types.js';
 import { buildProvenance } from './utils/buildProvenance.js';
 
@@ -16,11 +16,12 @@ const tool: Tool = {
   },
   async execute(_args: any, _workspaceConfig: any = {}) {
     const start = Date.now();
+    const wsId = getWorkspaceId();
     try {
       const wsName = (process.env.WS_NAME || '').toLowerCase().replace(/[\s&]+/g, '');
       if (wsName.includes('realestate') || wsName.includes('property')) {
-        const propResult = await query('SELECT COUNT(*)::int AS cnt, COALESCE(SUM(current_value), 0) AS val FROM properties');
-        const mortResult = await query('SELECT COUNT(*)::int AS cnt, COALESCE(SUM(current_balance), 0) AS bal FROM mortgages');
+        const propResult = await query('SELECT COUNT(*)::int AS cnt, COALESCE(SUM(current_value), 0) AS val FROM properties WHERE workspace_id = $1', [wsId]);
+        const mortResult = await query('SELECT COUNT(*)::int AS cnt, COALESCE(SUM(current_balance), 0) AS bal FROM mortgages WHERE workspace_id = $1', [wsId]);
         
         const propertyVal = parseFloat(propResult.rows[0]?.val) || 0;
         const mortgageBal = parseFloat(mortResult.rows[0]?.bal) || 0;
@@ -68,12 +69,12 @@ const tool: Tool = {
       // ── 1. Account aggregation ──────────────────────────────────
       const accountsSql = `
         SELECT
-          (SELECT COUNT(*)::int FROM plaid_accounts) AS total_accounts,
-          (SELECT COALESCE(SUM(balance_current), 0) FROM plaid_accounts) AS total_balance,
-          (SELECT MAX(synced_at) FROM plaid_accounts) AS last_sync,
+          (SELECT COUNT(*)::int FROM plaid_accounts WHERE workspace_id = $1) AS total_accounts,
+          (SELECT COALESCE(SUM(balance_current), 0) FROM plaid_accounts WHERE workspace_id = $1) AS total_balance,
+          (SELECT MAX(synced_at) FROM plaid_accounts WHERE workspace_id = $1) AS last_sync,
           COALESCE(
             (SELECT json_object_agg(COALESCE(type, 'unknown'), type_bal)
-             FROM (SELECT type, SUM(balance_current) AS type_bal FROM plaid_accounts GROUP BY type) t),
+             FROM (SELECT type, SUM(balance_current) AS type_bal FROM plaid_accounts WHERE workspace_id = $1 GROUP BY type) t),
             '{}'::json
           ) AS balance_by_type
       `;
@@ -83,7 +84,8 @@ const tool: Tool = {
         WITH last30 AS (
           SELECT amount, category, name, merchant_name
           FROM plaid_transactions
-          WHERE date >= CURRENT_DATE - INTERVAL '30 days'
+          WHERE workspace_id = $1
+            AND date >= CURRENT_DATE - INTERVAL '30 days'
             AND pending = false
         ),
         spending AS (
@@ -127,8 +129,8 @@ const tool: Tool = {
 
       // Run both queries concurrently
       const [acctResult, txnResult] = await Promise.all([
-        query(accountsSql),
-        query(txnSql),
+        query(accountsSql, [wsId]),
+        query(txnSql, [wsId]),
       ]);
 
       // ── Parse account data ──────────────────────────────────────
@@ -149,13 +151,13 @@ const tool: Tool = {
 
       // If the complex query returns nulls, fall back to simpler queries
       if (totalAccounts === 0) {
-        const simpleCounts = await query('SELECT COUNT(*)::int AS cnt, COALESCE(SUM(balance_current),0) AS bal, MAX(synced_at) AS sync FROM plaid_accounts');
+        const simpleCounts = await query('SELECT COUNT(*)::int AS cnt, COALESCE(SUM(balance_current),0) AS bal, MAX(synced_at) AS sync FROM plaid_accounts WHERE workspace_id = $1', [wsId]);
         if (simpleCounts.rows.length > 0) {
           totalAccounts = simpleCounts.rows[0].cnt;
           totalBalance = parseFloat(simpleCounts.rows[0].bal) || 0;
           lastSync = simpleCounts.rows[0].sync ? new Date(simpleCounts.rows[0].sync).toISOString() : null;
         }
-        const typeRows = await query('SELECT COALESCE(type, \'unknown\') AS type, SUM(balance_current) AS bal FROM plaid_accounts GROUP BY type');
+        const typeRows = await query('SELECT COALESCE(type, \'unknown\') AS type, SUM(balance_current) AS bal FROM plaid_accounts WHERE workspace_id = $1 GROUP BY type', [wsId]);
         balanceByType = {};
         for (const r of typeRows.rows) {
           balanceByType[r.type] = parseFloat(r.bal) || 0;
@@ -213,28 +215,31 @@ const tool: Tool = {
         SELECT COUNT(*)::int AS cnt FROM (
           SELECT merchant_name
           FROM plaid_transactions
-          WHERE amount < 0 AND ABS(amount) > 500
+          WHERE workspace_id = $1
+            AND amount < 0 AND ABS(amount) > 500
             AND date >= CURRENT_DATE - INTERVAL '90 days'
           GROUP BY merchant_name
           HAVING COUNT(*) >= 2
         ) t
-      `);
+      `, [wsId]);
       const hasPayroll = payrollCheck.rows[0]?.cnt > 0;
 
       // Unclassified large charges
       const unclassifiedCheck = await query(`
         SELECT COUNT(*)::int AS cnt FROM plaid_transactions
-        WHERE amount > 200 AND (category IS NULL OR category = 'Uncategorized')
+        WHERE workspace_id = $1
+          AND amount > 200 AND (category IS NULL OR category = 'Uncategorized')
           AND date >= CURRENT_DATE - INTERVAL '30 days'
-      `);
+      `, [wsId]);
       const unclassifiedCount = unclassifiedCheck.rows[0]?.cnt || 0;
 
       // Income sources
       const incomeSourcesCheck = await query(`
         SELECT COUNT(DISTINCT COALESCE(merchant_name, name))::int AS cnt
         FROM plaid_transactions
-        WHERE amount < 0 AND date >= CURRENT_DATE - INTERVAL '30 days'
-      `);
+        WHERE workspace_id = $1
+          AND amount < 0 AND date >= CURRENT_DATE - INTERVAL '30 days'
+      `, [wsId]);
 
       // Explainability — % of spending with categories
       const explainCheck = await query(`
@@ -242,8 +247,9 @@ const tool: Tool = {
           COUNT(*)::int AS total,
           COUNT(*) FILTER (WHERE category IS NOT NULL AND category != 'Uncategorized')::int AS explained
         FROM plaid_transactions
-        WHERE amount > 0 AND date >= CURRENT_DATE - INTERVAL '30 days'
-      `);
+        WHERE workspace_id = $1
+          AND amount > 0 AND date >= CURRENT_DATE - INTERVAL '30 days'
+      `, [wsId]);
       const totalTxns = explainCheck.rows[0]?.total || 0;
       const explainedTxns = explainCheck.rows[0]?.explained || 0;
       const explanationPct = totalTxns > 0 ? Math.round((explainedTxns / totalTxns) * 100) : 0;

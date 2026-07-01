@@ -31,10 +31,10 @@ async function syncDebtData(config: PlaidPluginConfig): Promise<Record<string, u
     const summary: Record<string, unknown> = { success: true, domain: config.domainType };
 
     // 1. Sync accounts (shared)
-    summary.accountsCount = await syncAccounts(plaid, pool, config.accessToken);
+    summary.accountsCount = await syncAccounts(plaid, pool, config.accessToken, config.workspaceId);
 
     // 2. Sync transactions (shared, cursor-based incremental)
-    const txnResult = await syncTransactions(plaid, pool, config.accessToken, config.itemId);
+    const txnResult = await syncTransactions(plaid, pool, config.accessToken, config.workspaceId, config.itemId);
     summary.transactionsAdded = txnResult.added;
     summary.transactionsModified = txnResult.modified;
     summary.transactionsRemoved = txnResult.removed;
@@ -51,8 +51,8 @@ async function syncDebtData(config: PlaidPluginConfig): Promise<Record<string, u
           await pool.query(
             `INSERT INTO plaid_liabilities
                (liability_id, account_id, type, last_payment_amount, last_payment_date,
-                next_payment_due_date, minimum_payment_amount, interest_rate, principal_balance, synced_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, NOW())
+                next_payment_due_date, minimum_payment_amount, interest_rate, principal_balance, workspace_id, synced_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, NOW())
              ON CONFLICT (liability_id) DO UPDATE SET
                last_payment_amount = EXCLUDED.last_payment_amount,
                last_payment_date = EXCLUDED.last_payment_date,
@@ -66,6 +66,7 @@ async function syncDebtData(config: PlaidPluginConfig): Promise<Record<string, u
               cc.last_payment_amount ?? null, cc.last_payment_date ?? null,
               cc.next_payment_due_date ?? null, cc.minimum_payment_amount ?? null,
               primaryApr?.apr_percentage ?? null, cc.last_statement_balance ?? null,
+              config.workspaceId,
             ],
           );
           liabilityCount++;
@@ -77,8 +78,8 @@ async function syncDebtData(config: PlaidPluginConfig): Promise<Record<string, u
           await pool.query(
             `INSERT INTO plaid_liabilities
                (liability_id, account_id, type, last_payment_amount, last_payment_date,
-                next_payment_due_date, minimum_payment_amount, interest_rate, principal_balance, synced_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, NOW())
+                next_payment_due_date, minimum_payment_amount, interest_rate, principal_balance, workspace_id, synced_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, NOW())
              ON CONFLICT (liability_id) DO UPDATE SET
                last_payment_amount = EXCLUDED.last_payment_amount,
                last_payment_date = EXCLUDED.last_payment_date,
@@ -92,6 +93,7 @@ async function syncDebtData(config: PlaidPluginConfig): Promise<Record<string, u
               sl.last_payment_amount ?? null, sl.last_payment_date ?? null,
               sl.next_payment_due_date ?? null, sl.minimum_payment_amount ?? null,
               sl.interest_rate_percentage ?? null, sl.outstanding_interest_amount ?? null,
+              config.workspaceId,
             ],
           );
           liabilityCount++;
@@ -103,8 +105,8 @@ async function syncDebtData(config: PlaidPluginConfig): Promise<Record<string, u
           await pool.query(
             `INSERT INTO plaid_liabilities
                (liability_id, account_id, type, last_payment_amount, last_payment_date,
-                next_payment_due_date, minimum_payment_amount, interest_rate, principal_balance, synced_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, NOW())
+                next_payment_due_date, minimum_payment_amount, interest_rate, principal_balance, workspace_id, synced_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, NOW())
              ON CONFLICT (liability_id) DO UPDATE SET
                last_payment_amount = EXCLUDED.last_payment_amount,
                last_payment_date = EXCLUDED.last_payment_date,
@@ -118,6 +120,7 @@ async function syncDebtData(config: PlaidPluginConfig): Promise<Record<string, u
               mtg.last_payment_amount ?? null, mtg.last_payment_date ?? null,
               mtg.next_payment_due_date ?? null, null,
               mtg.interest_rate?.percentage ?? null, mtg.past_due_amount ?? null,
+              config.workspaceId,
             ],
           );
           liabilityCount++;
@@ -145,7 +148,9 @@ function createGetLiabilitiesHandler(config: PlaidPluginConfig): CapabilityHandl
                 a.balance_current, a.balance_limit
          FROM plaid_liabilities l
          LEFT JOIN plaid_accounts a ON a.account_id = l.account_id
+         WHERE l.workspace_id = $1
          ORDER BY l.principal_balance DESC`,
+        [config.workspaceId],
       );
       return { liabilities: rows };
     });
@@ -163,7 +168,9 @@ function createGetDebtSummaryHandler(config: PlaidPluginConfig): CapabilityHandl
            COALESCE(AVG(l.interest_rate), 0) as avg_interest_rate,
            MIN(l.next_payment_due_date) as next_payment_date
          FROM plaid_liabilities l
-         LEFT JOIN plaid_accounts a ON a.account_id = l.account_id`,
+         LEFT JOIN plaid_accounts a ON a.account_id = l.account_id
+         WHERE l.workspace_id = $1`,
+        [config.workspaceId],
       );
       const { total_accounts, total_balance, total_minimum_payments, avg_interest_rate, next_payment_date } = totalsResult.rows[0];
 
@@ -174,8 +181,10 @@ function createGetDebtSummaryHandler(config: PlaidPluginConfig): CapabilityHandl
                 COALESCE(AVG(l.interest_rate), 0) AS avg_rate
          FROM plaid_liabilities l
          LEFT JOIN plaid_accounts a ON a.account_id = l.account_id
+         WHERE l.workspace_id = $1
          GROUP BY l.type
          ORDER BY total_balance DESC`,
+        [config.workspaceId],
       );
 
       return {
@@ -206,8 +215,9 @@ function createGetCreditUtilizationHandler(config: PlaidPluginConfig): Capabilit
                   ELSE 0
                 END as utilization_pct
          FROM plaid_accounts a
-         WHERE a.type = 'credit'
+         WHERE a.workspace_id = $1 AND a.type = 'credit'
          ORDER BY utilization_pct DESC`,
+        [config.workspaceId],
       );
       return { accounts: rows };
     });

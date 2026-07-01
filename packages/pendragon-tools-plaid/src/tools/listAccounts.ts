@@ -1,6 +1,6 @@
 // @ts-nocheck
 // server/tools/listAccounts.ts — List all linked financial accounts with balances
-import { query } from './utils/domainDb.js';
+import { query, getWorkspaceId } from './utils/domainDb.js';
 import type { Tool } from '../../types.js';
 import { buildProvenance } from './utils/buildProvenance.js';
 
@@ -15,6 +15,7 @@ const tool: Tool = {
   },
   async execute(_args: any, _workspaceConfig: any = {}) {
     const start = Date.now();
+    const wsId = getWorkspaceId();
     try {
       const sql = `
         SELECT
@@ -29,10 +30,11 @@ const tool: Tool = {
           currency,
           synced_at
         FROM plaid_accounts
+        WHERE workspace_id = $1
         ORDER BY type, name
       `;
 
-      const result = await query(sql);
+      const result = await query(sql, [wsId]);
 
       const accounts = result.rows.map((row: any) => ({
         account_id: row.account_id,

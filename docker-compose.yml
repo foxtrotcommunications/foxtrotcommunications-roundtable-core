@@ -8,7 +8,8 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - DATABASE_URL=postgresql://roundtable:roundtable@postgres:5432/roundtable
+      # Route through PgBouncer instead of directly to Postgres
+      - DATABASE_URL=postgresql://roundtable:roundtable@pgbouncer:5432/roundtable
       - SESSION_SECRET=${SESSION_SECRET:-change-me-in-production}
       - WORKSPACE_ID=${WORKSPACE_ID:-dev}
       - WORKSPACE_NAME=${WORKSPACE_NAME:-Development}
@@ -21,12 +22,43 @@ services:
       - GCP_PROJECT=${GCP_PROJECT:-}
       - GCP_LOCATION=${GCP_LOCATION:-us-central1}
     depends_on:
+      pgbouncer:
+        condition: service_healthy
+    restart: unless-stopped
+
+  pgbouncer:
+    image: bitnami/pgbouncer:1
+    environment:
+      - POSTGRESQL_HOST=postgres
+      - POSTGRESQL_PORT=5432
+      - POSTGRESQL_USERNAME=roundtable
+      - POSTGRESQL_PASSWORD=roundtable
+      - POSTGRESQL_DATABASE=roundtable
+      - PGBOUNCER_PORT=6432
+      - PGBOUNCER_BIND_ADDRESS=0.0.0.0
+      # Transaction-mode pooling — the key for connection multiplexing
+      - PGBOUNCER_POOL_MODE=transaction
+      - PGBOUNCER_DEFAULT_POOL_SIZE=20
+      - PGBOUNCER_MIN_POOL_SIZE=5
+      - PGBOUNCER_MAX_CLIENT_CONN=400
+      - PGBOUNCER_MAX_DB_CONNECTIONS=30
+      - PGBOUNCER_SERVER_RESET_QUERY=DISCARD ALL
+      - PGBOUNCER_IGNORE_STARTUP_PARAMETERS=extra_float_digits,search_path
+    ports:
+      - "6432:6432"
+    depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 6432 -U roundtable"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
 
   postgres:
     image: postgres:16-alpine
+    command: postgres -c max_connections=200 -c shared_buffers=128MB
     environment:
       POSTGRES_USER: roundtable
       POSTGRES_PASSWORD: roundtable

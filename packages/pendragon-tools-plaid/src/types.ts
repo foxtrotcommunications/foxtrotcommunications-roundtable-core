@@ -52,6 +52,8 @@ export interface PlaidPluginConfig {
   env: 'sandbox' | 'production';
   itemId?: string;
   databaseUrl: string;
+  /** Workspace ID for tenant isolation — all financial data is scoped to this. */
+  workspaceId: string;
 }
 
 // ─── Registry Interfaces (duck-typed) ───────────────────────────────────────

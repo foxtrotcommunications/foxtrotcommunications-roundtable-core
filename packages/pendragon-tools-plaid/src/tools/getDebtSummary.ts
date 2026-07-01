@@ -1,6 +1,6 @@
 // @ts-nocheck
 // server/tools/getDebtSummary.ts — Aggregate debt overview across all liabilities
-import { query } from './utils/domainDb.js';
+import { query, getWorkspaceId } from './utils/domainDb.js';
 import type { Tool } from '../../types.js';
 import { buildProvenance } from './utils/buildProvenance.js';
 
@@ -16,6 +16,7 @@ const tool: Tool = {
   },
   async execute(args: any, _workspaceConfig: any = {}) {
     const start = Date.now();
+    const wsId = getWorkspaceId();
     try {
       // Total summary
       const summarySql = `
@@ -28,8 +29,9 @@ const tool: Tool = {
           MIN(l.next_payment_due_date) as next_payment_date
         FROM plaid_liabilities l
         LEFT JOIN plaid_accounts a ON a.account_id = l.account_id
+        WHERE l.workspace_id = $1
       `;
-      const summaryResult = await query(summarySql);
+      const summaryResult = await query(summarySql, [wsId]);
       const s = summaryResult.rows[0] || {};
 
       const summary = {
@@ -49,10 +51,11 @@ const tool: Tool = {
           COALESCE(AVG(l.interest_rate), 0) as avg_rate
         FROM plaid_liabilities l
         LEFT JOIN plaid_accounts a ON a.account_id = l.account_id
+        WHERE l.workspace_id = $1
         GROUP BY l.type
         ORDER BY total_balance DESC
       `;
-      const breakdownResult = await query(breakdownSql);
+      const breakdownResult = await query(breakdownSql, [wsId]);
       const breakdown = breakdownResult.rows.map((r: any) => ({
         type: r.type,
         count: parseInt(r.count || '0', 10),

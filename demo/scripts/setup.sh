@@ -4,22 +4,28 @@
 # =============================================================================
 # Rebuilds the entire Pendragon Capital demo from scratch:
 #   1. Creates Kubernetes namespace
-#   2. Creates Cloud SQL databases (one per workspace)
-#   3. Runs schema migrations (core + domain-specific)
-#   4. Seeds demo data
+#   2. Ensures shared Cloud SQL database + per-workspace DB roles
+#   3. Runs schema migrations (once against shared DB)
+#   4. Seeds demo data (all into shared DB with RLS)
 #   4.5 Creates ConfigMap patches from local source
+#   4.75 Deploys PgBouncer (centralized connection pooler)
 #   5. Creates Kubernetes deployments for each workspace
 #   5.5 Creates Ingress with host rules
 #   5.75 Creates BigQuery dataset + tracing table
 #   6. Seeds Firestore (workspaces, bridges, contracts)
 #   7. Verifies everything is running
 #
+# Architecture:
+#   - Single shared "roundtable" database on Cloud SQL
+#   - Per-workspace DB roles with Row Level Security (RLS)
+#   - Centralized PgBouncer for connection pooling (no per-pod proxy sidecars)
+#
 # Prerequisites:
 #   - gcloud CLI authenticated with roundtable-public project
 #   - kubectl configured for the target GKE cluster
 #   - Cloud SQL Proxy running on localhost:5432
 #   - Node.js ≥ 18 with firebase-admin installed
-#   - jq, psql available on PATH
+#   - jq, psql, envsubst available on PATH
 #
 # Usage:
 #   ./scripts/setup.sh
@@ -36,6 +42,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEMO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 CONFIG_DIR="$DEMO_DIR/config"
 SQL_DIR="$DEMO_DIR/sql"
+REPO_ROOT="$(cd "$DEMO_DIR/.." && pwd)"
 
 # Parse org config
 ORG_ID=$(jq -r '.orgId' "$CONFIG_DIR/org.json")
@@ -46,11 +53,14 @@ REDIS_URL=$(jq -r '.redisUrl' "$CONFIG_DIR/org.json")
 DOCKER_IMAGE=$(jq -r '.dockerImage' "$CONFIG_DIR/org.json")
 
 # Cloud SQL connection — expects proxy on localhost
-CLOUD_SQL_INSTANCE="roundtable-public-pg"
+CLOUD_SQL_INSTANCE="roundtable-db"
 DB_HOST="${DB_HOST:-127.0.0.1}"
 DB_PORT="${DB_PORT:-5432}"
 DB_USER="${DB_USER:-roundtable}"
 DB_PASS="${DB_PASS:-yXmA7986!}"
+
+# Shared database name (all workspaces share this)
+SHARED_DB="roundtable"
 
 # ---------------------------------------------------------------------------
 # Colors & helpers
@@ -91,7 +101,7 @@ done
 # ---------------------------------------------------------------------------
 log_step "Phase 0: Preflight Checks"
 
-for cmd in gcloud kubectl jq psql node bq; do
+for cmd in gcloud kubectl jq psql node bq envsubst; do
   if ! command -v "$cmd" &> /dev/null; then
     log_error "Required command not found: $cmd"
     exit 1
@@ -109,7 +119,7 @@ done
 log_success "All config files present"
 
 # Verify SQL files exist
-for f in 00-schema-core.sql 01-schema-plaid.sql 02-schema-realestate.sql 03-schema-investments.sql seed-checking.sql seed-debt.sql seed-realestate.sql seed-investments.sql seed-retirement.sql seed-taxes.sql; do
+for f in 00-schema-core.sql 01-schema-plaid.sql 01b-schema-goals.sql 02-schema-realestate.sql 03-schema-investments.sql 04-schema-demographics.sql 05-roles-rls.sql seed-checking.sql seed-debt.sql seed-realestate.sql seed-investments.sql seed-retirement.sql seed-taxes.sql; do
   if [[ ! -f "$SQL_DIR/$f" ]]; then
     log_error "Missing SQL file: $SQL_DIR/$f"
     exit 1
@@ -129,6 +139,7 @@ echo ""
 log_info "Organization: $ORG_SLUG ($ORG_ID)"
 log_info "GCP Project:  $GCP_PROJECT"
 log_info "Namespace:    $NAMESPACE"
+log_info "Database:     $SHARED_DB (shared, per-workspace roles + RLS)"
 log_info "Workspaces:   $(jq length "$CONFIG_DIR/workspaces.json")"
 
 # ---------------------------------------------------------------------------
@@ -153,27 +164,57 @@ if [[ "$SKIP_K8S" == false ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Phase 2: Cloud SQL Databases
+# Phase 2: Shared Database + Per-Workspace DB Roles
 # ---------------------------------------------------------------------------
-log_step "Phase 2: Cloud SQL Databases"
+log_step "Phase 2: Shared Database + Per-Workspace DB Roles"
 
 WORKSPACE_COUNT=$(jq length "$CONFIG_DIR/workspaces.json")
+
+# 2a. Verify the shared "roundtable" database is accessible
+log_info "Verifying shared database: $SHARED_DB"
+if PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$SHARED_DB" \
+  --quiet --no-psqlrc -c "SELECT 1;" &> /dev/null; then
+  log_success "Database $SHARED_DB is accessible"
+else
+  log_error "Cannot connect to database $SHARED_DB"
+  log_error "Create it first: gcloud sql databases create $SHARED_DB --instance=$CLOUD_SQL_INSTANCE --project=$GCP_PROJECT"
+  exit 1
+fi
+
+# 2b. Ensure the roundtable admin role has BYPASSRLS
+log_info "Ensuring roundtable admin role has BYPASSRLS..."
+PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$SHARED_DB" \
+  --quiet --no-psqlrc -c "ALTER ROLE ${DB_USER} BYPASSRLS;" 2>&1 | grep -v "NOTICE" || true
+log_success "Admin role $DB_USER has BYPASSRLS"
+
+# 2c. Create per-workspace SQL roles
+log_info "Creating per-workspace DB roles..."
 for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
   WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
-  DB_NAME=$(jq -r ".[$i].databaseName" "$CONFIG_DIR/workspaces.json")
+  DB_ROLE=$(jq -r ".[$i].dbRole" "$CONFIG_DIR/workspaces.json")
+  DB_ROLE_PASS="demo_${DB_ROLE}"
 
-  # Check if database already exists
-  if gcloud sql databases describe "$DB_NAME" \
-    --instance="$CLOUD_SQL_INSTANCE" \
-    --project="$GCP_PROJECT" &> /dev/null; then
-    log_warn "Database $DB_NAME already exists ($WS_NAME) — skipping"
-  else
-    gcloud sql databases create "$DB_NAME" \
-      --instance="$CLOUD_SQL_INSTANCE" \
-      --project="$GCP_PROJECT" \
-      --quiet
-    log_success "Created database: $DB_NAME ($WS_NAME)"
-  fi
+  # Create role if it doesn't exist, set password, grant DML privileges
+  PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$SHARED_DB" \
+    --quiet --no-psqlrc <<-EOSQL 2>&1 | grep -v "NOTICE" || true
+    DO \$\$
+    BEGIN
+      IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '${DB_ROLE}') THEN
+        CREATE ROLE ${DB_ROLE} WITH LOGIN PASSWORD '${DB_ROLE_PASS}';
+        RAISE NOTICE 'Created role: ${DB_ROLE}';
+      ELSE
+        ALTER ROLE ${DB_ROLE} WITH LOGIN PASSWORD '${DB_ROLE_PASS}';
+      END IF;
+    END
+    \$\$;
+    GRANT CONNECT ON DATABASE ${SHARED_DB} TO ${DB_ROLE};
+    GRANT ALL ON SCHEMA public TO ${DB_ROLE};
+    GRANT ALL ON ALL TABLES IN SCHEMA public TO ${DB_ROLE};
+    GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO ${DB_ROLE};
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ${DB_ROLE};
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${DB_ROLE};
+EOSQL
+  log_success "Role: $DB_ROLE ($WS_NAME)"
 done
 
 # ---------------------------------------------------------------------------
@@ -186,73 +227,56 @@ run_sql() {
   local db="$1"
   local sql_file="$2"
   local description="$3"
-  psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$db" \
+  PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$db" \
     -f "$sql_file" \
     --quiet --no-psqlrc 2>&1 | grep -v "NOTICE" || true
   log_success "$description → $db"
 }
 
-# 3a. Core schema → all workspaces
-log_info "Applying core schema to all workspaces..."
-for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
-  DB_NAME=$(jq -r ".[$i].databaseName" "$CONFIG_DIR/workspaces.json")
-  WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
-  run_sql "$DB_NAME" "$SQL_DIR/00-schema-core.sql" "Core schema ($WS_NAME)"
-done
-
-# 3b. Plaid schema → checking, debt, investments, retirement, taxes
-log_info "Applying Plaid schema to domain workspaces..."
-for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
-  DOMAIN_TYPE=$(jq -r ".[$i].domainType" "$CONFIG_DIR/workspaces.json")
-  if [[ "$DOMAIN_TYPE" == "checking" || "$DOMAIN_TYPE" == "debt" || "$DOMAIN_TYPE" == "investments" || "$DOMAIN_TYPE" == "retirement" || "$DOMAIN_TYPE" == "taxes" ]]; then
-    DB_NAME=$(jq -r ".[$i].databaseName" "$CONFIG_DIR/workspaces.json")
-    WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
-    run_sql "$DB_NAME" "$SQL_DIR/01-schema-plaid.sql" "Plaid schema ($WS_NAME)"
-  fi
-done
-
-# 3c. Real estate schema → Real Estate workspace
-log_info "Applying Real Estate schema..."
-for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
-  DOMAIN_TYPE=$(jq -r ".[$i].domainType" "$CONFIG_DIR/workspaces.json")
-  if [[ "$DOMAIN_TYPE" == "realestate" ]]; then
-    DB_NAME=$(jq -r ".[$i].databaseName" "$CONFIG_DIR/workspaces.json")
-    WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
-    run_sql "$DB_NAME" "$SQL_DIR/02-schema-realestate.sql" "Real Estate schema ($WS_NAME)"
-  fi
-done
-
-# 3d. Investments schema → investments, retirement
-log_info "Applying Investments schema..."
-for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
-  DOMAIN_TYPE=$(jq -r ".[$i].domainType" "$CONFIG_DIR/workspaces.json")
-  if [[ "$DOMAIN_TYPE" == "investments" || "$DOMAIN_TYPE" == "retirement" ]]; then
-    DB_NAME=$(jq -r ".[$i].databaseName" "$CONFIG_DIR/workspaces.json")
-    WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
-    run_sql "$DB_NAME" "$SQL_DIR/03-schema-investments.sql" "Investments schema ($WS_NAME)"
-  fi
-done
+# Run each schema file ONCE against the shared database
+log_info "Applying all schemas to shared database: $SHARED_DB"
+run_sql "$SHARED_DB" "$SQL_DIR/00-schema-core.sql"         "Core schema"
+run_sql "$SHARED_DB" "$SQL_DIR/01-schema-plaid.sql"         "Plaid schema"
+run_sql "$SHARED_DB" "$SQL_DIR/01b-schema-goals.sql"        "Goals schema"
+run_sql "$SHARED_DB" "$SQL_DIR/02-schema-realestate.sql"    "Real Estate schema"
+run_sql "$SHARED_DB" "$SQL_DIR/03-schema-investments.sql"   "Investments schema"
+run_sql "$SHARED_DB" "$SQL_DIR/04-schema-demographics.sql"  "Demographics schema"
+run_sql "$SHARED_DB" "$SQL_DIR/05-roles-rls.sql"            "Roles + RLS"
 
 # ---------------------------------------------------------------------------
 # Phase 4: Seed Data
 # ---------------------------------------------------------------------------
 log_step "Phase 4: Seed Data"
 
+# Seed domain data — all into the shared database
 for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
   DOMAIN_TYPE=$(jq -r ".[$i].domainType" "$CONFIG_DIR/workspaces.json")
-  DB_NAME=$(jq -r ".[$i].databaseName" "$CONFIG_DIR/workspaces.json")
   WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
+  DB_ROLE=$(jq -r ".[$i].dbRole // empty" "$CONFIG_DIR/workspaces.json")
 
   case "$DOMAIN_TYPE" in
-    checking)    run_sql "$DB_NAME" "$SQL_DIR/seed-checking.sql" "Seed data ($WS_NAME)" ;;
-    debt)        run_sql "$DB_NAME" "$SQL_DIR/seed-debt.sql" "Seed data ($WS_NAME)" ;;
-    realestate)  run_sql "$DB_NAME" "$SQL_DIR/seed-realestate.sql" "Seed data ($WS_NAME)" ;;
-    investments) run_sql "$DB_NAME" "$SQL_DIR/seed-investments.sql" "Seed data ($WS_NAME)" ;;
-    retirement)  run_sql "$DB_NAME" "$SQL_DIR/seed-retirement.sql" "Seed data ($WS_NAME)" ;;
-    taxes)       run_sql "$DB_NAME" "$SQL_DIR/seed-taxes.sql" "Seed data ($WS_NAME)" ;;
-    null|"")     log_info "No seed data for orchestrator: $WS_NAME" ;;
-    *)           log_warn "No seed file for domain type: $DOMAIN_TYPE ($WS_NAME)" ;;
+    checking)     run_sql "$SHARED_DB" "$SQL_DIR/seed-checking.sql" "Seed data ($WS_NAME → role: $DB_ROLE)" ;;
+    debt)         run_sql "$SHARED_DB" "$SQL_DIR/seed-debt.sql" "Seed data ($WS_NAME → role: $DB_ROLE)" ;;
+    realestate)   run_sql "$SHARED_DB" "$SQL_DIR/seed-realestate.sql" "Seed data ($WS_NAME → role: $DB_ROLE)" ;;
+    investments)  run_sql "$SHARED_DB" "$SQL_DIR/seed-investments.sql" "Seed data ($WS_NAME → role: $DB_ROLE)" ;;
+    retirement)   run_sql "$SHARED_DB" "$SQL_DIR/seed-retirement.sql" "Seed data ($WS_NAME → role: $DB_ROLE)" ;;
+    taxes)        run_sql "$SHARED_DB" "$SQL_DIR/seed-taxes.sql" "Seed data ($WS_NAME → role: $DB_ROLE)" ;;
+    demographics) run_sql "$SHARED_DB" "$SQL_DIR/seed-demographics.sql" "Seed data ($WS_NAME → role: $DB_ROLE)" ;;
+    null|"")      log_info "No seed data for orchestrator: $WS_NAME — skipping" ;;
+    *)            log_warn "No seed file for domain type: $DOMAIN_TYPE ($WS_NAME)" ;;
   esac
+done
+
+# Goal seeds (domain_goals + goal_snapshots)
+log_info "Seeding goals & snapshots..."
+for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
+  DOMAIN_TYPE=$(jq -r ".[$i].domainType" "$CONFIG_DIR/workspaces.json")
+  WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
+
+  GOAL_FILE="$SQL_DIR/seed-goals-${DOMAIN_TYPE}.sql"
+  if [[ -f "$GOAL_FILE" ]]; then
+    run_sql "$SHARED_DB" "$GOAL_FILE" "Goals & snapshots ($WS_NAME)"
+  fi
 done
 
 # ---------------------------------------------------------------------------
@@ -260,7 +284,6 @@ done
 # ---------------------------------------------------------------------------
 if [[ "$SKIP_K8S" == false ]]; then
   log_step "Phase 4.5: ConfigMap Patches"
-  REPO_ROOT="$(cd "$DEMO_DIR/.." && pwd)"
 
   for cm_spec in \
     "a2a-server-patch:server.ts:$REPO_ROOT/server/a2a/server.ts" \
@@ -283,6 +306,42 @@ if [[ "$SKIP_K8S" == false ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Phase 4.75: PgBouncer Deployment
+# ---------------------------------------------------------------------------
+if [[ "$SKIP_K8S" == false ]]; then
+  log_step "Phase 4.75: PgBouncer Deployment"
+
+  # 4.75a. Generate userlist.txt with all DB roles
+  log_info "Generating PgBouncer userlist ConfigMap..."
+  USERLIST_CONTENT="\"${DB_USER}\" \"${DB_PASS}\""
+  for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
+    DB_ROLE=$(jq -r ".[$i].dbRole" "$CONFIG_DIR/workspaces.json")
+    DB_ROLE_PASS="demo_${DB_ROLE}"
+    USERLIST_CONTENT="${USERLIST_CONTENT}
+\"${DB_ROLE}\" \"${DB_ROLE_PASS}\""
+  done
+
+  kubectl create configmap pgbouncer-userlist -n "$NAMESPACE" \
+    --from-literal="userlist.txt=${USERLIST_CONTENT}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  log_success "ConfigMap: pgbouncer-userlist ($(( WORKSPACE_COUNT + 1 )) entries)"
+
+  # 4.75b. Deploy PgBouncer using the GCP overlay template
+  log_info "Deploying PgBouncer..."
+  export CLOUDSQL_CONNECTION="${GCP_PROJECT}:us-central1:${CLOUD_SQL_INSTANCE}"
+  export GCP_SA_EMAIL="roundtable-gke@${GCP_PROJECT}.iam.gserviceaccount.com"
+  export PGBOUNCER_ADMIN_PASS="${DB_PASS}"
+  export NAMESPACE
+  envsubst < "$REPO_ROOT/k8s/overlays/gcp/pgbouncer.yaml" | kubectl apply -n "$NAMESPACE" -f -
+  log_success "PgBouncer deployment applied"
+
+  # 4.75c. Wait for PgBouncer to be ready
+  log_info "Waiting for PgBouncer rollout..."
+  kubectl rollout status deployment/pgbouncer -n "$NAMESPACE" --timeout=120s
+  log_success "PgBouncer is ready"
+fi
+
+# ---------------------------------------------------------------------------
 # Phase 5: Kubernetes Deployments
 # ---------------------------------------------------------------------------
 if [[ "$SKIP_K8S" == false ]]; then
@@ -292,18 +351,19 @@ if [[ "$SKIP_K8S" == false ]]; then
     WS_ID=$(jq -r ".[$i].id" "$CONFIG_DIR/workspaces.json")
     WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
     DEPLOY_NAME=$(jq -r ".[$i].deploymentName" "$CONFIG_DIR/workspaces.json")
-    DB_NAME=$(jq -r ".[$i].databaseName" "$CONFIG_DIR/workspaces.json")
     AI_PROVIDER=$(jq -r ".[$i].aiProvider" "$CONFIG_DIR/workspaces.json")
     AI_MODEL=$(jq -r ".[$i].aiModel" "$CONFIG_DIR/workspaces.json")
     WS_URL=$(jq -r ".[$i].url" "$CONFIG_DIR/workspaces.json")
     A2A_KEY=$(jq -r ".[$i].a2aApiKey" "$CONFIG_DIR/workspaces.json")
     WS_ROLE=$(jq -r ".[$i].role" "$CONFIG_DIR/workspaces.json")
     DOMAIN_TYPE=$(jq -r ".[$i].domainType" "$CONFIG_DIR/workspaces.json")
+    DB_ROLE=$(jq -r ".[$i].dbRole" "$CONFIG_DIR/workspaces.json")
 
     log_info "Deploying $WS_NAME ($DEPLOY_NAME)..."
 
-    # Build the DATABASE_URL for Cloud SQL via internal proxy sidecar (with password)
-    DATABASE_URL="postgresql://${DB_USER}:${DB_PASS}@127.0.0.1:5432/${DB_NAME}"
+    # Build the DATABASE_URL via centralized PgBouncer with per-workspace role
+    DB_ROLE_PASS="demo_${DB_ROLE}"
+    DATABASE_URL="postgresql://${DB_ROLE}:${DB_ROLE_PASS}@pgbouncer:5432/${SHARED_DB}"
 
     # Build orchestrator-specific env block (RT_BRIDGES, RT_CONTRACTS, OPENAI_API_KEY)
     ORCH_ENV=""
@@ -443,22 +503,6 @@ spec:
               port: 3000
             initialDelaySeconds: 30
             periodSeconds: 30
-        # Cloud SQL Auth Proxy sidecar
-        - name: cloud-sql-proxy
-          image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.15.2
-          args:
-            - "--structured-logs"
-            - "--auto-iam-authn"
-            - "${GCP_PROJECT}:us-central1:${CLOUD_SQL_INSTANCE}"
-          securityContext:
-            runAsNonRoot: true
-          resources:
-            requests:
-              cpu: "50m"
-              memory: "64Mi"
-            limits:
-              cpu: "200m"
-              memory: "128Mi"
       volumes:
         - name: a2a-patch
           configMap:
@@ -601,4 +645,6 @@ echo ""
 log_info "Org:       $ORG_SLUG"
 log_info "Namespace: $NAMESPACE"
 log_info "Project:   $GCP_PROJECT"
+log_info "Database:  $SHARED_DB (shared, per-workspace roles + RLS)"
+log_info "Pooler:    pgbouncer.${NAMESPACE}.svc.cluster.local:5432"
 echo ""
