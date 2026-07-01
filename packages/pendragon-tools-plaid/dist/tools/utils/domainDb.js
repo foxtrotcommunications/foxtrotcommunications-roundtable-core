@@ -1,40 +1,24 @@
-// server/tools/utils/domainDb.ts — Shared connection pool for domain-side financial tools
-// Uses a singleton pool per process to avoid connection churn.
+// src/tools/utils/domainDb.ts — Shared connection pool for domain-side financial tools
+// Delegates to the singleton pool cache in db/pool.ts to avoid duplicate pools.
 // All domain tools (getFinancialSnapshot, getTransactions, etc.) import this.
-import pg from 'pg';
-const { Pool } = pg;
-let _pool = null;
+import { getOrCreatePool, endAllPools } from '../../db/pool.js';
 /**
- * Get or create the shared database pool.
+ * Get the shared database pool.
  * Uses DATABASE_URL from the environment (set per-workspace by the operator).
+ * Returns the same singleton pool used by capability handlers (withPool).
  */
 function getPool() {
-    if (!_pool) {
-        const connectionString = process.env.DATABASE_URL;
-        if (!connectionString) {
-            throw new Error('DATABASE_URL not set — domain financial tools require a PostgreSQL database');
-        }
-        _pool = new Pool({
-            connectionString,
-            max: 5, // max concurrent connections
-            idleTimeoutMillis: 10_000,
-            connectionTimeoutMillis: 5_000,
-        });
-        _pool.on('error', (err) => {
-            console.error('[DomainDB] Unexpected pool error:', err.message);
-        });
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString) {
+        throw new Error('DATABASE_URL not set — domain financial tools require a PostgreSQL database');
     }
-    return _pool;
+    return getOrCreatePool(connectionString);
 }
 /**
- * Gracefully close the pool (call on process shutdown).
+ * Gracefully close all pools (call on process shutdown).
  */
 async function endPool() {
-    if (_pool) {
-        await _pool.end();
-        _pool = null;
-        console.log('[DomainDB] Pool closed');
-    }
+    await endAllPools();
 }
 /**
  * Execute a parameterized query against the domain's Cloud SQL.

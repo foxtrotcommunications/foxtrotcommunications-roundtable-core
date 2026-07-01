@@ -29,10 +29,10 @@ async function syncCheckingData(config: PlaidPluginConfig): Promise<Record<strin
     const summary: Record<string, unknown> = { success: true, domain: config.domainType };
 
     // 2. Sync accounts
-    summary.accountsCount = await syncAccounts(plaid, pool, config.accessToken);
+    summary.accountsCount = await syncAccounts(plaid, pool, config.accessToken, config.workspaceId);
 
     // 3. Sync transactions (cursor-based incremental)
-    const txnResult = await syncTransactions(plaid, pool, config.accessToken, config.itemId);
+    const txnResult = await syncTransactions(plaid, pool, config.accessToken, config.workspaceId, config.itemId);
     summary.transactionsAdded = txnResult.added;
     summary.transactionsModified = txnResult.modified;
     summary.transactionsRemoved = txnResult.removed;

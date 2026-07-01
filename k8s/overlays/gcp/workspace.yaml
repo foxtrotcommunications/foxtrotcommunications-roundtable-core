@@ -1,11 +1,14 @@
-# GCP-specific workspace template with Cloud SQL proxy sidecar
-# Use this instead of base/workspace.yaml when deploying on GKE with Cloud SQL
+# GCP-specific workspace template — connects through PgBouncer
+# Cloud SQL proxy is NO LONGER on each workspace pod; it runs on the
+# centralized PgBouncer pod instead. Workspace pods connect to the
+# pgbouncer ClusterIP service.
 #
 # Usage:
 #   export WORKSPACE_ID=dev WORKSPACE_NAME=Development
-#   export CLOUDSQL_CONNECTION=your-gcp-project:us-central1:roundtable-db
-#   export GCP_SA_EMAIL=roundtable-gke@your-gcp-project.iam.gserviceaccount.com
 #   envsubst < k8s/overlays/gcp/workspace.yaml | kubectl apply -f -
+#
+# Prerequisites:
+#   Deploy PgBouncer first: envsubst < k8s/overlays/gcp/pgbouncer.yaml | kubectl apply -f -
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -80,22 +83,8 @@ spec:
               port: 3000
             initialDelaySeconds: 5
             periodSeconds: 10
-        # Cloud SQL Auth Proxy sidecar (GCP-specific)
-        - name: cloud-sql-proxy
-          image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.15.2
-          args:
-            - "${CLOUDSQL_CONNECTION}"
-            - "--port=5432"
-            - "--structured-logs"
-          resources:
-            requests:
-              memory: "64Mi"
-              cpu: "50m"
-            limits:
-              memory: "256Mi"
-              cpu: "200m"
-          securityContext:
-            runAsNonRoot: true
+        # NOTE: Cloud SQL Auth Proxy sidecar has been moved to the PgBouncer pod.
+        # Workspace pods connect to PostgreSQL through the pgbouncer ClusterIP service.
   volumeClaimTemplates:
     - metadata:
         name: workspace

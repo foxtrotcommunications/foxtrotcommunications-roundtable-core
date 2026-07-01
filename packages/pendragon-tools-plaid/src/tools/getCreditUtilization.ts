@@ -1,6 +1,6 @@
 // @ts-nocheck
 // server/tools/getCreditUtilization.ts — Per-card and overall credit utilization
-import { query } from './utils/domainDb.js';
+import { query, getWorkspaceId } from './utils/domainDb.js';
 import type { Tool } from '../../types.js';
 import { buildProvenance } from './utils/buildProvenance.js';
 
@@ -17,6 +17,7 @@ const tool: Tool = {
   },
   async execute(args: any, _workspaceConfig: any = {}) {
     const start = Date.now();
+    const wsId = getWorkspaceId();
     try {
       const sql = `
         SELECT a.account_id, a.name, a.mask,
@@ -28,10 +29,11 @@ const tool: Tool = {
                END as utilization_pct
         FROM plaid_accounts a
         WHERE a.type = 'credit'
+          AND a.workspace_id = $1
         ORDER BY utilization_pct DESC
       `;
 
-      const result = await query(sql);
+      const result = await query(sql, [wsId]);
 
       const cards = result.rows.map((row: any) => ({
         account_id: row.account_id,

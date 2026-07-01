@@ -29,6 +29,7 @@ export async function syncAccounts(
   plaid: ScopedPlaidClient,
   pool: Pool,
   accessToken: string,
+  workspaceId: string,
 ): Promise<number> {
   const accountsRes = await plaid.accountsGet(accessToken);
   const accounts = accountsRes.data.accounts;
@@ -37,8 +38,8 @@ export async function syncAccounts(
     await pool.query(
       `INSERT INTO plaid_accounts
          (account_id, name, mask, type, subtype,
-          balance_available, balance_current, balance_limit, currency, synced_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, NOW())
+          balance_available, balance_current, balance_limit, currency, workspace_id, synced_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, NOW())
        ON CONFLICT (account_id) DO UPDATE SET
          name = EXCLUDED.name,
          mask = EXCLUDED.mask,
@@ -59,6 +60,7 @@ export async function syncAccounts(
         acct.balances?.current ?? null,
         acct.balances?.limit ?? null,
         acct.balances?.iso_currency_code ?? acct.balances?.unofficial_currency_code ?? null,
+        workspaceId,
       ],
     );
   }
@@ -74,14 +76,15 @@ export async function syncTransactions(
   plaid: ScopedPlaidClient,
   pool: Pool,
   accessToken: string,
+  workspaceId: string,
   itemId?: string,
 ): Promise<{ added: number; modified: number; removed: number }> {
   // Load cursor for incremental sync
   let cursor: string | undefined;
   if (itemId) {
     const cursorRes = await pool.query(
-      `SELECT cursor FROM plaid_sync_state WHERE item_id = $1`,
-      [itemId],
+      `SELECT cursor FROM plaid_sync_state WHERE item_id = $1 AND workspace_id = $2`,
+      [itemId, workspaceId],
     );
     if (cursorRes.rows.length > 0 && cursorRes.rows[0].cursor) {
       cursor = cursorRes.rows[0].cursor;
@@ -101,8 +104,8 @@ export async function syncTransactions(
       await pool.query(
         `INSERT INTO plaid_transactions
            (transaction_id, account_id, amount, date, name,
-            merchant_name, category, payment_channel, pending, synced_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, NOW())
+            merchant_name, category, payment_channel, pending, workspace_id, synced_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, NOW())
          ON CONFLICT (transaction_id) DO UPDATE SET
            account_id = EXCLUDED.account_id,
            amount = EXCLUDED.amount,
@@ -123,6 +126,7 @@ export async function syncTransactions(
           txn.category ? txn.category.join(', ') : null,
           txn.payment_channel,
           txn.pending,
+          workspaceId,
         ],
       );
       addedCount++;
@@ -132,8 +136,8 @@ export async function syncTransactions(
       await pool.query(
         `INSERT INTO plaid_transactions
            (transaction_id, account_id, amount, date, name,
-            merchant_name, category, payment_channel, pending, synced_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, NOW())
+            merchant_name, category, payment_channel, pending, workspace_id, synced_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, NOW())
          ON CONFLICT (transaction_id) DO UPDATE SET
            account_id = EXCLUDED.account_id,
            amount = EXCLUDED.amount,
@@ -154,6 +158,7 @@ export async function syncTransactions(
           txn.category ? txn.category.join(', ') : null,
           txn.payment_channel,
           txn.pending,
+          workspaceId,
         ],
       );
       modifiedCount++;
@@ -161,8 +166,8 @@ export async function syncTransactions(
 
     for (const txn of data.removed) {
       await pool.query(
-        `DELETE FROM plaid_transactions WHERE transaction_id = $1`,
-        [txn.transaction_id],
+        `DELETE FROM plaid_transactions WHERE transaction_id = $1 AND workspace_id = $2`,
+        [txn.transaction_id, workspaceId],
       );
       removedCount++;
     }
@@ -174,12 +179,12 @@ export async function syncTransactions(
   // Persist cursor for next incremental sync
   if (itemId && cursor) {
     await pool.query(
-      `INSERT INTO plaid_sync_state (item_id, cursor, last_sync_at)
-       VALUES ($1, $2, NOW())
+      `INSERT INTO plaid_sync_state (item_id, cursor, workspace_id, last_sync_at)
+       VALUES ($1, $2, $3, NOW())
        ON CONFLICT (item_id) DO UPDATE SET
          cursor = EXCLUDED.cursor,
          last_sync_at = NOW()`,
-      [itemId, cursor],
+      [itemId, cursor, workspaceId],
     );
   }
 
@@ -199,7 +204,9 @@ export function createGetBalancesHandler(config: PlaidPluginConfig): CapabilityH
                 balance_available, balance_current, balance_limit,
                 currency, synced_at
          FROM plaid_accounts
+         WHERE workspace_id = $1
          ORDER BY name`,
+        [config.workspaceId],
       );
       return { accounts: rows };
     });
@@ -213,9 +220,9 @@ export function createGetBalancesHandler(config: PlaidPluginConfig): CapabilityH
 export function createGetTransactionsHandler(config: PlaidPluginConfig): CapabilityHandler {
   return async (input, _ctx) => {
     return withPool(config.databaseUrl, async (pool) => {
-      const conditions: string[] = [];
-      const params: unknown[] = [];
-      let paramIdx = 1;
+      const conditions: string[] = ['workspace_id = $1'];
+      const params: unknown[] = [config.workspaceId];
+      let paramIdx = 2;
 
       if (input.startDate) {
         conditions.push(`date >= $${paramIdx++}`);

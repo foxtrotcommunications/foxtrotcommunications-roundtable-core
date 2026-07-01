@@ -19,7 +19,7 @@ export function registerRealEstateCapabilities(registry: CapabilityRegistry, con
     handler: async () => {
       return withPool(config.databaseUrl, async (pool) => {
         try {
-          const { rows } = await pool.query('SELECT * FROM properties ORDER BY purchase_date DESC');
+          const { rows } = await pool.query('SELECT * FROM properties WHERE workspace_id = $1 ORDER BY purchase_date DESC', [config.workspaceId]);
           return { properties: rows, count: rows.length };
         } catch (e: any) { return { error: e.message, properties: [] }; }
       });
@@ -34,7 +34,7 @@ export function registerRealEstateCapabilities(registry: CapabilityRegistry, con
     handler: async () => {
       return withPool(config.databaseUrl, async (pool) => {
         try {
-          const { rows } = await pool.query('SELECT * FROM mortgages ORDER BY current_balance DESC');
+          const { rows } = await pool.query('SELECT * FROM mortgages WHERE workspace_id = $1 ORDER BY current_balance DESC', [config.workspaceId]);
           return { mortgages: rows, count: rows.length };
         } catch (e: any) { return { error: e.message, mortgages: [] }; }
       });
@@ -49,8 +49,8 @@ export function registerRealEstateCapabilities(registry: CapabilityRegistry, con
     handler: async () => {
       return withPool(config.databaseUrl, async (pool) => {
         try {
-          const propResult = await pool.query('SELECT COALESCE(SUM(current_value), 0) AS val FROM properties');
-          const mortResult = await pool.query('SELECT COALESCE(SUM(current_balance), 0) AS bal FROM mortgages');
+          const propResult = await pool.query('SELECT COALESCE(SUM(current_value), 0) AS val FROM properties WHERE workspace_id = $1', [config.workspaceId]);
+          const mortResult = await pool.query('SELECT COALESCE(SUM(current_balance), 0) AS bal FROM mortgages WHERE workspace_id = $1', [config.workspaceId]);
           const value = parseFloat(propResult.rows[0]?.val) || 0;
           const debt = parseFloat(mortResult.rows[0]?.bal) || 0;
           return { total_value: value, total_mortgage_debt: debt, net_equity: value - debt };

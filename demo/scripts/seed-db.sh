@@ -2,13 +2,13 @@
 # =============================================================================
 # Pendragon Demo — Database Seeding Script
 # =============================================================================
-# Seeds only the Cloud SQL databases without touching Kubernetes or Firestore.
-# Useful for resetting demo data or populating a fresh set of databases.
+# Seeds the shared Cloud SQL database with schema, RLS roles, and demo data.
+# All workspaces share one database with per-workspace DB roles and RLS.
 #
 # Modes:
-#   ./scripts/seed-db.sh                # Full: schema + seed data + settings sync
-#   ./scripts/seed-db.sh --seed-only    # Seed data only (skip schema)
-#   ./scripts/seed-db.sh --schema-only  # Schema only (skip seed data)
+#   ./scripts/seed-db.sh                # Full: schema + roles + seed data + settings sync
+#   ./scripts/seed-db.sh --seed-only    # Seed data only (skip schema + roles)
+#   ./scripts/seed-db.sh --schema-only  # Schema + roles only (skip seed data)
 #   ./scripts/seed-db.sh --sync-settings # Only sync workspace settings (system prompt, etc.)
 #
 # Prerequisites:
@@ -29,7 +29,8 @@ SQL_DIR="$DEMO_DIR/sql"
 
 DB_HOST="${DB_HOST:-127.0.0.1}"
 DB_PORT="${DB_PORT:-5432}"
-DB_USER="${DB_USER:-roundtable}"
+DB_USER="${DB_USER:-roundtable}"    # Admin role (BYPASSRLS)
+DB_NAME="${DB_NAME:-roundtable}"    # Single shared database
 
 # ---------------------------------------------------------------------------
 # Colors & helpers
@@ -92,22 +93,21 @@ fi
 log_success "PostgreSQL connection verified"
 
 # ---------------------------------------------------------------------------
-# Helper: run SQL file against a database
+# Helper: run SQL file against the shared database
 # ---------------------------------------------------------------------------
 run_sql() {
-  local db="$1"
-  local sql_file="$2"
-  local description="$3"
+  local sql_file="$1"
+  local description="$2"
 
   if [[ ! -f "$sql_file" ]]; then
     log_error "SQL file not found: $sql_file"
     return 1
   fi
 
-  psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$db" \
+  psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
     -f "$sql_file" \
     --quiet --no-psqlrc 2>&1 | grep -v "NOTICE" || true
-  log_success "$description → $db"
+  log_success "$description"
 }
 
 # ---------------------------------------------------------------------------
@@ -115,98 +115,57 @@ run_sql() {
 # ---------------------------------------------------------------------------
 WORKSPACE_COUNT=$(jq length "$CONFIG_DIR/workspaces.json")
 log_info "Found $WORKSPACE_COUNT workspaces in config"
+log_info "Database: $DB_NAME (shared, per-workspace roles + RLS)"
 
 # ---------------------------------------------------------------------------
-# Schema Migrations
+# Schema Migrations (run once against shared database)
 # ---------------------------------------------------------------------------
-if [[ "$SEED_ONLY" == false ]]; then
-  log_step "Applying Schema Migrations"
+if [[ "$SEED_ONLY" == false && "$SYNC_SETTINGS_ONLY" == false ]]; then
+  log_step "Applying Schema Migrations (shared database: $DB_NAME)"
 
-  # Core schema → all workspaces
-  log_info "Core schema → all workspaces"
-  for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
-    DB_NAME=$(jq -r ".[$i].databaseName" "$CONFIG_DIR/workspaces.json")
-    WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
-    run_sql "$DB_NAME" "$SQL_DIR/00-schema-core.sql" "Core schema ($WS_NAME)"
-  done
+  run_sql "$SQL_DIR/00-schema-core.sql"         "Core schema (users, workspaces, messages, audit)"
+  run_sql "$SQL_DIR/01-schema-plaid.sql"         "Plaid schema (accounts, transactions, liabilities)"
+  run_sql "$SQL_DIR/01b-schema-goals.sql"        "Goals schema (domain_goals, goal_snapshots)"
+  run_sql "$SQL_DIR/02-schema-realestate.sql"    "Real Estate schema (properties, mortgages)"
+  run_sql "$SQL_DIR/03-schema-investments.sql"   "Investments schema (holdings, securities)"
+  run_sql "$SQL_DIR/04-schema-demographics.sql"  "Demographics schema (profiles, households)"
 
-  # Plaid schema → checking, debt, investments, retirement, taxes workspaces
-  log_info "Plaid schema → Plaid-based workspaces"
-  for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
-    DOMAIN_TYPE=$(jq -r ".[$i].domainType" "$CONFIG_DIR/workspaces.json")
-    if [[ "$DOMAIN_TYPE" == "checking" || "$DOMAIN_TYPE" == "debt" || "$DOMAIN_TYPE" == "investments" || "$DOMAIN_TYPE" == "retirement" || "$DOMAIN_TYPE" == "taxes" ]]; then
-      DB_NAME=$(jq -r ".[$i].databaseName" "$CONFIG_DIR/workspaces.json")
-      WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
-      run_sql "$DB_NAME" "$SQL_DIR/01-schema-plaid.sql" "Plaid schema ($WS_NAME)"
-    fi
-  done
-
-  # Real estate schema → realestate workspace
-  log_info "Real Estate schema → Real Estate workspace"
-  for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
-    DOMAIN_TYPE=$(jq -r ".[$i].domainType" "$CONFIG_DIR/workspaces.json")
-    if [[ "$DOMAIN_TYPE" == "realestate" ]]; then
-      DB_NAME=$(jq -r ".[$i].databaseName" "$CONFIG_DIR/workspaces.json")
-      WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
-      run_sql "$DB_NAME" "$SQL_DIR/02-schema-realestate.sql" "Real Estate schema ($WS_NAME)"
-    fi
-  done
-
-  # Investments schema → investments and retirement workspaces
-  log_info "Investments schema → Investments + Retirement workspaces"
-  for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
-    DOMAIN_TYPE=$(jq -r ".[$i].domainType" "$CONFIG_DIR/workspaces.json")
-    if [[ "$DOMAIN_TYPE" == "investments" || "$DOMAIN_TYPE" == "retirement" ]]; then
-      DB_NAME=$(jq -r ".[$i].databaseName" "$CONFIG_DIR/workspaces.json")
-      WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
-      run_sql "$DB_NAME" "$SQL_DIR/03-schema-investments.sql" "Investments schema ($WS_NAME)"
-    fi
-  done
-
-  # Demographics schema → demographics workspace
-  log_info "Demographics schema → Demographics workspace"
-  for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
-    DOMAIN_TYPE=$(jq -r ".[$i].domainType" "$CONFIG_DIR/workspaces.json")
-    if [[ "$DOMAIN_TYPE" == "demographics" ]]; then
-      DB_NAME=$(jq -r ".[$i].databaseName" "$CONFIG_DIR/workspaces.json")
-      WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
-      run_sql "$DB_NAME" "$SQL_DIR/04-schema-demographics.sql" "Demographics schema ($WS_NAME)"
-    fi
-  done
+  log_step "Creating Per-Workspace DB Roles + RLS Policies"
+  run_sql "$SQL_DIR/05-roles-rls.sql"            "Roles + RLS (rt_checking, rt_debt, ...)"
 fi
 
 # ---------------------------------------------------------------------------
-# Seed Data
+# Seed Data (all into the shared database)
 # ---------------------------------------------------------------------------
 if [[ "$SCHEMA_ONLY" == false && "$SYNC_SETTINGS_ONLY" == false ]]; then
-  log_step "Seeding Data"
+  log_step "Seeding Domain Data"
 
   for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
     DOMAIN_TYPE=$(jq -r ".[$i].domainType" "$CONFIG_DIR/workspaces.json")
-    DB_NAME=$(jq -r ".[$i].databaseName" "$CONFIG_DIR/workspaces.json")
     WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
+    DB_ROLE=$(jq -r ".[$i].dbRole // empty" "$CONFIG_DIR/workspaces.json")
 
     case "$DOMAIN_TYPE" in
       checking)
-        run_sql "$DB_NAME" "$SQL_DIR/seed-checking.sql" "Seed data ($WS_NAME)"
+        run_sql "$SQL_DIR/seed-checking.sql" "Seed data ($WS_NAME → role: $DB_ROLE)"
         ;;
       debt)
-        run_sql "$DB_NAME" "$SQL_DIR/seed-debt.sql" "Seed data ($WS_NAME)"
+        run_sql "$SQL_DIR/seed-debt.sql" "Seed data ($WS_NAME → role: $DB_ROLE)"
         ;;
       realestate)
-        run_sql "$DB_NAME" "$SQL_DIR/seed-realestate.sql" "Seed data ($WS_NAME)"
+        run_sql "$SQL_DIR/seed-realestate.sql" "Seed data ($WS_NAME → role: $DB_ROLE)"
         ;;
       investments)
-        run_sql "$DB_NAME" "$SQL_DIR/seed-investments.sql" "Seed data ($WS_NAME)"
+        run_sql "$SQL_DIR/seed-investments.sql" "Seed data ($WS_NAME → role: $DB_ROLE)"
         ;;
       retirement)
-        run_sql "$DB_NAME" "$SQL_DIR/seed-retirement.sql" "Seed data ($WS_NAME)"
+        run_sql "$SQL_DIR/seed-retirement.sql" "Seed data ($WS_NAME → role: $DB_ROLE)"
         ;;
       taxes)
-        run_sql "$DB_NAME" "$SQL_DIR/seed-taxes.sql" "Seed data ($WS_NAME)"
+        run_sql "$SQL_DIR/seed-taxes.sql" "Seed data ($WS_NAME → role: $DB_ROLE)"
         ;;
       demographics)
-        run_sql "$DB_NAME" "$SQL_DIR/seed-demographics.sql" "Seed data ($WS_NAME)"
+        run_sql "$SQL_DIR/seed-demographics.sql" "Seed data ($WS_NAME → role: $DB_ROLE)"
         ;;
       null|"")
         log_info "No seed data for orchestrator: $WS_NAME — skipping"
@@ -222,12 +181,11 @@ if [[ "$SCHEMA_ONLY" == false && "$SYNC_SETTINGS_ONLY" == false ]]; then
 
   for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
     DOMAIN_TYPE=$(jq -r ".[$i].domainType" "$CONFIG_DIR/workspaces.json")
-    DB_NAME=$(jq -r ".[$i].databaseName" "$CONFIG_DIR/workspaces.json")
     WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
 
     GOAL_FILE="$SQL_DIR/seed-goals-${DOMAIN_TYPE}.sql"
     if [[ -f "$GOAL_FILE" ]]; then
-      run_sql "$DB_NAME" "$GOAL_FILE" "Goals & snapshots ($WS_NAME)"
+      run_sql "$GOAL_FILE" "Goals & snapshots ($WS_NAME)"
     fi
   done
 fi
@@ -246,11 +204,15 @@ fi
 log_step "Database Seeding Complete"
 
 echo ""
-log_info "Databases seeded:"
+log_info "All data seeded into shared database: ${CYAN}$DB_NAME${NC}"
+log_info "Architecture: per-workspace DB roles + Row Level Security"
+echo ""
 for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
   WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
-  DB_NAME=$(jq -r ".[$i].databaseName" "$CONFIG_DIR/workspaces.json")
+  DB_ROLE=$(jq -r ".[$i].dbRole // \"n/a\"" "$CONFIG_DIR/workspaces.json")
   DOMAIN_TYPE=$(jq -r ".[$i].domainType" "$CONFIG_DIR/workspaces.json")
-  echo -e "  ${GREEN}✓${NC} $WS_NAME → $DB_NAME (domain: ${DOMAIN_TYPE:-orchestrator})"
+  echo -e "  ${GREEN}✓${NC} $WS_NAME → role: $DB_ROLE (domain: ${DOMAIN_TYPE:-orchestrator})"
 done
+echo ""
+log_info "Admin access: psql -U roundtable -d $DB_NAME  (BYPASSRLS — sees all data)"
 echo ""

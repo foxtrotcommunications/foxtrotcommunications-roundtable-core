@@ -99,10 +99,11 @@ const DEFAULT_GOALS: Record<string, GoalTemplate[]> = {
 // ─── Smart Target Computation ──────────────────────────────────────────────
 
 async function computeSmartTarget(
-  databaseUrl: string,
+  config: PlaidPluginConfig,
   domainType: DomainType,
   template: GoalTemplate,
 ): Promise<GoalTemplate> {
+  const { databaseUrl } = config;
   const enriched = { ...template };
 
   return withPool(databaseUrl, async (pool) => {
@@ -115,7 +116,8 @@ async function computeSmartTarget(
             `SELECT COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as total_expenses,
                     COUNT(DISTINCT date_trunc('month', date)) as months
              FROM plaid_transactions
-             WHERE date >= NOW() - INTERVAL '3 months' AND pending = false`,
+             WHERE workspace_id = $1 AND date >= NOW() - INTERVAL '3 months' AND pending = false`,
+            [config.workspaceId],
           );
           const months = Math.max(parseFloat(result.rows[0].months) || 1, 1);
           const monthlyExpenses = parseFloat(result.rows[0].total_expenses) / months;
@@ -133,7 +135,8 @@ async function computeSmartTarget(
         enriched.target_amount = 0;
         try {
           const result = await pool.query(
-            `SELECT COALESCE(SUM(balance_current), 0) as total_debt FROM plaid_accounts`,
+            `SELECT COALESCE(SUM(balance_current), 0) as total_debt FROM plaid_accounts WHERE workspace_id = $1`,
+            [config.workspaceId],
           );
           const totalDebt = Math.abs(parseFloat(result.rows[0].total_debt) || 0);
           if (totalDebt > 0) {
@@ -148,7 +151,8 @@ async function computeSmartTarget(
         // Growth: set target as 2x current value (stretch goal)
         try {
           const result = await pool.query(
-            `SELECT COALESCE(SUM(institution_value), 0) as total_value FROM plaid_holdings`,
+            `SELECT COALESCE(SUM(institution_value), 0) as total_value FROM plaid_holdings WHERE workspace_id = $1`,
+            [config.workspaceId],
           );
           const currentValue = parseFloat(result.rows[0].total_value) || 0;
           if (currentValue > 0) {
@@ -180,7 +184,8 @@ export async function ensureDefaultGoals(config: PlaidPluginConfig): Promise<voi
   try {
     const hasGoals = await withPool(databaseUrl, async (pool) => {
       const result = await pool.query(
-        `SELECT COUNT(*) as count FROM domain_goals WHERE status = 'active'`,
+        `SELECT COUNT(*) as count FROM domain_goals WHERE workspace_id = $1 AND status = 'active'`,
+        [config.workspaceId],
       );
       return parseInt(result.rows[0].count, 10) > 0;
     });
@@ -196,14 +201,14 @@ export async function ensureDefaultGoals(config: PlaidPluginConfig): Promise<voi
 
     for (const template of templates) {
       // Enrich template with smart targets from observed data
-      const enriched = await computeSmartTarget(databaseUrl, domainType, template);
+      const enriched = await computeSmartTarget(config, domainType, template);
 
       await withPool(databaseUrl, async (pool) => {
         const goalId = `goal_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         await pool.query(
           `INSERT INTO domain_goals
-             (id, goal_type, name, description, target_amount, target_date, monthly_contribution, parameters, status)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active')`,
+             (id, goal_type, name, description, target_amount, target_date, monthly_contribution, parameters, status, workspace_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', $9)`,
           [
             goalId,
             enriched.goal_type,
@@ -213,6 +218,7 @@ export async function ensureDefaultGoals(config: PlaidPluginConfig): Promise<voi
             enriched.target_date,
             enriched.monthly_contribution,
             JSON.stringify(enriched.parameters),
+            config.workspaceId,
           ],
         );
         console.log(`[goals] Created auto-goal "${enriched.name}" (${goalId}) for ${domainType}`);

@@ -78,7 +78,8 @@ echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 echo -e "This will permanently delete:"
 echo -e "  • Kubernetes namespace: ${YELLOW}$NAMESPACE${NC}"
-echo -e "  • Cloud SQL databases:  ${YELLOW}$(jq -r '.[].databaseName' "$CONFIG_DIR/workspaces.json" | tr '\n' ', ' | sed 's/,$//')${NC}"
+echo -e "  • Per-workspace DB roles: ${YELLOW}$(jq -r '.[].dbRole // empty' "$CONFIG_DIR/workspaces.json" | grep -v '^$' | tr '\n' ', ' | sed 's/,$//')${NC}"
+echo -e "  • Demo data in shared database: ${YELLOW}roundtable${NC}"
 echo -e "  • Firestore documents:  ${YELLOW}organizations/$ORG_ID/**${NC}"
 echo ""
 
@@ -106,28 +107,56 @@ if [[ "$DB_ONLY" == false ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Phase 2: Drop Cloud SQL Databases
+# Phase 2: Drop Per-Workspace DB Roles + Clean Data
 # ---------------------------------------------------------------------------
 if [[ "$K8S_ONLY" == false ]]; then
-  log_step "Phase 2: Dropping Cloud SQL Databases"
+  log_step "Phase 2: Cleaning Database (Roles + Data)"
 
+  DB_HOST="${DB_HOST:-127.0.0.1}"
+  DB_PORT="${DB_PORT:-5432}"
+  DB_USER="${DB_USER:-roundtable}"
+  DB_NAME="${DB_NAME:-roundtable}"
+
+  # Drop per-workspace roles
+  log_info "Dropping per-workspace DB roles..."
   WORKSPACE_COUNT=$(jq length "$CONFIG_DIR/workspaces.json")
   for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
-    DB_NAME=$(jq -r ".[$i].databaseName" "$CONFIG_DIR/workspaces.json")
+    DB_ROLE=$(jq -r ".[$i].dbRole // empty" "$CONFIG_DIR/workspaces.json")
     WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
 
-    if gcloud sql databases describe "$DB_NAME" \
-      --instance="$CLOUD_SQL_INSTANCE" \
-      --project="$GCP_PROJECT" &> /dev/null; then
-      gcloud sql databases delete "$DB_NAME" \
-        --instance="$CLOUD_SQL_INSTANCE" \
-        --project="$GCP_PROJECT" \
-        --quiet
-      log_success "Dropped database: $DB_NAME ($WS_NAME)"
-    else
-      log_warn "Database $DB_NAME does not exist ($WS_NAME) — skipping"
+    if [[ -n "$DB_ROLE" ]]; then
+      psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
+        --quiet --no-psqlrc -c "
+          -- Revoke all privileges first (required before DROP ROLE)
+          REVOKE ALL ON ALL TABLES IN SCHEMA public FROM ${DB_ROLE};
+          REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM ${DB_ROLE};
+          REVOKE USAGE ON SCHEMA public FROM ${DB_ROLE};
+          DROP ROLE IF EXISTS ${DB_ROLE};
+        " 2>/dev/null && \
+        log_success "Dropped role: $DB_ROLE ($WS_NAME)" || \
+        log_warn "Could not drop role: $DB_ROLE ($WS_NAME)"
     fi
   done
+
+  # Truncate all demo domain tables (preserving schema)
+  log_info "Truncating demo data from shared database..."
+  psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
+    --quiet --no-psqlrc -c "
+      TRUNCATE TABLE
+        plaid_accounts, plaid_transactions, plaid_liabilities, plaid_sync_state,
+        properties, mortgages, property_valuations,
+        plaid_holdings, plaid_securities,
+        user_profile, household_members, investment_preferences
+      CASCADE;
+    " 2>/dev/null && \
+    log_success "Truncated all domain tables" || \
+    log_warn "Some tables may not exist yet — skipping truncation"
+
+  # Also truncate goals if they exist
+  psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
+    --quiet --no-psqlrc -c "
+      TRUNCATE TABLE domain_goals, goal_snapshots CASCADE;
+    " 2>/dev/null || true
 fi
 
 # ---------------------------------------------------------------------------

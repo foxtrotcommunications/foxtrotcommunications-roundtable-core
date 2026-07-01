@@ -23,7 +23,9 @@ function createGetUserProfileHandler(config: PlaidPluginConfig): CapabilityHandl
                 state_of_residence, filing_status, education,
                 employment_status, annual_income_estimate, created_at
          FROM user_profile
+         WHERE workspace_id = $1
          ORDER BY id LIMIT 1`,
+        [config.workspaceId],
       );
       if (rows.length === 0) return { error: 'No user profile found' };
       const profile = rows[0];
@@ -50,7 +52,9 @@ function createGetHouseholdHandler(config: PlaidPluginConfig): CapabilityHandler
         `SELECT id, user_id, relationship, name,
                 date_of_birth, age_years, created_at
          FROM household_members
+         WHERE workspace_id = $1
          ORDER BY date_of_birth ASC`,
+        [config.workspaceId],
       );
       return { members: rows, count: rows.length };
     });
@@ -65,7 +69,9 @@ function createGetInvestmentPreferencesHandler(config: PlaidPluginConfig): Capab
                 time_horizon, preferred_asset_classes,
                 avoided_asset_classes, notes, created_at
          FROM investment_preferences
+         WHERE workspace_id = $1
          ORDER BY id LIMIT 1`,
+        [config.workspaceId],
       );
       if (rows.length === 0) return { error: 'No investment preferences found' };
       return { preferences: rows[0] };

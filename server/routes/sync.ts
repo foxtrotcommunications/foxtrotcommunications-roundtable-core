@@ -65,24 +65,28 @@ router.post('/', async (req, res) => {
 
     const results: any[] = [];
 
-    // Pre-create tables once (shared across all connections)
-    const { Pool } = require('pg');
-    const pool = new Pool({ connectionString: databaseUrl });
+    // Use the shared domain database pool instead of creating an ad-hoc one
+    const { getPool: getDomainPool } = require('../tools/utils/domainDb');
+    const pool = getDomainPool();
     try {
       await pool.query(`
         CREATE TABLE IF NOT EXISTS plaid_accounts (
           account_id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
           name TEXT, mask TEXT, type TEXT, subtype TEXT,
           balance_available NUMERIC, balance_current NUMERIC, balance_limit NUMERIC,
           currency TEXT DEFAULT 'USD', synced_at TIMESTAMPTZ
         );
+        CREATE INDEX IF NOT EXISTS idx_plaid_accounts_ws ON plaid_accounts(workspace_id);
         CREATE TABLE IF NOT EXISTS plaid_transactions (
           transaction_id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
           account_id TEXT REFERENCES plaid_accounts(account_id),
           amount NUMERIC, name TEXT, merchant_name TEXT,
           category TEXT[], date DATE, pending BOOLEAN DEFAULT false,
           payment_channel TEXT, synced_at TIMESTAMPTZ
         );
+        CREATE INDEX IF NOT EXISTS idx_plaid_transactions_ws ON plaid_transactions(workspace_id);
       `);
 
       // --- Loop over each Plaid connection ---
@@ -91,6 +95,7 @@ router.post('/', async (req, res) => {
         try {
           const prefix = plaidConn.envPrefix || 'PLAID';
           const domainType = process.env[`${prefix}_DOMAIN_TYPE`] || plaidConn.domainType || 'checking';
+          const workspaceId = process.env.WS_ID || process.env.WORKSPACE_ID || 'default';
           const config = {
             domainType,
             accessToken: envWithFallback(prefix, 'ACCESS_TOKEN'),
@@ -99,6 +104,7 @@ router.post('/', async (req, res) => {
             env: envWithFallback(prefix, 'PLAID_ENV', process.env.PLAID_ENV) || 'sandbox',
             itemId: process.env[`${prefix}_ITEM_ID`] || process.env['CONN_PLAID_ITEM_ID'],
             databaseUrl,
+            workspaceId,
           };
 
           if (!config.accessToken) {
@@ -145,12 +151,12 @@ router.post('/', async (req, res) => {
           const accounts = accountsRes.data.accounts;
           for (const acct of accounts) {
             await pool.query(
-              `INSERT INTO plaid_accounts (account_id, name, mask, type, subtype, balance_available, balance_current, balance_limit, currency, synced_at)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
+              `INSERT INTO plaid_accounts (account_id, workspace_id, name, mask, type, subtype, balance_available, balance_current, balance_limit, currency, synced_at)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
                ON CONFLICT (account_id) DO UPDATE SET
                  name=EXCLUDED.name, mask=EXCLUDED.mask, balance_available=EXCLUDED.balance_available,
                  balance_current=EXCLUDED.balance_current, balance_limit=EXCLUDED.balance_limit, synced_at=NOW()`,
-              [acct.account_id, acct.name, acct.mask, acct.type, acct.subtype,
+              [acct.account_id, workspaceId, acct.name, acct.mask, acct.type, acct.subtype,
                acct.balances.available, acct.balances.current, acct.balances.limit, acct.balances.iso_currency_code || 'USD']
             );
           }
@@ -164,11 +170,11 @@ router.post('/', async (req, res) => {
             const txData = txRes.data;
             for (const tx of txData.added || []) {
               await pool.query(
-                `INSERT INTO plaid_transactions (transaction_id, account_id, amount, name, merchant_name, category, date, pending, payment_channel, synced_at)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
+                `INSERT INTO plaid_transactions (transaction_id, workspace_id, account_id, amount, name, merchant_name, category, date, pending, payment_channel, synced_at)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
                  ON CONFLICT (transaction_id) DO UPDATE SET
                    amount=EXCLUDED.amount, name=EXCLUDED.name, pending=EXCLUDED.pending, synced_at=NOW()`,
-                [tx.transaction_id, tx.account_id, -(tx.amount), tx.name, tx.merchant_name,
+                [tx.transaction_id, workspaceId, tx.account_id, -(tx.amount), tx.name, tx.merchant_name,
                  tx.category, tx.date, tx.pending, tx.payment_channel]
               );
               added++;
@@ -185,7 +191,7 @@ router.post('/', async (req, res) => {
         }
       }
     } finally {
-      await pool.end();
+      // Don't close the pool — it's the shared domainDb singleton
     }
 
     console.log(`[sync] All connections processed: ${results.filter(r => r.success).length}/${results.length} succeeded`);

@@ -92,15 +92,19 @@ export const pendragonPlaid = {
     // Uses retry loop because Cloud SQL proxy sidecar may not be ready yet
     if (config.databaseUrl) {
       const initSchema = async () => {
-        const { getSchemaForDomain } = await import('./db/schemas.js');
+        const { getSchemaForDomain, getMigrationSQL } = await import('./db/schemas.js');
         const { withPool: wp } = await import('./db/pool.js');
         const maxRetries = 12;
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
           try {
             await wp(config.databaseUrl, async (pool) => {
+              // Create tables (new tables already have workspace_id NOT NULL)
               await pool.query(getSchemaForDomain(config.domainType as DomainType));
+              // Migrate existing tables — add workspace_id if missing, backfill with current workspace
+              const migration = getMigrationSQL(config.workspaceId);
+              await pool.query(migration.sql, migration.params);
             });
-            console.log(`[pendragon-plaid] Schema ensured for domain: ${config.domainType}`);
+            console.log(`[pendragon-plaid] Schema ensured for domain: ${config.domainType} (workspace: ${config.workspaceId})`);
             if (hasGoals) await ensureDefaultGoals(config);
             return;
           } catch (err: any) {
@@ -185,6 +189,7 @@ export function registerFromEnv(
     secret: process.env.PLAID_SECRET || '',
     env: (process.env.PLAID_ENV || 'sandbox') as 'sandbox' | 'production',
     databaseUrl: process.env.DATABASE_URL || '',
+    workspaceId: process.env.WS_ID || process.env.WORKSPACE_ID || 'default',
   };
 
   pendragonPlaid.register(toolRegistry, capabilityRegistry, config);

@@ -1,6 +1,6 @@
 // @ts-nocheck
 // server/tools/getLiabilities.ts — Get all liabilities with account details
-import { query } from './utils/domainDb.js';
+import { query, getWorkspaceId } from './utils/domainDb.js';
 import type { Tool } from '../../types.js';
 import { buildProvenance } from './utils/buildProvenance.js';
 
@@ -23,6 +23,7 @@ const tool: Tool = {
   },
   async execute(args: any, _workspaceConfig: any = {}) {
     const start = Date.now();
+    const wsId = getWorkspaceId();
     try {
       const { type: liabilityType } = args;
 
@@ -39,9 +40,10 @@ const tool: Tool = {
           FROM plaid_liabilities l
           LEFT JOIN plaid_accounts a ON a.account_id = l.account_id
           WHERE l.type = $1
+            AND l.workspace_id = $2
           ORDER BY l.principal_balance DESC NULLS LAST
         `;
-        params = [liabilityType];
+        params = [liabilityType, wsId];
       } else {
         sql = `
           SELECT l.liability_id, l.account_id, l.type, l.last_payment_amount,
@@ -51,9 +53,10 @@ const tool: Tool = {
                  a.balance_current, a.balance_limit
           FROM plaid_liabilities l
           LEFT JOIN plaid_accounts a ON a.account_id = l.account_id
+          WHERE l.workspace_id = $1
           ORDER BY l.principal_balance DESC NULLS LAST
         `;
-        params = [];
+        params = [wsId];
       }
 
       const result = await query(sql, params);

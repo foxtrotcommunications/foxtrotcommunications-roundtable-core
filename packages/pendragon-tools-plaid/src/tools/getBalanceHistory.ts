@@ -1,7 +1,7 @@
 // @ts-nocheck
 // server/tools/getBalanceHistory.ts — Reconstruct balance history from transactions
 // Walks backward from current balance, applying transaction deltas per period
-import { query } from './utils/domainDb.js';
+import { query, getWorkspaceId } from './utils/domainDb.js';
 import type { Tool } from '../../types.js';
 import { buildProvenance } from './utils/buildProvenance.js';
 
@@ -34,6 +34,7 @@ const tool: Tool = {
   },
   async execute(args: any, _workspaceConfig: any = {}) {
     const start = Date.now();
+    const wsId = getWorkspaceId();
     try {
       const { account_id } = args;
       const granularity = args.granularity || 'daily';
@@ -48,8 +49,8 @@ const tool: Tool = {
 
       // ── 1. Get current balance ────────────────────────────────
       const acctResult = await query(
-        'SELECT balance_current, name, synced_at FROM plaid_accounts WHERE account_id = $1',
-        [account_id]
+        'SELECT balance_current, name, synced_at FROM plaid_accounts WHERE account_id = $1 AND workspace_id = $2',
+        [account_id, wsId]
       );
 
       if (acctResult.rows.length === 0) {
@@ -76,11 +77,12 @@ const tool: Tool = {
           AND date >= $2::date
           AND date <= $3::date
           AND pending = false
+          AND workspace_id = $4
         GROUP BY period
         ORDER BY period DESC
       `;
 
-      const txnResult = await query(txnSql, [account_id, startDate, endDate]);
+      const txnResult = await query(txnSql, [account_id, startDate, endDate, wsId]);
 
       // ── 3. Walk backward from current balance ─────────────────
       // Start at today's balance and subtract each period's net to get earlier balances

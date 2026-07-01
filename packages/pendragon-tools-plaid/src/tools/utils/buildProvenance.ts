@@ -4,7 +4,7 @@
 // in server/a2a/server.ts expects. All domain tools should call this and spread
 // the result into their return object.
 
-import { query } from './domainDb.js';
+import { query, getWorkspaceId } from './domainDb.js';
 
 export interface ToolProvenance {
   balance_verified: number;
@@ -32,11 +32,14 @@ export async function buildProvenance(
   isHistorical: boolean = false,
   hasTransactionData: boolean = false,
 ): Promise<ToolProvenance> {
+  const wsId = getWorkspaceId();
   try {
     const result = await query(
       `SELECT account_id, balance_current, synced_at
        FROM plaid_accounts
-       ORDER BY type, name`
+       WHERE workspace_id = $1
+       ORDER BY type, name`,
+      [wsId]
     );
 
     let latestSyncedAt: string | null = null;

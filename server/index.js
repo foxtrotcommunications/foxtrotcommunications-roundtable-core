@@ -86,7 +86,11 @@ let sessionStore;
 if (isPostgres()) {
   const pgSession = require('connect-pg-simple')(session);
   const { Pool } = require('pg');
-  const sessionPool = new Pool({ connectionString: config.databaseUrl });
+  const sessionPool = new Pool({
+    connectionString: config.databaseUrl,
+    max: 2,                   // sessions are low-throughput — 2 connections is plenty
+    idleTimeoutMillis: 60_000,
+  });
   sessionStore = new pgSession({
     pool: sessionPool,
     tableName: 'user_sessions',
@@ -612,15 +616,15 @@ async function shutdown(signal) {
     await db.updateWorkspaceStatus(config.workspaceId, 'stopped');
     if (typeof db.close === 'function') await db.close();
   } catch { /* intentionally empty */ }
-  // Close domainDb singleton pools (server and pendragon copies)
+  // Close all domain database pools
   try {
     const { endPool } = require('./tools/utils/domainDb');
     if (typeof endPool === 'function') await endPool();
   } catch { /* domainDb may not be loaded */ }
   try {
-    const { endPool } = require('../packages/pendragon-tools-plaid/dist/tools/utils/domainDb');
-    if (typeof endPool === 'function') await endPool();
-  } catch { /* pendragon domainDb may not be loaded */ }
+    const { endAllPools } = require('../packages/pendragon-tools-plaid/dist/db/pool.js');
+    if (typeof endAllPools === 'function') await endAllPools();
+  } catch { /* pendragon pool cache may not be loaded */ }
   process.exit(0);
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));

@@ -26,8 +26,8 @@ function createGoalCreateHandler(config: PlaidPluginConfig): CapabilityHandler {
     return withPool(config.databaseUrl, async (pool) => {
       await pool.query(
         `INSERT INTO domain_goals
-           (id, goal_type, name, description, target_amount, target_date, monthly_contribution, parameters, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active')`,
+           (id, goal_type, name, description, target_amount, target_date, monthly_contribution, parameters, status, workspace_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', $9)`,
         [
           id,
           goal_type,
@@ -37,11 +37,12 @@ function createGoalCreateHandler(config: PlaidPluginConfig): CapabilityHandler {
           target_date || null,
           monthly_contribution ?? null,
           JSON.stringify(parameters || {}),
+          config.workspaceId,
         ],
       );
 
       // Immediately evaluate progress for the new goal
-      const progress = await evaluateGoalProgress(pool, id, config.domainType);
+      const progress = await evaluateGoalProgress(pool, id, config.domainType, config.workspaceId);
 
       return {
         id,
@@ -78,12 +79,13 @@ function createGoalListHandler(config: PlaidPluginConfig): CapabilityHandler {
            ORDER BY snapshot_at DESC
            LIMIT 1
          ) s ON true
-         WHERE g.status = 'active'
+         WHERE g.workspace_id = $1 AND g.status = 'active'
          ORDER BY g.created_at DESC`,
+        [config.workspaceId],
       );
 
       const goals = await Promise.all(
-        rows.map(async (row) => {
+        rows.map(async (row: any) => {
           // If a snapshot exists, use its per-goal values
           if (row.snap_at != null) {
             const targetAmount = row.target_amount ?? 0;
@@ -114,7 +116,7 @@ function createGoalListHandler(config: PlaidPluginConfig): CapabilityHandler {
           // No snapshot — fall back to live domain-level evaluation.
           // Note: this uses aggregate queries, so values may be inflated
           // when multiple goals share a domain.
-          return evaluateGoalProgress(pool, row.id, config.domainType);
+          return evaluateGoalProgress(pool, row.id, config.domainType, config.workspaceId);
         }),
       );
 
@@ -134,20 +136,20 @@ function createGoalGetHandler(config: PlaidPluginConfig): CapabilityHandler {
 
     return withPool(config.databaseUrl, async (pool) => {
       const goalResult = await pool.query(
-        `SELECT * FROM domain_goals WHERE id = $1`,
-        [goal_id],
+        `SELECT * FROM domain_goals WHERE id = $1 AND workspace_id = $2`,
+        [goal_id, config.workspaceId],
       );
       if (goalResult.rows.length === 0) {
         return { error: 'Goal not found', goal_id };
       }
 
       const goal = goalResult.rows[0];
-      const progress = await evaluateGoalProgress(pool, goal_id, config.domainType);
+      const progress = await evaluateGoalProgress(pool, goal_id, config.domainType, config.workspaceId);
 
       // Get last 10 snapshots for trend
       const snapshotResult = await pool.query(
-        `SELECT * FROM goal_snapshots WHERE goal_id = $1 ORDER BY snapshot_at DESC LIMIT 10`,
-        [goal_id],
+        `SELECT * FROM goal_snapshots WHERE goal_id = $1 AND workspace_id = $2 ORDER BY snapshot_at DESC LIMIT 10`,
+        [goal_id, config.workspaceId],
       );
 
       return {
@@ -186,10 +188,12 @@ function createGoalUpdateHandler(config: PlaidPluginConfig): CapabilityHandler {
     }
 
     values.push(goal_id);
+    paramIdx++;
+    values.push(config.workspaceId);
 
     return withPool(config.databaseUrl, async (pool) => {
       const result = await pool.query(
-        `UPDATE domain_goals SET ${setClauses.join(', ')} WHERE id = $${paramIdx} RETURNING *`,
+        `UPDATE domain_goals SET ${setClauses.join(', ')} WHERE id = $${paramIdx - 1} AND workspace_id = $${paramIdx} RETURNING *`,
         values,
       );
       if (result.rows.length === 0) {
@@ -209,8 +213,8 @@ function createGoalDeleteHandler(config: PlaidPluginConfig): CapabilityHandler {
 
     return withPool(config.databaseUrl, async (pool) => {
       const result = await pool.query(
-        `DELETE FROM domain_goals WHERE id = $1 RETURNING id, name`,
-        [goal_id],
+        `DELETE FROM domain_goals WHERE id = $1 AND workspace_id = $2 RETURNING id, name`,
+        [goal_id, config.workspaceId],
       );
       if (result.rows.length === 0) {
         return { error: 'Goal not found', goal_id };
@@ -229,13 +233,13 @@ function createGoalEvaluateHandler(config: PlaidPluginConfig): CapabilityHandler
     const { goal_id } = input as any;
 
     return withPool(config.databaseUrl, async (pool) => {
-      const progress = await evaluateGoalProgress(pool, goal_id, config.domainType);
+      const progress = await evaluateGoalProgress(pool, goal_id, config.domainType, config.workspaceId);
 
       // Record snapshot
       if (progress && !progress.error) {
         await pool.query(
-          `INSERT INTO goal_snapshots (goal_id, current_value, progress_pct, on_track, projected_date, details)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
+          `INSERT INTO goal_snapshots (goal_id, current_value, progress_pct, on_track, projected_date, details, workspace_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
           [
             goal_id,
             progress.current_value,
@@ -243,6 +247,7 @@ function createGoalEvaluateHandler(config: PlaidPluginConfig): CapabilityHandler
             progress.on_track,
             progress.projected_date || null,
             JSON.stringify(progress.details || {}),
+            config.workspaceId,
           ],
         );
       }
@@ -260,16 +265,17 @@ function createGoalSnapshotHandler(config: PlaidPluginConfig): CapabilityHandler
     return withPool(config.databaseUrl, async (pool) => {
       // Evaluate and snapshot ALL active goals
       const { rows: goals } = await pool.query(
-        `SELECT id FROM domain_goals WHERE status = 'active'`,
+        `SELECT id FROM domain_goals WHERE status = 'active' AND workspace_id = $1`,
+        [config.workspaceId],
       );
 
       const results = [];
       for (const goal of goals) {
-        const progress = await evaluateGoalProgress(pool, goal.id, config.domainType);
+        const progress = await evaluateGoalProgress(pool, goal.id, config.domainType, config.workspaceId);
         if (progress && !progress.error) {
           await pool.query(
-            `INSERT INTO goal_snapshots (goal_id, current_value, progress_pct, on_track, projected_date, details)
-             VALUES ($1, $2, $3, $4, $5, $6)`,
+            `INSERT INTO goal_snapshots (goal_id, current_value, progress_pct, on_track, projected_date, details, workspace_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
             [
               goal.id,
               progress.current_value,
@@ -277,6 +283,7 @@ function createGoalSnapshotHandler(config: PlaidPluginConfig): CapabilityHandler
               progress.on_track,
               progress.projected_date || null,
               JSON.stringify(progress.details || {}),
+              config.workspaceId,
             ],
           );
           results.push({ ...progress, goal_id: goal.id });

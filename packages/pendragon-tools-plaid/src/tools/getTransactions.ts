@@ -1,7 +1,7 @@
 // @ts-nocheck
 // server/tools/getTransactions.ts — Unified transaction search & filter
 // Dynamic WHERE clause builder with ILIKE search, pagination, and sorting
-import { query } from './utils/domainDb.js';
+import { query, getWorkspaceId } from './utils/domainDb.js';
 import type { Tool } from '../../types.js';
 import { buildProvenance } from './utils/buildProvenance.js';
 
@@ -54,11 +54,12 @@ const tool: Tool = {
   },
   async execute(args: any, _workspaceConfig: any = {}) {
     const start = Date.now();
+    const wsId = getWorkspaceId();
     try {
       const filters: Record<string, any> = {};
-      const conditions: string[] = [];
-      const params: any[] = [];
-      let paramIdx = 1;
+      const conditions: string[] = ['workspace_id = $1'];
+      const params: any[] = [wsId];
+      let paramIdx = 2;
 
       // ── Build dynamic WHERE clause ──────────────────────────────
       if (args.account_id) {
@@ -160,7 +161,7 @@ const tool: Tool = {
       const totalCount = countResult.rows[0]?.total_count || 0;
 
       // Provenance metadata
-      const acctCountResult = await query('SELECT COUNT(*)::int AS cnt FROM plaid_accounts');
+      const acctCountResult = await query('SELECT COUNT(*)::int AS cnt FROM plaid_accounts WHERE workspace_id = $1', [wsId]);
       const accountsAnalyzed = acctCountResult.rows[0]?.cnt || 0;
       const totalAmount = parseFloat(countResult.rows[0]?.total_amount) || 0;
 

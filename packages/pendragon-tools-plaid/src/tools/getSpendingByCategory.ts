@@ -1,6 +1,6 @@
 // @ts-nocheck
 // server/tools/getSpendingByCategory.ts — Group spending by category with chart-ready output
-import { query } from './utils/domainDb.js';
+import { query, getWorkspaceId } from './utils/domainDb.js';
 import type { Tool } from '../../types.js';
 import { buildProvenance } from './utils/buildProvenance.js';
 
@@ -33,13 +33,14 @@ const tool: Tool = {
   },
   async execute(args: any, _workspaceConfig: any = {}) {
     const start = Date.now();
+    const wsId = getWorkspaceId();
     try {
       const { account_id, start_date, end_date, top_n } = args;
 
       // Build parameterized query
-      const conditions: string[] = ['amount > 0']; // positive = spending
-      const params: any[] = [];
-      let idx = 1;
+      const conditions: string[] = ['workspace_id = $1', 'amount > 0']; // positive = spending
+      const params: any[] = [wsId];
+      let idx = 2;
 
       if (account_id) {
         conditions.push(`account_id = $${idx++}`);
@@ -91,7 +92,7 @@ const tool: Tool = {
       }));
 
       // Provenance metadata
-      const acctCountResult = await query('SELECT COUNT(*)::int AS cnt FROM plaid_accounts');
+      const acctCountResult = await query('SELECT COUNT(*)::int AS cnt FROM plaid_accounts WHERE workspace_id = $1', [wsId]);
       const accountsAnalyzed = acctCountResult.rows[0]?.cnt || 0;
       const transactionsScanned = categories.reduce((sum: number, c: any) => sum + c.count, 0);
 

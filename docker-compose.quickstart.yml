@@ -12,19 +12,47 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - DATABASE_URL=postgresql://roundtable:roundtable@postgres:5432/roundtable
+      # Route through PgBouncer for connection pooling
+      - DATABASE_URL=postgresql://roundtable:roundtable@pgbouncer:5432/roundtable
       - SESSION_SECRET=${SESSION_SECRET:-roundtable-quickstart-change-me}
       - WORKSPACE_ID=${WORKSPACE_ID:-default}
       - WORKSPACE_NAME=${WORKSPACE_NAME:-Roundtable}
       - SECURE_COOKIES=false
       # AI keys are optional here — add them in the Settings UI after startup
     depends_on:
+      pgbouncer:
+        condition: service_healthy
+    restart: unless-stopped
+
+  pgbouncer:
+    image: bitnami/pgbouncer:1
+    environment:
+      - POSTGRESQL_HOST=postgres
+      - POSTGRESQL_PORT=5432
+      - POSTGRESQL_USERNAME=roundtable
+      - POSTGRESQL_PASSWORD=roundtable
+      - POSTGRESQL_DATABASE=roundtable
+      - PGBOUNCER_PORT=6432
+      - PGBOUNCER_POOL_MODE=transaction
+      - PGBOUNCER_DEFAULT_POOL_SIZE=20
+      - PGBOUNCER_MIN_POOL_SIZE=5
+      - PGBOUNCER_MAX_CLIENT_CONN=400
+      - PGBOUNCER_MAX_DB_CONNECTIONS=30
+      - PGBOUNCER_SERVER_RESET_QUERY=DISCARD ALL
+      - PGBOUNCER_IGNORE_STARTUP_PARAMETERS=extra_float_digits,search_path
+    depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 6432 -U roundtable"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
 
   postgres:
     image: postgres:16-alpine
+    command: postgres -c max_connections=200 -c shared_buffers=128MB
     environment:
       POSTGRES_USER: roundtable
       POSTGRES_PASSWORD: roundtable

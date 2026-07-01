@@ -1,10 +1,11 @@
 /**
- * Get or create the shared database pool.
+ * Get the shared database pool.
  * Uses DATABASE_URL from the environment (set per-workspace by the operator).
+ * Returns the same singleton pool used by capability handlers (withPool).
  */
 declare function getPool(): any;
 /**
- * Gracefully close the pool (call on process shutdown).
+ * Gracefully close all pools (call on process shutdown).
  */
 declare function endPool(): Promise<void>;
 /**

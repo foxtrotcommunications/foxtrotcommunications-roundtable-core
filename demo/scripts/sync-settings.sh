@@ -210,7 +210,7 @@ for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
 
   echo ""
   log_info "── $WS_NAME ($WS_ID) ──"
-  log_info "  Database: $DB_NAME"
+  log_info "  Database: ${DB_SHARED_NAME:-roundtable} (shared)"
   log_info "  Deploy:   $DEPLOY_NAME"
   log_info "  Provider: $AI_PROVIDER / $AI_MODEL"
 
@@ -248,8 +248,8 @@ for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
            system_prompt = EXCLUDED.system_prompt;"
   fi
 
-  # Execute
-  if run_psql "$DB_NAME" "$DEPLOY_NAME" "$SQL"; then
+  # Execute — use shared database name instead of per-workspace databases
+  if run_psql "${DB_SHARED_NAME:-roundtable}" "$DEPLOY_NAME" "$SQL"; then
     if [[ "$PROMPT_ONLY" == true ]]; then
       log_success "  system_prompt synced → $WS_NAME"
     else
