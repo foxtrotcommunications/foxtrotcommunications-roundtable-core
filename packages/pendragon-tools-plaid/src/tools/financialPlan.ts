@@ -120,15 +120,24 @@ function slugifyStep(name: string): string {
 // ─── Helpers ──────────────────────────────────────────────────────────────────────
 
 /**
- * Lazily import executeTool from the tool registry to avoid circular
- * dependency at module-load time (index.ts imports this file).
+ * Lazily import executeTool from the server's tool registry.
+ * The plugin's tools are registered into the server registry at startup,
+ * so we reference the server's index to access intent_bridge and other
+ * core tools that financial_plan depends on.
  */
-let _executeTool: typeof import('./index').executeTool | null = null;
+let _executeTool: any = null;
 
 async function getExecuteTool() {
   if (!_executeTool) {
-    const mod = await import('./index.js');
-    _executeTool = mod.executeTool;
+    // Resolve from the server's tool registry (handles circular deps via lazy import)
+    try {
+      const mod = await import('../../../../server/tools/index.js');
+      _executeTool = mod.executeTool;
+    } catch {
+      // Fallback: try require for CommonJS environments
+      const mod = require('../../../../server/tools/index');
+      _executeTool = mod.executeTool;
+    }
   }
   return _executeTool;
 }

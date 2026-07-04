@@ -14,6 +14,9 @@ import { financialTools } from './tools/index.js';
 
 export { ScopedPlaidClient } from './plaid/client.js';
 export { ensureDefaultGoals } from './domains/autoGoals.js';
+export { default as syncRoute } from './routes/sync.js';
+// @ts-ignore — JS file without type declarations
+export { default as demographicsSeedRoute } from './routes/demographics-seed.js';
 export * from './types.js';
 
 // ─── Domain → Registrars Mapping ────────────────────────────────────────────
@@ -181,13 +184,28 @@ export function registerFromEnv(
   if (!domainType) {
     domainType = 'checking';
   }
+  // Resolve credentials from RT_CONNECTIONS envPrefix, falling back to legacy env vars
+  let envPrefix = '';
+  if (connectionsJson) {
+    try {
+      const connections = JSON.parse(connectionsJson);
+      const plaidConn = connections.find((c: Record<string, unknown>) => c.type === 'plaid');
+      if (plaidConn?.envPrefix) {
+        envPrefix = plaidConn.envPrefix as string;
+      }
+    } catch {}
+  }
+
+  const resolveEnv = (field: string, legacyKey: string): string =>
+    (envPrefix ? process.env[`${envPrefix}_${field}`] : '') || process.env[legacyKey] || '';
 
   const config: PlaidPluginConfig = {
     domainType: domainType as DomainType,
-    accessToken: process.env.PLAID_ACCESS_TOKEN || '',
-    clientId: process.env.PLAID_CLIENT_ID || '',
-    secret: process.env.PLAID_SECRET || '',
-    env: (process.env.PLAID_ENV || 'sandbox') as 'sandbox' | 'production',
+    accessToken: resolveEnv('ACCESS_TOKEN', 'PLAID_ACCESS_TOKEN'),
+    clientId: resolveEnv('CLIENT_ID', 'PLAID_CLIENT_ID'),
+    secret: resolveEnv('PLAID_SECRET', 'PLAID_SECRET'),
+    env: (resolveEnv('PLAID_ENV', 'PLAID_ENV') || 'sandbox') as 'sandbox' | 'production',
+    itemId: resolveEnv('ITEM_ID', 'PLAID_ITEM_ID'),
     databaseUrl: process.env.DATABASE_URL || '',
     workspaceId: process.env.WS_ID || process.env.WORKSPACE_ID || 'default',
   };

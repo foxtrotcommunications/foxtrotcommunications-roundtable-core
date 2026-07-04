@@ -95,7 +95,7 @@ const tool: Tool = {
     // ── AI Configuration ────────────────────────────────────
     const aiConfig = {
       provider: (workspace?.ai_provider) || 'vertexai',
-      model: (workspace?.ai_model) || 'gemini-2.5-flash',
+      model: (workspace?.ai_model) || 'gemini-3.5-flash',
     };
 
     // ── Schema Files ────────────────────────────────────────

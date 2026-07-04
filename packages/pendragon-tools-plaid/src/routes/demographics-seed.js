@@ -4,7 +4,7 @@
 // Idempotent — clears existing data before insert.
 
 const { Router } = require('express');
-const { getAdapter } = require('../db/adapter');
+const { getAdapter } = require('../../../../server/db/adapter');
 
 const router = Router();
 
