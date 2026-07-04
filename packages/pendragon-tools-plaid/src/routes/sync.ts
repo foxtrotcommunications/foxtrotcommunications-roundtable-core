@@ -37,7 +37,7 @@ router.post('/', async (req, res) => {
     }
 
     // Import the capability registry which has the syncData handler
-    const { capabilityRegistry } = require('../protocols/capabilityRegistry');
+    const { capabilityRegistry } = require('../../../../server/protocols/capabilityRegistry');
 
     // Try the plaid.syncData capability once (it handles all connections internally)
     const syncHandler = capabilityRegistry.getHandler?.('plaid.syncData');

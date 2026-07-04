@@ -69,7 +69,7 @@ app.use(helmet({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Enforce SESSION_SECRET in production
+// Enforce secrets in production
 const isProd = process.env.NODE_ENV === 'production';
 if (isProd && (!config.sessionSecret || config.sessionSecret === 'roundtable-dev-secret-change-me')) {
   console.error('[FATAL] SESSION_SECRET must be set to a secure value in production');
@@ -79,6 +79,53 @@ if (isProd && !config.demoMode && !process.env.API_KEY_ENCRYPTION_KEY) {
   console.error('[FATAL] API_KEY_ENCRYPTION_KEY must be set in production (64-char hex string)');
   console.error('  Generate one: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
   process.exit(1);
+}
+// Ensure purpose-specific secrets are not sharing the same value in production.
+// Falling back to SESSION_SECRET collapses all three security domains.
+if (isProd && config.bridgeHmacSecret === config.sessionSecret) {
+  console.warn('[SECURITY] BRIDGE_HMAC_SECRET is not set — falling back to SESSION_SECRET.');
+  console.warn('  Set a unique BRIDGE_HMAC_SECRET for proper secret separation.');
+}
+if (isProd && config.ssoJwtSecret === config.sessionSecret) {
+  console.warn('[SECURITY] SSO_JWT_SECRET is not set — falling back to SESSION_SECRET.');
+  console.warn('  Set a unique SSO_JWT_SECRET for proper secret separation.');
+}
+
+// ─── HMAC Verification Middleware for Server-to-Server Endpoints ─────────────
+// Protects /api/sync, /api/demographics/seed, and other S2S routes.
+// Callers must include:
+//   x-control-plane-signature: HMAC-SHA256(secret, "<path>:<timestamp>")
+//   x-control-plane-timestamp: <unix_ms>
+const crypto = require('crypto');
+function requireHmac(routePath) {
+  return (req, res, next) => {
+    const signature = req.headers['x-control-plane-signature'];
+    const timestamp = req.headers['x-control-plane-timestamp'];
+
+    if (!signature || !timestamp) {
+      return res.status(401).json({ error: 'Missing HMAC signature' });
+    }
+
+    // Reject stale requests (5 min window)
+    if (Math.abs(Date.now() - parseInt(timestamp)) > 5 * 60 * 1000) {
+      return res.status(401).json({ error: 'HMAC timestamp expired' });
+    }
+
+    const expectedSig = crypto
+      .createHmac('sha256', config.bridgeHmacSecret)
+      .update(`${routePath}:${timestamp}`)
+      .digest('hex');
+
+    try {
+      if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
+        return res.status(401).json({ error: 'Invalid HMAC signature' });
+      }
+    } catch {
+      return res.status(401).json({ error: 'Invalid HMAC signature' });
+    }
+
+    next();
+  };
 }
 
 // Session store: PostgreSQL when DATABASE_URL is set, in-memory for local dev
@@ -269,13 +316,23 @@ app.use('/api', apiLimiter);
 app.use('/api/auth', authRoutes);
 app.use('/api/bridge', bridgeReceive);  // HMAC-authed, no user session needed
 
-// Plaid data-sync endpoint (called by Pendragon during provisioning + periodic refresh)
-const syncRoute = require('./routes/sync').default;
-app.use('/api/sync', syncRoute);
+// Plaid data-sync endpoint — HMAC-authenticated (server-to-server from Pendragon)
+try {
+  const { syncRoute } = require('@pendragon/tools-plaid');
+  app.use('/api/sync', requireHmac('sync'), syncRoute);
+} catch {
+  const syncRoute = require('./routes/sync').default;
+  app.use('/api/sync', requireHmac('sync'), syncRoute);
+}
 
-// Demographics seed endpoint (called by Pendragon onboarding to populate user profile)
-const demographicsSeedRoute = require('./routes/demographics-seed').default;
-app.use('/api/demographics/seed', demographicsSeedRoute);
+// Demographics seed endpoint — HMAC-authenticated (server-to-server from Pendragon)
+try {
+  const { demographicsSeedRoute } = require('@pendragon/tools-plaid');
+  app.use('/api/demographics/seed', requireHmac('demographics/seed'), demographicsSeedRoute);
+} catch {
+  const demographicsSeedRoute = require('./routes/demographics-seed').default;
+  app.use('/api/demographics/seed', requireHmac('demographics/seed'), demographicsSeedRoute);
+}
 
 app.use('/api', requireAuth, fileRoutes);
 app.use('/api/insights', requireAuth, insightRoutes);
