@@ -171,7 +171,7 @@ async function processDelegation(taskId, timestamp, secret, content, sourceWorks
 
   const workspace = await workspaceService.getWorkspace();
   const aiProvider = workspace?.ai_provider || 'vertexai';
-  const aiModel = workspace?.ai_model || 'gemini-2.5-flash';
+  const aiModel = workspace?.ai_model || 'gemini-3.5-flash';
   const toolsEnabled = workspace ? (workspace.tools_enabled ?? true) : true;
 
   // Parse enabled tool names if configured

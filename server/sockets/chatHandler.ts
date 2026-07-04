@@ -380,7 +380,7 @@ const { touchActivity } = require('./workspaceHandler') as { touchActivity: () =
 
       // AI provider config from workspace or defaults
       const aiProvider: string = (workspace && workspace.ai_provider) || 'vertexai';
-      const aiModel: string = (workspace && workspace.ai_model) || 'gemini-2.5-flash';
+      const aiModel: string = (workspace && workspace.ai_model) || 'gemini-3.5-flash';
       const toolsEnabled: boolean = workspace ? (workspace.tools_enabled ?? true) : true;
 
       // Enforce provider restriction if set

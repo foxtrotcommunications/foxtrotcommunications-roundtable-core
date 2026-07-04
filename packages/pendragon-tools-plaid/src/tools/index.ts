@@ -12,6 +12,7 @@ import getLiabilities from './getLiabilities.js';
 import getDebtSummary from './getDebtSummary.js';
 import getCreditUtilization from './getCreditUtilization.js';
 import getPayoffProjection from './getPayoffProjection.js';
+import financialPlan from './financialPlan.js';
 
 export const financialTools = {
   get_financial_snapshot: getFinancialSnapshot,
@@ -28,4 +29,5 @@ export const financialTools = {
   get_debt_summary: getDebtSummary,
   get_credit_utilization: getCreditUtilization,
   get_payoff_projection: getPayoffProjection,
+  financial_plan: financialPlan,
 };

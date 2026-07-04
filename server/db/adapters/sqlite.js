@@ -93,7 +93,7 @@ class SQLiteAdapter {
         name TEXT NOT NULL,
         url TEXT,
         ai_provider TEXT DEFAULT 'vertexai',
-        ai_model TEXT DEFAULT 'gemini-2.5-flash',
+        ai_model TEXT DEFAULT 'gemini-3.5-flash',
         system_prompt TEXT DEFAULT '',
         tools_enabled INTEGER DEFAULT 1,
         enabled_tools TEXT DEFAULT NULL,
