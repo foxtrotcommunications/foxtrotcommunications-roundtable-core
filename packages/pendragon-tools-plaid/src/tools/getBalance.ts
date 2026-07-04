@@ -3,6 +3,7 @@
 import { query, getWorkspaceId } from './utils/domainDb.js';
 import type { Tool } from '../../types.js';
 import { buildProvenance } from './utils/buildProvenance.js';
+import { buildDomainFilter, hasDomainPolicy } from './utils/getDomainPolicy.js';
 
 const tool: Tool = {
   name: 'get_balance',
@@ -28,27 +29,31 @@ const tool: Tool = {
       let params: any[];
 
       if (account_id) {
+        const domainFilter = buildDomainFilter(3);
         sql = `
           SELECT
-            account_id, name, mask, type, subtype,
-            balance_available, balance_current, balance_limit,
-            currency, synced_at
-          FROM plaid_accounts
-          WHERE account_id = $1
-            AND workspace_id = $2
+            a.account_id, a.name, a.mask, a.type, a.subtype,
+            a.balance_available, a.balance_current, a.balance_limit,
+            a.currency, a.synced_at
+          FROM plaid_accounts a
+          WHERE a.account_id = $1
+            AND a.workspace_id = $2
+            ${domainFilter.clause}
         `;
-        params = [account_id, wsId];
+        params = [account_id, wsId, ...domainFilter.params];
       } else {
+        const domainFilter = buildDomainFilter(2);
         sql = `
           SELECT
-            account_id, name, mask, type, subtype,
-            balance_available, balance_current, balance_limit,
-            currency, synced_at
-          FROM plaid_accounts
-          WHERE workspace_id = $1
-          ORDER BY type, name
+            a.account_id, a.name, a.mask, a.type, a.subtype,
+            a.balance_available, a.balance_current, a.balance_limit,
+            a.currency, a.synced_at
+          FROM plaid_accounts a
+          WHERE a.workspace_id = $1
+            ${domainFilter.clause}
+          ORDER BY a.type, a.name
         `;
-        params = [wsId];
+        params = [wsId, ...domainFilter.params];
       }
 
       const result = await query(sql, params);

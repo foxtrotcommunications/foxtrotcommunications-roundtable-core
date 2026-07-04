@@ -3,6 +3,7 @@
 import { query, getWorkspaceId } from './utils/domainDb.js';
 import type { Tool } from '../../types.js';
 import { buildProvenance } from './utils/buildProvenance.js';
+import { buildDomainFilter, hasDomainPolicy } from './utils/getDomainPolicy.js';
 
 const tool: Tool = {
   name: 'list_accounts',
@@ -17,24 +18,26 @@ const tool: Tool = {
     const start = Date.now();
     const wsId = getWorkspaceId();
     try {
+      const domainFilter = buildDomainFilter(2);
       const sql = `
         SELECT
-          account_id,
-          name,
-          mask,
-          type,
-          subtype,
-          balance_available,
-          balance_current,
-          balance_limit,
-          currency,
-          synced_at
-        FROM plaid_accounts
-        WHERE workspace_id = $1
-        ORDER BY type, name
+          a.account_id,
+          a.name,
+          a.mask,
+          a.type,
+          a.subtype,
+          a.balance_available,
+          a.balance_current,
+          a.balance_limit,
+          a.currency,
+          a.synced_at
+        FROM plaid_accounts a
+        WHERE a.workspace_id = $1
+          ${domainFilter.clause}
+        ORDER BY a.type, a.name
       `;
 
-      const result = await query(sql, [wsId]);
+      const result = await query(sql, [wsId, ...domainFilter.params]);
 
       const accounts = result.rows.map((row: any) => ({
         account_id: row.account_id,
