@@ -35,6 +35,34 @@ export async function syncAccounts(
   const accounts = accountsRes.data.accounts;
 
   for (const acct of accounts) {
+    // Dedup: if same (name, mask, type, subtype) already exists in this workspace
+    // from a different Plaid connection, update that row instead of inserting a new one.
+    const existing = await pool.query(
+      `SELECT account_id FROM plaid_accounts
+       WHERE workspace_id = $1 AND name = $2 AND mask = $3 AND type = $4 AND subtype = $5
+       AND account_id != $6
+       LIMIT 1`,
+      [workspaceId, acct.name, acct.mask, acct.type, acct.subtype, acct.account_id]
+    );
+    if (existing.rows.length > 0) {
+      // Update existing account (keep original account_id) instead of creating a duplicate
+      console.log(`[sync] Dedup: account "${acct.name}" (${acct.mask}) already exists as ${existing.rows[0].account_id}, updating balances`);
+      await pool.query(
+        `UPDATE plaid_accounts SET
+           balance_available = $1, balance_current = $2, balance_limit = $3,
+           currency = $4, synced_at = NOW()
+         WHERE account_id = $5`,
+        [
+          acct.balances?.available ?? null,
+          acct.balances?.current ?? null,
+          acct.balances?.limit ?? null,
+          acct.balances?.iso_currency_code || 'USD',
+          existing.rows[0].account_id,
+        ]
+      );
+      continue;
+    }
+
     await pool.query(
       `INSERT INTO plaid_accounts
          (account_id, name, mask, type, subtype,

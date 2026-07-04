@@ -30,9 +30,6 @@ import describeWorkspace from './describeWorkspace';
 import verifyWorkspace from './verifyWorkspace';
 import bridgeWorkspace from './bridgeWorkspace';
 import intentBridge from './intentBridge';
-import financialPlan from './financialPlan';
-
-// Protocol integration tools
 import callAgent from './callAgent';
 
 // Domain financial tools have been moved to the pendragon-tools-plaid plugin.
@@ -66,8 +63,6 @@ const tools = {
   // Workspace bridge tools — communicate with other workspaces
   bridge_workspace: bridgeWorkspace,
   intent_bridge: intentBridge,
-  // Cross-domain planning tools
-  financial_plan: financialPlan,
   // Protocol integration tools
   call_agent: callAgent,
 };
