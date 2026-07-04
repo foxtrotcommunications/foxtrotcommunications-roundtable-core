@@ -3,6 +3,7 @@
 import { query, getWorkspaceId } from './utils/domainDb.js';
 import type { Tool } from '../../types.js';
 import { buildProvenance } from './utils/buildProvenance.js';
+import { buildDomainFilter, hasDomainPolicy } from './utils/getDomainPolicy.js';
 
 const tool: Tool = {
   name: 'get_spending_by_category',
@@ -38,36 +39,42 @@ const tool: Tool = {
       const { account_id, start_date, end_date, top_n } = args;
 
       // Build parameterized query
-      const conditions: string[] = ['workspace_id = $1', 'amount > 0']; // positive = spending
+      const conditions: string[] = ['t.workspace_id = $1', 't.amount > 0']; // positive = spending
       const params: any[] = [wsId];
       let idx = 2;
 
       if (account_id) {
-        conditions.push(`account_id = $${idx++}`);
+        conditions.push(`t.account_id = $${idx++}`);
         params.push(account_id);
       }
       if (start_date) {
-        conditions.push(`date >= $${idx++}`);
+        conditions.push(`t.date >= $${idx++}`);
         params.push(start_date);
       }
       if (end_date) {
-        conditions.push(`date <= $${idx++}`);
+        conditions.push(`t.date <= $${idx++}`);
         params.push(end_date);
       }
 
-      const whereClause = conditions.join(' AND ');
-      const limitClause = top_n ? `LIMIT $${idx++}` : '';
+      const domainFilter = buildDomainFilter(idx);
+      if (domainFilter.clause) {
+        params.push(...domainFilter.params);
+      }
+
+      const limitClause = top_n ? `LIMIT $${idx + domainFilter.params.length}` : '';
       if (top_n) params.push(top_n);
 
       const sql = `
         SELECT
-          COALESCE(category, 'Uncategorized') AS category,
-          SUM(amount)   AS total,
+          COALESCE(t.category, 'Uncategorized') AS category,
+          SUM(t.amount)   AS total,
           COUNT(*)      AS count,
-          AVG(amount)   AS avg_amount
-        FROM plaid_transactions
+          AVG(t.amount)   AS avg_amount
+        FROM plaid_transactions t
+        JOIN plaid_accounts a ON t.account_id = a.account_id AND a.workspace_id = t.workspace_id
+          ${domainFilter.clause}
         WHERE ${whereClause}
-        GROUP BY COALESCE(category, 'Uncategorized')
+        GROUP BY COALESCE(t.category, 'Uncategorized')
         ORDER BY total DESC
         ${limitClause}
       `;

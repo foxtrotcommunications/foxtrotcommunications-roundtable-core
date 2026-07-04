@@ -5,6 +5,7 @@
 import { query, getWorkspaceId } from './utils/domainDb.js';
 import type { Tool } from '../../types.js';
 import { buildProvenance } from './utils/buildProvenance.js';
+import { buildDomainFilter, hasDomainPolicy } from './utils/getDomainPolicy.js';
 
 /** Detect cadence from median gap in days */
 function detectCadence(medianGap: number): string | null {
@@ -69,24 +70,31 @@ const tool: Tool = {
       const { account_id, min_occurrences = 2 } = args;
 
       // Pull all debit (positive amount) transactions with date + amount + merchant
-      const conditions: string[] = ['workspace_id = $1', 'amount > 0'];
+      const conditions: string[] = ['t.workspace_id = $1', 't.amount > 0'];
       const params: any[] = [wsId];
       let idx = 2;
 
       if (account_id) {
-        conditions.push(`account_id = $${idx++}`);
+        conditions.push(`t.account_id = $${idx++}`);
         params.push(account_id);
+      }
+
+      const domainFilter = buildDomainFilter(idx);
+      if (domainFilter.clause) {
+        params.push(...domainFilter.params);
       }
 
       const sql = `
         SELECT
-          COALESCE(merchant_name, name) AS merchant,
-          amount,
-          date
-        FROM plaid_transactions
+          COALESCE(t.merchant_name, t.name) AS merchant,
+          t.amount,
+          t.date
+        FROM plaid_transactions t
+        JOIN plaid_accounts a ON t.account_id = a.account_id AND a.workspace_id = t.workspace_id
+          ${domainFilter.clause}
         WHERE ${conditions.join(' AND ')}
-          AND COALESCE(merchant_name, name) IS NOT NULL
-        ORDER BY COALESCE(merchant_name, name), date
+          AND COALESCE(t.merchant_name, t.name) IS NOT NULL
+        ORDER BY COALESCE(t.merchant_name, t.name), t.date
       `;
 
       const result = await query(sql, params);

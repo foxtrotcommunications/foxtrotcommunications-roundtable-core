@@ -3,6 +3,7 @@
 import { query, getWorkspaceId } from './utils/domainDb.js';
 import type { Tool } from '../../types.js';
 import { buildProvenance } from './utils/buildProvenance.js';
+import { buildDomainFilter, hasDomainPolicy } from './utils/getDomainPolicy.js';
 
 const tool: Tool = {
   name: 'get_cashflow',
@@ -43,19 +44,19 @@ const tool: Tool = {
       let idx = 1;
 
       // Tenant isolation — always applied
-      conditions.push(`workspace_id = $${idx++}`);
+      conditions.push(`t.workspace_id = $${idx++}`);
       params.push(wsId);
 
       if (account_id) {
-        conditions.push(`account_id = $${idx++}`);
+        conditions.push(`t.account_id = $${idx++}`);
         params.push(account_id);
       }
       if (start_date) {
-        conditions.push(`date >= $${idx++}`);
+        conditions.push(`t.date >= $${idx++}`);
         params.push(start_date);
       }
       if (end_date) {
-        conditions.push(`date <= $${idx++}`);
+        conditions.push(`t.date <= $${idx++}`);
         params.push(end_date);
       }
 
@@ -78,12 +79,20 @@ const tool: Tool = {
           break;
       }
 
+      // Domain filter for account type isolation
+      const domainFilter = buildDomainFilter(idx);
+      if (domainFilter.clause) {
+        params.push(...domainFilter.params);
+      }
+
       const sql = `
         SELECT
           ${dateTrunc} AS period,
-          SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS spending,
-          SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) AS income
-        FROM plaid_transactions
+          SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END) AS spending,
+          SUM(CASE WHEN t.amount < 0 THEN ABS(t.amount) ELSE 0 END) AS income
+        FROM plaid_transactions t
+        JOIN plaid_accounts a ON t.account_id = a.account_id AND a.workspace_id = t.workspace_id
+          ${domainFilter.clause}
         ${whereClause}
         GROUP BY ${dateTrunc}
         ORDER BY period
