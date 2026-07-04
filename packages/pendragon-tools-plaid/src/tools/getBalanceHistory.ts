@@ -4,6 +4,7 @@
 import { query, getWorkspaceId } from './utils/domainDb.js';
 import type { Tool } from '../../types.js';
 import { buildProvenance } from './utils/buildProvenance.js';
+import { buildDomainFilter, hasDomainPolicy } from './utils/getDomainPolicy.js';
 
 const tool: Tool = {
   name: 'get_balance_history',
@@ -48,9 +49,10 @@ const tool: Tool = {
       const endDate = args.end_date || today.toISOString().split('T')[0];
 
       // ── 1. Get current balance ────────────────────────────────
+      const acctDomainFilter = buildDomainFilter(3);
       const acctResult = await query(
-        'SELECT balance_current, name, synced_at FROM plaid_accounts WHERE account_id = $1 AND workspace_id = $2',
-        [account_id, wsId]
+        `SELECT a.balance_current, a.name, a.synced_at FROM plaid_accounts a WHERE a.account_id = $1 AND a.workspace_id = $2 ${acctDomainFilter.clause}`,
+        [account_id, wsId, ...acctDomainFilter.params]
       );
 
       if (acctResult.rows.length === 0) {
@@ -68,21 +70,24 @@ const tool: Tool = {
         : granularity === 'monthly' ? "date_trunc('month', date)::date"
         : 'date';
 
+      const txnDomainFilter = buildDomainFilter(5);
       const txnSql = `
         SELECT
           ${truncExpr} AS period,
-          SUM(amount) AS net_amount
-        FROM plaid_transactions
-        WHERE account_id = $1
-          AND date >= $2::date
-          AND date <= $3::date
-          AND pending = false
-          AND workspace_id = $4
+          SUM(t.amount) AS net_amount
+        FROM plaid_transactions t
+        JOIN plaid_accounts a ON t.account_id = a.account_id AND a.workspace_id = $4
+          ${txnDomainFilter.clause}
+        WHERE t.account_id = $1
+          AND t.date >= $2::date
+          AND t.date <= $3::date
+          AND t.pending = false
+          AND t.workspace_id = $4
         GROUP BY period
         ORDER BY period DESC
       `;
 
-      const txnResult = await query(txnSql, [account_id, startDate, endDate, wsId]);
+      const txnResult = await query(txnSql, [account_id, startDate, endDate, wsId, ...txnDomainFilter.params]);
 
       // ── 3. Walk backward from current balance ─────────────────
       // Start at today's balance and subtract each period's net to get earlier balances

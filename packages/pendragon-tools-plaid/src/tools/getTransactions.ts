@@ -4,6 +4,7 @@
 import { query, getWorkspaceId } from './utils/domainDb.js';
 import type { Tool } from '../../types.js';
 import { buildProvenance } from './utils/buildProvenance.js';
+import { buildDomainFilter, hasDomainPolicy } from './utils/getDomainPolicy.js';
 
 const tool: Tool = {
   name: 'get_transactions',
@@ -57,50 +58,50 @@ const tool: Tool = {
     const wsId = getWorkspaceId();
     try {
       const filters: Record<string, any> = {};
-      const conditions: string[] = ['workspace_id = $1'];
+      const conditions: string[] = ['t.workspace_id = $1'];
       const params: any[] = [wsId];
       let paramIdx = 2;
 
       // ── Build dynamic WHERE clause ──────────────────────────────
       if (args.account_id) {
-        conditions.push(`account_id = $${paramIdx++}`);
+        conditions.push(`t.account_id = $${paramIdx++}`);
         params.push(args.account_id);
         filters.account_id = args.account_id;
       }
 
       if (args.start_date) {
-        conditions.push(`date >= $${paramIdx++}::date`);
+        conditions.push(`t.date >= $${paramIdx++}::date`);
         params.push(args.start_date);
         filters.start_date = args.start_date;
       }
 
       if (args.end_date) {
-        conditions.push(`date <= $${paramIdx++}::date`);
+        conditions.push(`t.date <= $${paramIdx++}::date`);
         params.push(args.end_date);
         filters.end_date = args.end_date;
       }
 
       if (args.min_amount != null) {
-        conditions.push(`amount >= $${paramIdx++}`);
+        conditions.push(`t.amount >= $${paramIdx++}`);
         params.push(args.min_amount);
         filters.min_amount = args.min_amount;
       }
 
       if (args.max_amount != null) {
-        conditions.push(`amount <= $${paramIdx++}`);
+        conditions.push(`t.amount <= $${paramIdx++}`);
         params.push(args.max_amount);
         filters.max_amount = args.max_amount;
       }
 
       if (args.category) {
-        conditions.push(`LOWER(category) = LOWER($${paramIdx++})`);
+        conditions.push(`LOWER(t.category) = LOWER($${paramIdx++})`);
         params.push(args.category);
         filters.category = args.category;
       }
 
       if (args.search) {
         const searchParam = `%${args.search}%`;
-        conditions.push(`(name ILIKE $${paramIdx} OR merchant_name ILIKE $${paramIdx} OR category ILIKE $${paramIdx})`);
+        conditions.push(`(t.name ILIKE $${paramIdx} OR t.merchant_name ILIKE $${paramIdx} OR t.category ILIKE $${paramIdx})`);
         params.push(searchParam);
         paramIdx++;
         filters.search = args.search;
@@ -125,28 +126,38 @@ const tool: Tool = {
       const limit = Math.min(Math.max(parseInt(args.limit) || 50, 1), 500);
       filters.limit = limit;
 
+      // ── Domain filter for account type isolation ─────────────
+      const domainFilter = buildDomainFilter(paramIdx);
+      if (domainFilter.clause) {
+        params.push(...domainFilter.params);
+      }
+
       // ── Count + aggregate query ─────────────────────────────────
       const countSql = `
         SELECT
           COUNT(*)::int AS total_count,
-          COALESCE(SUM(amount), 0) AS total_amount
-        FROM plaid_transactions
+          COALESCE(SUM(t.amount), 0) AS total_amount
+        FROM plaid_transactions t
+        JOIN plaid_accounts a ON t.account_id = a.account_id AND a.workspace_id = t.workspace_id
+          ${domainFilter.clause}
         ${whereClause}
       `;
 
       // ── Data query ──────────────────────────────────────────────
       const dataSql = `
         SELECT
-          transaction_id,
-          account_id,
-          amount,
-          date,
-          name,
-          merchant_name,
-          category,
-          payment_channel,
-          pending
-        FROM plaid_transactions
+          t.transaction_id,
+          t.account_id,
+          t.amount,
+          t.date,
+          t.name,
+          t.merchant_name,
+          t.category,
+          t.payment_channel,
+          t.pending
+        FROM plaid_transactions t
+        JOIN plaid_accounts a ON t.account_id = a.account_id AND a.workspace_id = t.workspace_id
+          ${domainFilter.clause}
         ${whereClause}
         ORDER BY ${orderBy}
         LIMIT ${limit}

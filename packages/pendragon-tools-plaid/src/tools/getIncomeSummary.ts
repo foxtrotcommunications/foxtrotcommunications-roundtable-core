@@ -4,6 +4,7 @@
 import { query, getWorkspaceId } from './utils/domainDb.js';
 import type { Tool } from '../../types.js';
 import { buildProvenance } from './utils/buildProvenance.js';
+import { buildDomainFilter, hasDomainPolicy } from './utils/getDomainPolicy.js';
 
 const tool: Tool = {
   name: 'get_income_summary',
@@ -34,50 +35,60 @@ const tool: Tool = {
     try {
       const { account_id, start_date, end_date } = args;
 
-      const conditions: string[] = ['workspace_id = $1', 'amount < 0']; // negative = income
+      const conditions: string[] = ['t.workspace_id = $1', 't.amount < 0']; // negative = income
       const params: any[] = [wsId];
       let idx = 2;
 
       if (account_id) {
-        conditions.push(`account_id = $${idx++}`);
+        conditions.push(`t.account_id = $${idx++}`);
         params.push(account_id);
       }
       if (start_date) {
-        conditions.push(`date >= $${idx++}`);
+        conditions.push(`t.date >= $${idx++}`);
         params.push(start_date);
       }
       if (end_date) {
-        conditions.push(`date <= $${idx++}`);
+        conditions.push(`t.date <= $${idx++}`);
         params.push(end_date);
       }
 
       const whereClause = conditions.join(' AND ');
 
+      // Domain filter for account type isolation
+      const domainFilter = buildDomainFilter(idx);
+      if (domainFilter.clause) {
+        params.push(...domainFilter.params);
+      }
+
       // Get individual deposits
       const depositsSql = `
         SELECT
-          transaction_id,
-          account_id,
-          ABS(amount) AS amount,
-          date,
-          COALESCE(merchant_name, name) AS source,
-          category,
-          payment_channel
-        FROM plaid_transactions
+          t.transaction_id,
+          t.account_id,
+          ABS(t.amount) AS amount,
+          t.date,
+          COALESCE(t.merchant_name, t.name) AS source,
+          t.category,
+          t.payment_channel
+        FROM plaid_transactions t
+        JOIN plaid_accounts a ON t.account_id = a.account_id AND a.workspace_id = t.workspace_id
+          ${domainFilter.clause}
         WHERE ${whereClause}
-        ORDER BY date DESC
+        ORDER BY t.date DESC
       `;
       const depositsResult = await query(depositsSql, params);
 
       // Get aggregate stats
       const statsSql = `
         SELECT
-          SUM(ABS(amount))          AS total_income,
+          SUM(ABS(t.amount))          AS total_income,
           COUNT(*)                  AS deposit_count,
-          AVG(ABS(amount))          AS avg_deposit,
-          MIN(date)                 AS earliest_date,
-          MAX(date)                 AS latest_date
-        FROM plaid_transactions
+          AVG(ABS(t.amount))          AS avg_deposit,
+          MIN(t.date)                 AS earliest_date,
+          MAX(t.date)                 AS latest_date
+        FROM plaid_transactions t
+        JOIN plaid_accounts a ON t.account_id = a.account_id AND a.workspace_id = t.workspace_id
+          ${domainFilter.clause}
         WHERE ${whereClause}
       `;
       const statsResult = await query(statsSql, params);
@@ -103,11 +114,13 @@ const tool: Tool = {
       // Group income by source for chart
       const bySourceSql = `
         SELECT
-          COALESCE(merchant_name, name, 'Unknown') AS source,
-          SUM(ABS(amount)) AS total
-        FROM plaid_transactions
+          COALESCE(t.merchant_name, t.name, 'Unknown') AS source,
+          SUM(ABS(t.amount)) AS total
+        FROM plaid_transactions t
+        JOIN plaid_accounts a ON t.account_id = a.account_id AND a.workspace_id = t.workspace_id
+          ${domainFilter.clause}
         WHERE ${whereClause}
-        GROUP BY COALESCE(merchant_name, name, 'Unknown')
+        GROUP BY COALESCE(t.merchant_name, t.name, 'Unknown')
         ORDER BY total DESC
       `;
       const bySourceResult = await query(bySourceSql, params);
