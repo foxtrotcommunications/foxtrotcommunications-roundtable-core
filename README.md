@@ -4,7 +4,7 @@
 
 Multiple users collaborate on AI conversations in real-time — with built-in tools for querying data warehouses, executing code, and managing files. Each workspace is an isolated container with its own AI, tools, and persistent storage.
 
-[![License](https://img.shields.io/badge/license-proprietary-red.svg)](#license)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-414%20passing-brightgreen.svg)](#testing)
 [![Node](https://img.shields.io/badge/node-18%2B-blue.svg)](#prerequisites)
 [![CI](https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable-core/actions/workflows/ci.yml/badge.svg)](https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable-core/actions/workflows/ci.yml)
@@ -233,7 +233,7 @@ Auto-provisioned agreements between workspaces that define and enforce allowed a
 
 ---
 
-## Built-in Tools (23+)
+## Built-in Tools (27)
 
 All tools enabled by default. Toggle individually per workspace via the Settings panel.
 
@@ -241,12 +241,14 @@ All tools enabled by default. Toggle individually per workspace via the Settings
 |----------|-------|
 | **Web** | `web_search`, `read_url` |
 | **Code** | `run_code`, `shell_exec`, `calculator` |
-| **Files** | `read_file`, `write_file`, `list_directory`, `search_files` |
-| **Git** | `git_status`, `git_diff`, `git_log` |
-| **Data** | `query_bigquery`, `query_snowflake`, `query_databricks` |
+| **Files** | `read_file`, `write_file`, `list_files`, `find_file` |
+| **Git** | `git_clone`, `git_commit`, `git_pull` |
+| **Data** | `query_bigquery`, `query_snowflake`, `query_databricks`, `download_query_results` |
 | **Visualization** | `render_chart` |
+| **Provenance** | `emit_provenance` |
 | **Workspace** | `bridge_workspace`, `intent_bridge` |
 | **Agent** | `call_agent` |
+| **Meta** | `describe_workspace`, `verify_workspace` |
 | **Finance** | `get_financial_snapshot`, `list_accounts`, `get_balance`, `get_balance_history`, `get_transactions`, `get_spending_by_category`, `get_spending_by_merchant`, `get_recurring_charges`, `get_income_summary`, `get_cashflow` |
 
 Data warehouse tools enforce **read-only access** — write operations are blocked at the tool level.
@@ -451,7 +453,8 @@ k8s/
 
 | Version | Date | Highlights |
 |---------|------|------------|
-| **Unreleased** | — | ICE engine, capability registry, HKDF crypto, wake-proxy, 429 auto-fallback to `gemini-3.5-flash` |
+| **Unreleased** | — | — |
+| **v1.1.0** | 2026-07-04 | ICE engine, capability registry, HKDF crypto, wake-proxy, 429 auto-fallback, Pendragon tools plugin, goals system, demographics domain |
 | **v1.0.0** | 2026-05-16 | Initial release |
 
 See [CHANGELOG.md](CHANGELOG.md) for full details.
@@ -472,4 +475,4 @@ See [CHANGELOG.md](CHANGELOG.md) for full details.
 
 ## License
 
-UNLICENSED — Proprietary. © [Foxtrot Communications](https://foxtrotcommunications.net)
+Apache License 2.0 — see [LICENSE](LICENSE) for details. © [Foxtrot Communications](https://foxtrotcommunications.net)

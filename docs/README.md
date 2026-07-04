@@ -5,7 +5,7 @@
 Roundtable uses a **workspace-per-pod** architecture where each workspace runs as an independent container with:
 
 - **Express** server with Socket.IO for real-time multiplayer
-- **React** client (Vite) built at container start
+- **React** client (Vite) built at Docker build time (multi-stage build)
 - **PostgreSQL** for persistence (messages, users, workspaces, usage tracking); **SQLite** auto-fallback when no `DATABASE_URL` is set (local dev)
 - **AI Provider integration** (Vertex AI, OpenAI, Anthropic, Google AI)
 - **Tool system** with per-workspace allowlists

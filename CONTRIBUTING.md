@@ -25,7 +25,7 @@ npm run dev
 ## Code Style
 
 - **React + TypeScript** — the frontend is in `client/` (Vite + React)
-- **CommonJS** — the server uses `require()`, not ESM
+- **CommonJS + TypeScript** — the server uses CommonJS `require()` at runtime but is increasingly written in TypeScript (`.ts` files compiled via `tsx`). New code should be TypeScript
 - **Tool pattern** — new tools go in `server/tools/` and follow the existing `{ name, description, parameters, execute }` pattern
 - **Tests** — go in `tests/` mirroring the `server/` directory structure
 
@@ -46,4 +46,4 @@ Open a GitHub Issue with:
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the project's proprietary license.
+By contributing, you agree that your contributions will be licensed under the [Apache License 2.0](LICENSE).
