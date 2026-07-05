@@ -462,6 +462,7 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
     let fullText = '';
     let snapshotText = '';  // Captures text before post-response tool calls to prevent duplicates
     const toolResults: Array<{ name: string; result: Record<string, unknown> }> = [];
+    const injectedChartBlocks: string[] = [];  // Chart blocks injected from render_chart — tracked separately so they survive the done handler's fullText overwrite
 
     // Add a 4-minute timeout to prevent indefinite hangs
     const controller = new AbortController();
@@ -527,7 +528,7 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
             const chartResult = (typeof event.result === 'string' ? JSON.parse(event.result) : event.result) as Record<string, unknown>;
             const block = (chartResult.chartBlock as string) || '';
             if (block) {
-              fullText += '\n' + block + '\n';
+              injectedChartBlocks.push(block);
             }
           }
 
@@ -544,6 +545,12 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
             fullText = snapshotText;
           } else {
             fullText = event.fullText || fullText;
+          }
+          // Re-append any injected chart blocks that were wiped by the fullText overwrite
+          for (const block of injectedChartBlocks) {
+            if (!fullText.includes(block)) {
+              fullText = block + '\n' + fullText;
+            }
           }
           // Mark composing as done
           if (io) {
