@@ -825,7 +825,20 @@ For any response longer than ~3 sentences, use visual structure:
 - Keep paragraphs short — 2-4 sentences max
 - End with a clear bottom line or recommended next action
 
-NEVER write a wall of text. If your response has more than one idea, it needs structure.`;
+NEVER write a wall of text. If your response has more than one idea, it needs structure.
+
+--- FOLLOW-UP SUGGESTIONS ---
+At the END of every response, append 2-4 follow-up questions the user might want to ask next.
+Format them as an HTML comment on the LAST line of your response, like this:
+
+<!-- follow_ups: ["What would happen if I increased my monthly payment?", "How does this compare to investing the difference?"] -->
+
+Rules:
+- Questions should be specific and actionable — not generic ("Tell me more")
+- Questions should naturally follow from the analysis you just provided
+- Questions should span different angles (e.g. one deeper dive, one comparison, one "what if")
+- Always include exactly this format — the frontend parses it to show clickable suggestion chips
+- Never mention the follow-ups in your visible response text — they are metadata only`;
 
       // ── Governance Contract Context ──────────────────────────
       // Inject active contract info so the AI knows its governance relationships
