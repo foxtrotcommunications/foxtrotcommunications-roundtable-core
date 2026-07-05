@@ -141,7 +141,60 @@ interface ProcessMessageOptions {
  */
 function extractProvenance(toolResults: Array<{ name: string; result: Record<string, unknown> }>) {
   const intentResults = toolResults.filter(t => t.name === 'intent_bridge');
-  if (intentResults.length === 0) return null;
+  const emitOnlyResults = toolResults.filter(t => t.name === 'emit_provenance');
+
+  // If no intent_bridge AND no emit_provenance results, no provenance to extract
+  if (intentResults.length === 0 && emitOnlyResults.length === 0) return null;
+
+  // If no intent_bridge but we have emit_provenance, build minimal provenance
+  if (intentResults.length === 0 && emitOnlyResults.length > 0) {
+    const emitData = emitOnlyResults[0].result as any;
+    const ep = emitData || {};
+    // Build provenance from emit_provenance args (domainsConsulted, assumptions, etc.)
+    const domainsConsulted = ep.domainsConsulted || ep.domains_consulted || [];
+    const toolCallCount = ep.toolCallCount || ep.tool_call_count || 0;
+    const dataFreshMinutes = ep.dataFreshMinutes ?? ep.data_fresh_minutes ?? 0;
+    const claims = ep.claims || [];
+    const alignment = ep.alignment || {};
+
+    // Compute freshness from data age
+    const freshness = dataFreshMinutes <= 5 ? 100 : dataFreshMinutes <= 60 ? 90 : dataFreshMinutes <= 360 ? 75 : 50;
+    const alignmentScore = alignment.score ?? 100;
+    const confidencePct = Math.round(freshness * 0.5 + alignmentScore * 0.5);
+
+    return {
+      domains: domainsConsulted.map((d: string) => ({
+        name: d,
+        capability: 'query',
+        balance_coverage_pct: 100,
+        historical_coverage_pct: null,
+        verified_amount: 0,
+        inferred_amount: 0,
+        accounts: [],
+      })),
+      accounts: [],
+      accounts_analyzed: 0,
+      transactions_scanned: ep.transactionsScanned || 0,
+      answer_coverage_pct: 100,
+      confidence_pct: confidencePct,
+      confidence_factors: {
+        freshness,
+        historical_support: 0,
+        completeness: 0,
+        provenance_alignment: alignmentScore,
+      },
+      claims,
+      alignment_penalties: alignment.penalties || [],
+      executionMs: 0,
+      timestamp: new Date().toISOString(),
+      cached: false,
+      coverage_pct: 100,
+      confidence: confidencePct >= 85 ? 'high' as const : confidencePct >= 60 ? 'medium' as const : 'low' as const,
+      visible: [],
+      assumptions: ep.assumptions || [],
+      missing: ep.missingDomains || [],
+    };
+  }
 
   // Build a lookup from workspace ID → friendly bridge name
   const bridgeNameLookup: Record<string, string> = {};
