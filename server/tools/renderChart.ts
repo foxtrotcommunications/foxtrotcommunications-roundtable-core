@@ -6,7 +6,7 @@ import type { Tool } from '../types';
 
 const tool: Tool = {
   name: 'render_chart',
-  description: 'Render an interactive chart visualization inline in your response. The chart is automatically displayed to the user — do NOT include any raw JSON, chart blocks, or mermaid diagrams in your text. After the chart renders, simply provide a blockquote italic caption with the key takeaway and continue your analysis. Supports: bar, line, pie, doughnut, scatter, area, waterfall (value buildups), treemap (hierarchical proportions), fan (projections with confidence bands), scenario (side-by-side comparisons), overlap (exposure analysis), polar (radial proportions with magnitude), radar (multi-dimensional comparisons), and rose (coxcomb — each petal has variable angular width AND variable radius, encoding TWO variables simultaneously).',
+  description: 'Render an interactive chart visualization inline in your response. The chart is automatically displayed to the user — do NOT include any raw JSON, chart blocks, or mermaid diagrams in your text. After the chart renders, simply provide a blockquote italic caption with the key takeaway and continue your analysis. Supports: bar, line, pie, doughnut, scatter, area, waterfall, treemap, fan, scenario, overlap, polar, radar, rose. COMBO CHARTS: To mix chart types (e.g. income as bars + spending as line), set the overall type to "bar" and add a "type" field on individual datasets to override (e.g. {"label":"Spending","type":"line","data":[...]}).',
   parameters: {
     type: 'object',
     properties: {
@@ -30,6 +30,7 @@ const tool: Tool = {
           type: 'object',
           properties: {
             label: { type: 'string', description: 'Dataset name (legend label)' },
+            type: { type: 'string', enum: ['bar', 'line'], description: 'Override chart type for this dataset. Use for combo charts — e.g. set the overall type to "bar" and override one dataset to "line".' },
             data: { type: 'array', items: { oneOf: [{ type: 'number' }, { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' } }, required: ['x', 'y'] }, { type: 'object', properties: { label: { type: 'string' }, value: { type: 'number' }, group: { type: 'string' } }, required: ['label', 'value'] }] }, description: 'Data values. For scatter charts, use [{x, y}, ...]. For treemap, use [{label, value, group?}, ...]. For all other charts, use [number, ...].' },
             backgroundColor: { type: 'string', description: 'Fill color (CSS color string)' },
             borderColor: { type: 'string', description: 'Border color (CSS color string)' },
