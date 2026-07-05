@@ -520,6 +520,17 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
             io.to(wsChannel).emit('ai-status', { step: completedActivity.step, label: completedActivity.label, state: 'completed' });
           }
 
+          // render_chart: inject chartBlock directly into fullText so the
+          // A2A response includes the chart block, regardless of whether
+          // the model echoes it back in its text output.
+          if (event.name === 'render_chart' && event.result) {
+            const chartResult = (typeof event.result === 'string' ? JSON.parse(event.result) : event.result) as Record<string, unknown>;
+            const block = (chartResult.chartBlock as string) || '';
+            if (block) {
+              fullText += '\n' + block + '\n';
+            }
+          }
+
           // If we already have a substantial response and the model is doing
           // a follow-up tool call (e.g. emit_provenance after the main response),
           // snapshot the text so we don't append a duplicate response afterward.
