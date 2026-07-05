@@ -1051,6 +1051,18 @@ NEVER write a wall of text. If your response has more than one idea, it needs st
                   resultPreview: JSON.stringify(event.result).substring(0, 200),
                 }, socket.handshake?.address).catch(() => {});
               }
+              // render_chart: inject chartBlock directly into the stream so the
+              // frontend receives it as part of the response text, regardless of
+              // whether the model decides to echo it back.
+              if (event.name === 'render_chart' && event.result) {
+                const chartResult = event.result as Record<string, unknown>;
+                const block = (chartResult.chartBlock as string) || '';
+                if (block) {
+                  const injected = '\n' + block + '\n';
+                  fullText += injected;
+                  io.to(wsChannel).emit('ai-chunk', { content: injected, userId: socket.userId });
+                }
+              }
               // Notify code panel when workspace files change
               if (['write_file', 'git_clone', 'git_commit', 'shell_exec'].includes(event.name)) {
                 io.to(wsChannel).emit('workspace-changed', { tool: event.name });
