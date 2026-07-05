@@ -6,7 +6,7 @@ import type { Tool } from '../types';
 
 const tool: Tool = {
   name: 'render_chart',
-  description: 'Render an interactive chart visualization inline in your response. Supports: bar, line, pie, doughnut, scatter, area, waterfall (value buildups), treemap (hierarchical proportions), fan (projections with confidence bands), scenario (side-by-side comparisons), overlap (exposure analysis), polar (radial proportions with magnitude), radar (multi-dimensional comparisons), and rose (coxcomb — each petal has variable angular width AND variable radius, encoding TWO variables simultaneously). After calling this tool, you MUST include the returned chart block in your response text exactly as provided. After the chart, provide a blockquote italic caption with the key takeaway.',
+  description: 'Render an interactive chart visualization inline in your response. The chart is automatically displayed to the user — do NOT include any raw JSON, chart blocks, or mermaid diagrams in your text. After the chart renders, simply provide a blockquote italic caption with the key takeaway and continue your analysis. Supports: bar, line, pie, doughnut, scatter, area, waterfall (value buildups), treemap (hierarchical proportions), fan (projections with confidence bands), scenario (side-by-side comparisons), overlap (exposure analysis), polar (radial proportions with magnitude), radar (multi-dimensional comparisons), and rose (coxcomb — each petal has variable angular width AND variable radius, encoding TWO variables simultaneously).',
   parameters: {
     type: 'object',
     properties: {
@@ -116,12 +116,12 @@ const tool: Tool = {
       totals: args.totals || null,
     };
 
-    // Return the chart block — the AI MUST include this in its response
+    // Return the chart block — auto-injected into the stream by chatHandler
     const chartBlock = '```chart\n' + JSON.stringify(chartConfig) + '\n```';
 
     return {
       success: true,
-      message: `Chart rendered successfully. IMPORTANT: Include the following chart block in your response to display it to the user:\n\n${chartBlock}`,
+      message: `Chart "${chartConfig.title}" rendered successfully and is now visible to the user. Do NOT include any raw chart JSON, chart blocks, or mermaid diagrams in your response — the chart is already displayed. Simply continue with your analysis or commentary about what the chart shows.`,
       chartBlock,
     };
   },
