@@ -7,6 +7,7 @@
 import { ScopedPlaidClient } from '../plaid/client.js';
 import { withPool } from '../db/pool.js';
 import { getSchemaForDomain } from '../db/schemas.js';
+import { buildProvenance } from '../tools/utils/buildProvenance.js';
 import {
   syncAccounts,
   syncTransactions,
@@ -152,7 +153,8 @@ function createGetLiabilitiesHandler(config: PlaidPluginConfig): CapabilityHandl
          ORDER BY l.principal_balance DESC`,
         [config.workspaceId],
       );
-      return { liabilities: rows };
+      const provenance = await buildProvenance(false, false);
+      return { liabilities: rows, provenance };
     });
   };
 }
@@ -199,6 +201,7 @@ function createGetDebtSummaryHandler(config: PlaidPluginConfig): CapabilityHandl
           totalBalance: parseFloat(row.total_balance as string) || 0,
           avgRate: parseFloat(row.avg_rate as string) || 0,
         })),
+        provenance: await buildProvenance(false, false),
       };
     });
   };
@@ -219,7 +222,8 @@ function createGetCreditUtilizationHandler(config: PlaidPluginConfig): Capabilit
          ORDER BY utilization_pct DESC`,
         [config.workspaceId],
       );
-      return { accounts: rows };
+      const provenance = await buildProvenance(false, false);
+      return { accounts: rows, provenance };
     });
   };
 }

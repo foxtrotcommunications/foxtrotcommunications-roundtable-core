@@ -141,8 +141,13 @@ export function registerFromEnv(
   // Orchestrator workspaces (e.g. Arthur) delegate via bridges — they should
   // NOT register local financial tools that query their own empty tables.
   const explicitDomain = process.env.DOMAIN_TYPE || process.env.PLAID_DOMAIN_TYPE || '';
-  if (explicitDomain === 'arthur' || explicitDomain === 'orchestrator') {
-    console.log(`[pendragon-plaid] Skipping local tool registration for domain type: ${explicitDomain} (uses bridge delegation)`);
+  const wsRole = process.env.WORKSPACE_ROLE || '';
+  if (
+    explicitDomain === 'arthur' || explicitDomain === 'orchestrator' ||
+    explicitDomain === 'null' ||
+    wsRole === 'orchestrator'
+  ) {
+    console.log(`[pendragon-plaid] Skipping local tool registration for domain type: ${explicitDomain || '(unset)'}, role: ${wsRole || '(unset)'} (uses bridge delegation)`);
     return;
   }
 
