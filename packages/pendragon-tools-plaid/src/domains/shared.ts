@@ -1,9 +1,10 @@
-// src/domains/shared.ts — Shared handlers and sync logic for Plaid-backed domains
-// Contains reusable functions used by multiple domain modules (checking, debt, etc.)
-// Domain files import these and register them as domain-specific capabilities.
+// src/domains/shared.ts — Shared domain module utilities
+// Contains common Plaid sync logic and capability handlers that are
+// reused across checking, savings, taxes, investments, and retirement.
 
 import { ScopedPlaidClient } from '../plaid/client.js';
 import { withPool } from '../db/pool.js';
+import { buildProvenance } from '../tools/utils/buildProvenance.js';
 import type { PlaidPluginConfig, CapabilityHandler } from '../types.js';
 
 type Pool = InstanceType<typeof import('pg').Pool>;
@@ -236,7 +237,8 @@ export function createGetBalancesHandler(config: PlaidPluginConfig): CapabilityH
          ORDER BY name`,
         [config.workspaceId],
       );
-      return { accounts: rows };
+      const provenance = await buildProvenance(false, false);
+      return { accounts: rows, provenance };
     });
   };
 }
@@ -286,7 +288,8 @@ export function createGetTransactionsHandler(config: PlaidPluginConfig): Capabil
       params.push(limit);
 
       const { rows } = await pool.query(sql, params);
-      return { transactions: rows, count: rows.length };
+      const provenance = await buildProvenance(true, rows.length > 0);
+      return { transactions: rows, count: rows.length, provenance };
     });
   };
 }
