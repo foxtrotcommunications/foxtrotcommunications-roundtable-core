@@ -241,8 +241,38 @@ export function extractProvenance(toolResults: Array<{ name: string; result: Rec
   let latestSyncedAt: string | null = null;
   let isHistorical = false;
 
+  // ── Lookup coverage ────────────────────────────────────────
+  // Failed cross-workspace lookups were previously dropped on the floor here
+  // (`if (!success) continue`), which made confidence blind to missing
+  // domains: an answer that admitted "domain X did not respond" still scored
+  // 100%. Track attempted vs. failed target:capability pairs so coverage can
+  // feed the confidence score. A key that fails once but succeeds on a later
+  // attempt (transient error + retry) is not counted as failed.
+  const attemptedLookups = new Set<string>();
+  const succeededLookups = new Set<string>();
+  const failedLookupLabels = new Map<string, string>();
+
   for (const tr of intentResults) {
     const r = tr.result as any;
+
+    // Self-bridge guidance results are not lookups; skip accounting.
+    if (!r?.skipped) {
+      const lookupTarget: string =
+        r?.target ||
+        (typeof r?.error === 'string' ? (r.error.match(/No bridge found for "([^"]+)"/)?.[1] || '') : '');
+      const lookupCap: string = r?.toolExecuted || r?.capability || r?.tool || '';
+      const lookupKey = `${lookupTarget || 'unknown'}:${lookupCap || 'call'}`;
+      attemptedLookups.add(lookupKey);
+      if (r?.success) {
+        succeededLookups.add(lookupKey);
+      } else {
+        const label = lookupTarget && lookupCap
+          ? `${lookupTarget} (${lookupCap})`
+          : lookupTarget || lookupCap || (typeof r?.error === 'string' ? r.error.slice(0, 80) : 'unknown lookup');
+        failedLookupLabels.set(lookupKey, label);
+      }
+    }
+
     if (!r?.success) continue;
 
     // Detect query type from capability name
@@ -393,11 +423,28 @@ export function extractProvenance(toolResults: Array<{ name: string; result: Rec
   const isReconstructed = isHistorical; // only for trend/cashflow queries
   const reconstruction: number | null = isReconstructed ? 80 : null; // base score, refined later
 
+  // Lookup coverage: fraction of attempted cross-workspace lookups that
+  // ultimately succeeded. Distinct target:capability keys; a later success
+  // for the same key clears an earlier failure.
+  const effectiveFailedLookups = [...failedLookupLabels.keys()].filter(k => !succeededLookups.has(k));
+  const lookupAttemptCount = attemptedLookups.size;
+  const lookupSuccessPct = lookupAttemptCount > 0
+    ? Math.round(((lookupAttemptCount - effectiveFailedLookups.length) / lookupAttemptCount) * 100)
+    : 100;
+
   // Weighted confidence — only include factors relevant to the query
   const factors: Array<{ value: number; weight: number; key: string }> = [
     { value: freshness, weight: 0.35, key: 'freshness' },
     { value: alignmentScore, weight: 0.25, key: 'alignment' },
   ];
+
+  // Lookup coverage always weighs in when at least one cross-workspace lookup
+  // was attempted — a failed domain/capability must dent confidence even when
+  // every claim that WAS made is verified. (This is what previously allowed
+  // "Demographics did not respond" to coexist with a 100% confidence badge.)
+  if (lookupAttemptCount > 0) {
+    factors.push({ value: lookupSuccessPct, weight: 0.30, key: 'lookup' });
+  }
 
   // Only include historical support if this is a historical query OR accounts have history
   if (isHistorical || accountsWithHistory > 0) {
@@ -439,9 +486,13 @@ export function extractProvenance(toolResults: Array<{ name: string; result: Rec
       historical_support: (isHistorical || accountsWithHistory > 0) ? historicalSupport : undefined,
       completeness: (totalAccounts > 0 && isHistorical) ? completeness : undefined,
       provenance_alignment: alignmentScore, // from emit_provenance claim classification
+      lookup_success: lookupAttemptCount > 0 ? lookupSuccessPct : undefined,
       reconstruction: reconstruction ?? undefined,
     },
     claims,
+    // Human-readable labels for lookups that never succeeded this turn —
+    // lets the UI show WHY confidence was docked, not just that it was.
+    failed_lookups: effectiveFailedLookups.map(k => failedLookupLabels.get(k)),
     alignment_penalties: alignmentPenalties,
     executionMs: totalExecutionMs,
     timestamp: new Date().toISOString(),
