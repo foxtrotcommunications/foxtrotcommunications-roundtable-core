@@ -44,7 +44,6 @@
     "@google/genai": "^2.2.0",
     "@grpc/grpc-js": "^1.14.4",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@pendragon/tools-plaid": "file:packages/pendragon-tools-plaid",
     "@socket.io/redis-adapter": "^8.3.0",
     "bcryptjs": "^2.4.3",
     "connect-pg-simple": "^10.0.0",
