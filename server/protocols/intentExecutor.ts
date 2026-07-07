@@ -67,9 +67,28 @@ function isActionAuthorized(action: string, allowedActions: string[]): boolean {
 
 /**
  * Validate that a SQL string contains only read-only operations.
- * Returns an error message if blocked patterns are detected, undefined otherwise.
+ * Returns an error message if the query is unsafe, undefined otherwise.
+ *
+ * Uses an allowlist (must begin with SELECT/WITH) plus a single-statement
+ * check plus a keyword blocklist. The allowlist is the primary guard — a
+ * blocklist alone is easy to slip past. None of this replaces the durable
+ * control, which is a read-only database role at the connection level.
  */
 function validateSqlSafety(sql: string): string | undefined {
+  const trimmed = sql.trim();
+
+  // Allowlist: a read-only query must begin with SELECT or WITH.
+  if (!/^(SELECT|WITH)\b/i.test(trimmed)) {
+    return 'Only read-only queries (SELECT/WITH) are allowed.';
+  }
+
+  // Reject stacked statements (e.g. "SELECT 1; DELETE FROM users"). A single
+  // trailing semicolon is permitted; a semicolon followed by more SQL is not.
+  if (/;\s*\S/.test(trimmed.replace(/;\s*$/, ''))) {
+    return 'Only read-only queries (SELECT/WITH) are allowed. Multiple statements are not permitted.';
+  }
+
+  // Keyword blocklist as a second layer of defence.
   for (const pattern of BLOCKED_SQL_PATTERNS) {
     if (pattern.test(sql)) {
       return 'Only read-only queries (SELECT/WITH) are allowed. Blocked write operation detected.';
@@ -240,8 +259,8 @@ async function executeCapability(
  *
  * Flow:
  *   1. Validate intent structure
- *   2. Check intent cache → return cached result if hit
- *   3. Authorize action against contract
+ *   2. Authorize action against contract
+ *   3. Check intent cache → return cached result if hit
  *   4. Dispatch to operation executor (with SQL fusion for aggregates)
  *   5. Build execution proof (verifiable trace)
  *   6. Cache successful result
@@ -264,21 +283,11 @@ export async function executeIntentToken(
       });
     }
 
-    // 2. Check intent cache
-    const cached = intentCache.get(token.intent);
-    if (cached) {
-      intentMetrics.record(cached.toolExecuted || 'cache_hit', 0, true);
-      intentMetrics.recordCacheHit();
-      // Re-sign the cached result with current token ID and timestamp
-      return buildResult(token, ctx, startTime, policyChecks, {
-        status: 'success',
-        data: cached.data,
-        toolExecuted: cached.toolExecuted,
-        cached: true,
-      });
-    }
-
-    // 3. Authorize the action against the contract
+    // 2. Authorize the action against the contract BEFORE any cache lookup.
+    //    The intent cache is keyed by intent alone, not by contract, so a cache
+    //    hit must never be served to a caller whose contract does not authorize
+    //    the action — otherwise one contract could read results it is not
+    //    permitted to request. Authorizing first closes that gap.
     const action = intentOpToAction(token.intent);
     const authorized = isActionAuthorized(action, ctx.contract.allowedActions);
     policyChecks.push({
@@ -291,6 +300,20 @@ export async function executeIntentToken(
       return buildResult(token, ctx, startTime, policyChecks, {
         status: 'denied',
         error: `Action '${action}' is not authorized by contract '${ctx.contract.contractId}'`,
+      });
+    }
+
+    // 3. Check intent cache (only reached once the action is authorized)
+    const cached = intentCache.get(token.intent);
+    if (cached) {
+      intentMetrics.record(cached.toolExecuted || 'cache_hit', 0, true);
+      intentMetrics.recordCacheHit();
+      // Re-sign the cached result with current token ID and timestamp
+      return buildResult(token, ctx, startTime, policyChecks, {
+        status: 'success',
+        data: cached.data,
+        toolExecuted: cached.toolExecuted,
+        cached: true,
       });
     }
 
