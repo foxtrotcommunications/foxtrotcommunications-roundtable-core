@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Image: us-central1-docker.pkg.dev/roundtable-public/roundtable/roundtable-core:latest
 # ─── Stage 1: Build React client ───
 FROM node:20-alpine AS client-build
@@ -27,6 +28,19 @@ COPY package*.json ./
 COPY packages/ ./packages/
 RUN npm install --omit=dev --omit=optional && \
     npm install tsx
+
+# Optional private plugins (e.g. @pendragon/tools-plaid) from Artifact Registry.
+# Installed only when a PLUGINS build-arg AND a gar_token BuildKit secret are
+# provided — public builds without them are unaffected. The token is read from
+# the secret mount so it never lands in an image layer. See packages/README.md.
+ARG PLUGINS=""
+RUN --mount=type=secret,id=gar_token,required=false,uid=0 \
+    if [ -n "$PLUGINS" ] && [ -s /run/secrets/gar_token ]; then \
+      echo "@pendragon:registry=https://us-central1-npm.pkg.dev/roundtable-public/pendragon-npm/" > /tmp/.npmrc-plugins && \
+      echo "//us-central1-npm.pkg.dev/roundtable-public/pendragon-npm/:_authToken=$(cat /run/secrets/gar_token)" >> /tmp/.npmrc-plugins && \
+      npm install --omit=dev --userconfig /tmp/.npmrc-plugins $PLUGINS && \
+      rm -f /tmp/.npmrc-plugins; \
+    fi
 
 # Copy server source
 COPY server/ ./server/

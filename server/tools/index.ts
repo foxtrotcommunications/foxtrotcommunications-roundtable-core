@@ -93,8 +93,9 @@ try {
 // ─── Demographics Domain Tools ──────────────────────────────────────
 // Demographics tools (get_user_profile, get_household, get_financial_goals,
 // get_investment_preferences) are now registered via the @pendragon/tools-plaid
-// plugin in packages/pendragon-tools-plaid/src/domains/demographics.ts.
-// Auto-detected via workspace name containing 'demographics'.
+// plugin (maintained in the pendragon repo, installed from Artifact Registry —
+// see packages/README.md). Auto-detected via workspace name containing
+// 'demographics'.
 
 // ─── Dynamic Tool Registry (MCP servers inject tools here) ─────────
 // Dynamic tools are stored separately and merged at resolve-time.
