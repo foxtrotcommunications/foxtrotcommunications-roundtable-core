@@ -139,7 +139,7 @@ interface ProcessMessageOptions {
  * Extract structured provenance from tool results.
  * Captures which domains/capabilities were queried, accounts accessed, timing, etc.
  */
-function extractProvenance(toolResults: Array<{ name: string; result: Record<string, unknown> }>) {
+export function extractProvenance(toolResults: Array<{ name: string; result: Record<string, unknown> }>) {
   const intentResults = toolResults.filter(t => t.name === 'intent_bridge');
   const emitOnlyResults = toolResults.filter(t => t.name === 'emit_provenance');
 
@@ -430,8 +430,14 @@ function extractProvenance(toolResults: Array<{ name: string; result: Record<str
     confidence_pct: confidencePct,
     confidence_factors: {
       freshness,
-      historical_support: historicalSupport,
-      completeness,
+      // Historical support and completeness measure verified-history coverage
+      // of the accounts touched. They are only meaningful (and only feed the
+      // weighted confidence above) when the query is historical — reporting
+      // them as 0 for a scoped balance question made the UI show "0%
+      // completeness" beside a 100% confidence. Omit them when they were not
+      // factors in the confidence calculation.
+      historical_support: (isHistorical || accountsWithHistory > 0) ? historicalSupport : undefined,
+      completeness: (totalAccounts > 0 && isHistorical) ? completeness : undefined,
       provenance_alignment: alignmentScore, // from emit_provenance claim classification
       reconstruction: reconstruction ?? undefined,
     },
@@ -773,4 +779,6 @@ function cancelTask(taskId: string): A2aTask | null {
   return task;
 }
 
-module.exports = { processMessage, getTask, cancelTask, taskStore };
+// NOTE: this CJS export object overrides any `export` statements above under
+// the tsx/ts-jest CJS transforms — new exports must be added HERE.
+module.exports = { processMessage, getTask, cancelTask, taskStore, extractProvenance };
