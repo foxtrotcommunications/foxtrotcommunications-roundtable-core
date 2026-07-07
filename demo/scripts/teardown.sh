@@ -78,7 +78,7 @@ echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 echo -e "This will permanently delete:"
 echo -e "  • Kubernetes namespace: ${YELLOW}$NAMESPACE${NC}"
-echo -e "  • Per-workspace DB roles: ${YELLOW}$(jq -r '.[].dbRole // empty' "$CONFIG_DIR/workspaces.json" | grep -v '^$' | tr '\n' ', ' | sed 's/,$//')${NC}"
+echo -e "  • Per-workspace DB roles: ${YELLOW}$(jq -r '.[].id // empty' "$CONFIG_DIR/workspaces.json" | grep -v '^$' | tr '\n' ', ' | sed 's/,$//')${NC}"
 echo -e "  • Demo data in shared database: ${YELLOW}roundtable${NC}"
 echo -e "  • Firestore documents:  ${YELLOW}organizations/$ORG_ID/**${NC}"
 echo ""
@@ -121,17 +121,20 @@ if [[ "$K8S_ONLY" == false ]]; then
   log_info "Dropping per-workspace DB roles..."
   WORKSPACE_COUNT=$(jq length "$CONFIG_DIR/workspaces.json")
   for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
-    DB_ROLE=$(jq -r ".[$i].dbRole // empty" "$CONFIG_DIR/workspaces.json")
+    # Roles are named after the workspace id (see setup.sh Phase 2c).
+    DB_ROLE=$(jq -r ".[$i].id" "$CONFIG_DIR/workspaces.json")
     WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
 
-    if [[ -n "$DB_ROLE" ]]; then
+    if [[ -n "$DB_ROLE" && "$DB_ROLE" != "null" ]]; then
+      # Identifiers are double-quoted: workspace ids are mixed-case, and an
+      # unquoted identifier would be folded to lowercase and fail to match.
       psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
         --quiet --no-psqlrc -c "
           -- Revoke all privileges first (required before DROP ROLE)
-          REVOKE ALL ON ALL TABLES IN SCHEMA public FROM ${DB_ROLE};
-          REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM ${DB_ROLE};
-          REVOKE USAGE ON SCHEMA public FROM ${DB_ROLE};
-          DROP ROLE IF EXISTS ${DB_ROLE};
+          REVOKE ALL ON ALL TABLES IN SCHEMA public FROM \"${DB_ROLE}\";
+          REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM \"${DB_ROLE}\";
+          REVOKE USAGE ON SCHEMA public FROM \"${DB_ROLE}\";
+          DROP ROLE IF EXISTS \"${DB_ROLE}\";
         " 2>/dev/null && \
         log_success "Dropped role: $DB_ROLE ($WS_NAME)" || \
         log_warn "Could not drop role: $DB_ROLE ($WS_NAME)"
