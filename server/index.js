@@ -679,9 +679,12 @@ async function shutdown(signal) {
     if (typeof endPool === 'function') await endPool();
   } catch { /* domainDb may not be loaded */ }
   try {
-    const { endAllPools } = require('../packages/pendragon-tools-plaid/dist/db/pool.js');
+    // Resolve via the package main so we close the SAME module instance the
+    // tools loaded at runtime — a deep path into dist/ is a different module
+    // graph under tsx, whose pool cache is always empty.
+    const { endAllPools } = require('@pendragon/tools-plaid');
     if (typeof endAllPools === 'function') await endAllPools();
-  } catch { /* pendragon pool cache may not be loaded */ }
+  } catch { /* pendragon plugin not installed */ }
   process.exit(0);
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));

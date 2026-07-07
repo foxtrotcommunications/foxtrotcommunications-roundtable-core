@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.1.0] — 2026-07-04
+### Changed
+
+- **`@pendragon/tools-plaid` extracted from this repository** — the plugin source now lives in the private `pendragon` repository (`packages/tools-plaid`) and is consumed from Google Artifact Registry instead of a vendored `file:` dependency. Production images install it at build time via a `PLUGINS` build-arg and a `gar_token` BuildKit secret (see `packages/README.md`); builds without them produce a plugin-free open-source image. All plugin load sites were already optional with graceful fallbacks.
+- **Intent executor authorizes before cache lookup** — the contract action check now runs before the intent cache is consulted, so a cached result can no longer be served to a contract whose `allowedActions` does not include the action.
+- **SQL safety guard is allowlist-first** — compiled `query` intents must begin with `SELECT`/`WITH` and may not contain stacked statements; the keyword blocklist is retained as a second layer.
+
+### Fixed
+
+- **Shutdown pool cleanup was a no-op** — `endAllPools` was required via a deep path into the plugin's `dist/`, a different module instance from the tsx-loaded `src/` graph, so its pool cache was always empty. It is now exported from the package main and resolved normally.
 
 ### Added
 

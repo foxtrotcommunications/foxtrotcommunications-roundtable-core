@@ -1,1 +1,0 @@
-{"version":3,"file":"demographics.d.ts","sourceRoot":"","sources":["../../src/domains/demographics.ts"],"names":[],"mappings":"AAQA,OAAO,KAAK,EACV,iBAAiB,EACjB,YAAY,EACZ,kBAAkB,EAEnB,MAAM,aAAa,CAAC;AAgErB,wBAAgB,yBAAyB,CAAC,QAAQ,EAAE,YAAY,EAAE,MAAM,EAAE,iBAAiB,GAAG,IAAI,CAgDjG;AAID,wBAAgB,gCAAgC,CAAC,QAAQ,EAAE,kBAAkB,EAAE,MAAM,EAAE,iBAAiB,GAAG,IAAI,CAsD9G"}
