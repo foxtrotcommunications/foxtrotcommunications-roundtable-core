@@ -26,19 +26,26 @@ RUN apk add --no-cache git python3 py3-pip && \
 ARG CACHEBUST=1
 COPY package*.json ./
 COPY packages/ ./packages/
-RUN npm install --omit=dev --omit=optional && \
-    npm install tsx
+RUN npm install --omit=dev --omit=optional
+
+# Runtime TypeScript loader. Installed GLOBALLY on purpose: a local
+# `npm install tsx` reifies against this project's lockfile and silently drops
+# the request (exit 0, tsx absent) — which is what broke the runtime CMD. A
+# global install lives outside the project tree and cannot be pruned. The CMD
+# below invokes `tsx` from PATH.
+RUN npm install -g tsx
 
 # Optional private plugins (e.g. @pendragon/tools-plaid) from Artifact Registry.
 # Installed only when a PLUGINS build-arg AND a gar_token BuildKit secret are
-# provided — public builds without them are unaffected. The token is read from
-# the secret mount so it never lands in an image layer. See packages/README.md.
+# provided — public builds without them are unaffected. --no-save keeps
+# package.json pristine; the token is read from the secret mount so it never
+# lands in an image layer. See packages/README.md.
 ARG PLUGINS=""
 RUN --mount=type=secret,id=gar_token,required=false,uid=0 \
     if [ -n "$PLUGINS" ] && [ -s /run/secrets/gar_token ]; then \
       echo "@pendragon:registry=https://us-central1-npm.pkg.dev/roundtable-public/pendragon-npm/" > /tmp/.npmrc-plugins && \
       echo "//us-central1-npm.pkg.dev/roundtable-public/pendragon-npm/:_authToken=$(cat /run/secrets/gar_token)" >> /tmp/.npmrc-plugins && \
-      npm install --omit=dev --userconfig /tmp/.npmrc-plugins $PLUGINS && \
+      npm install --omit=dev --no-save --userconfig /tmp/.npmrc-plugins $PLUGINS && \
       rm -f /tmp/.npmrc-plugins; \
     fi
 
@@ -74,4 +81,4 @@ USER roundtable
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- http://localhost:3000/api/health || exit 1
 
-CMD ["node_modules/.bin/tsx", "server/index.js"]
+CMD ["tsx", "server/index.js"]
