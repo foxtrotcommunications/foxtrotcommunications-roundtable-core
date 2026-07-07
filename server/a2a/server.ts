@@ -283,7 +283,12 @@ function extractProvenance(toolResults: Array<{ name: string; result: Record<str
         }
 
         domainEntry.verified_amount = p.balance_verified || 0;
-        domainEntry.inferred_amount = (p.total_balance || 0) - (p.historical_verified || 0);
+        // Inferred = the portion of the balance NOT directly verified from
+        // source. Institution balances are fully verified, so this is 0 for a
+        // pure balance query. (The previous formula subtracted
+        // historical_verified, which is 0 for non-historical calls and made
+        // inferred wrongly equal the whole balance.)
+        domainEntry.inferred_amount = Math.max(0, (p.total_balance || 0) - (p.balance_verified || 0));
         domainEntry.balance_coverage_pct = p.total_balance > 0
           ? Math.round((p.balance_verified / p.total_balance) * 100) : 100;
         domainEntry.historical_coverage_pct = p.total_balance > 0
@@ -294,7 +299,10 @@ function extractProvenance(toolResults: Array<{ name: string; result: Record<str
         }
       }
 
-      domains.push(domainEntry);
+      // Skip pure transport/discovery capabilities — they carry no financial
+      // data and would render as $0/$0 noise rows in the provenance footer.
+      const isTransport = /(^|:|\.)(discover|verify_workspace|describe_workspace)$/i.test(capName);
+      if (!isTransport) domains.push(domainEntry);
     }
 
     // Extract account names
