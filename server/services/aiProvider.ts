@@ -34,6 +34,16 @@ const NON_TRANSIENT_PATTERNS = [
   'Contract rejected',
   'contract_rejected',
   'signature_invalid',
+  // Bridge / capability resolution failures. These cannot succeed on retry
+  // within a turn — the target or capability simply does not exist here. Left
+  // transient, a model that hallucinates a target (e.g. bridging to a
+  // non-existent "financial_plan") retries it across tool rounds, re-composing
+  // its full answer each round (user sees the report duplicated). Marking them
+  // permanent blocks the bad key after the first attempt — per-target, so
+  // healthy domains are unaffected.
+  'No bridge found',
+  'is not registered in this workspace',
+  'is not available in this workspace',
 ];
 const NON_TRANSIENT_STATUS_CODES = [401, 403];
 
