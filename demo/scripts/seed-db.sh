@@ -130,8 +130,41 @@ if [[ "$SEED_ONLY" == false && "$SYNC_SETTINGS_ONLY" == false ]]; then
   run_sql "$SQL_DIR/03-schema-investments.sql"   "Investments schema (holdings, securities)"
   run_sql "$SQL_DIR/04-schema-demographics.sql"  "Demographics schema (profiles, households)"
 
-  log_step "Creating Per-Workspace DB Roles + RLS Policies"
-  run_sql "$SQL_DIR/05-roles-rls.sql"            "Roles + RLS (rt_checking, rt_debt, ...)"
+  # Admin BYPASSRLS setup. RLS policies themselves are created inline by the
+  # schema files above (USING (workspace_id = current_user), FORCE ROW LEVEL).
+  log_step "Applying RLS admin setup"
+  run_sql "$SQL_DIR/05-roles-rls.sql"            "Admin BYPASSRLS"
+
+  # Per-workspace DB roles. Each role is named after the workspace id so the
+  # RLS predicate (workspace_id = current_user) matches the seeded workspace_id.
+  # Mirrors setup.sh; makes this script self-sufficient against a fresh DB.
+  log_step "Creating Per-Workspace DB Roles"
+  for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
+    ROLE_WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
+    DB_ROLE=$(jq -r ".[$i].id" "$CONFIG_DIR/workspaces.json")
+    [[ -z "$DB_ROLE" || "$DB_ROLE" == "null" ]] && continue
+    DB_ROLE_PASS="demo_${DB_ROLE}"
+
+    psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
+      --quiet --no-psqlrc <<-EOSQL 2>&1 | grep -v "NOTICE" || true
+      DO \$\$
+      BEGIN
+        IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '${DB_ROLE}') THEN
+          CREATE ROLE "${DB_ROLE}" WITH LOGIN PASSWORD '${DB_ROLE_PASS}';
+        ELSE
+          ALTER ROLE "${DB_ROLE}" WITH LOGIN PASSWORD '${DB_ROLE_PASS}';
+        END IF;
+      END
+      \$\$;
+      GRANT CONNECT ON DATABASE ${DB_NAME} TO "${DB_ROLE}";
+      GRANT ALL ON SCHEMA public TO "${DB_ROLE}";
+      GRANT ALL ON ALL TABLES IN SCHEMA public TO "${DB_ROLE}";
+      GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO "${DB_ROLE}";
+      ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO "${DB_ROLE}";
+      ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO "${DB_ROLE}";
+EOSQL
+    log_success "Role: $DB_ROLE ($ROLE_WS_NAME)"
+  done
 fi
 
 # ---------------------------------------------------------------------------
@@ -143,7 +176,7 @@ if [[ "$SCHEMA_ONLY" == false && "$SYNC_SETTINGS_ONLY" == false ]]; then
   for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
     DOMAIN_TYPE=$(jq -r ".[$i].domainType" "$CONFIG_DIR/workspaces.json")
     WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
-    DB_ROLE=$(jq -r ".[$i].dbRole // empty" "$CONFIG_DIR/workspaces.json")
+    DB_ROLE=$(jq -r ".[$i].id" "$CONFIG_DIR/workspaces.json")
 
     case "$DOMAIN_TYPE" in
       checking)
@@ -209,7 +242,7 @@ log_info "Architecture: per-workspace DB roles + Row Level Security"
 echo ""
 for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
   WS_NAME=$(jq -r ".[$i].name" "$CONFIG_DIR/workspaces.json")
-  DB_ROLE=$(jq -r ".[$i].dbRole // \"n/a\"" "$CONFIG_DIR/workspaces.json")
+  DB_ROLE=$(jq -r ".[$i].id // \"n/a\"" "$CONFIG_DIR/workspaces.json")
   DOMAIN_TYPE=$(jq -r ".[$i].domainType" "$CONFIG_DIR/workspaces.json")
   echo -e "  ${GREEN}✓${NC} $WS_NAME → role: $DB_ROLE (domain: ${DOMAIN_TYPE:-orchestrator})"
 done
