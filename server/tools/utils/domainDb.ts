@@ -2,8 +2,9 @@
 // Uses a singleton pool per process to avoid connection churn.
 // All domain tools (getFinancialSnapshot, getTransactions, etc.) import this.
 //
-// NOTE: This is the server-side (CJS) copy. The pendragon-tools-plaid package
-// has its own pool singleton (ESM) in packages/pendragon-tools-plaid/src/db/pool.ts.
+// NOTE: This is the server-side (CJS) copy. The @pendragon/tools-plaid package
+// (maintained in the pendragon repo) has its own pool singleton (ESM) in its
+// src/db/pool.ts.
 // Both use max: 3 connections so even in the worst case we cap at 6 connections
 // for domain work (vs. the previous 10+).
 

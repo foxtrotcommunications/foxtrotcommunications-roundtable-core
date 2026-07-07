@@ -103,7 +103,14 @@ jobs:
         id: build
         run: |
           IMAGE=${{ env.ARTIFACT_REGISTRY }}/roundtable-core:${{ github.sha }}
-          docker build --no-cache -t $IMAGE -t ${{ env.ARTIFACT_REGISTRY }}/roundtable-core:latest .
+          # Short-lived token for the private plugin registry, passed as a
+          # BuildKit secret so it never enters an image layer.
+          gcloud auth print-access-token > /tmp/gar_token
+          docker build --no-cache \
+            --build-arg PLUGINS="@pendragon/tools-plaid@^1.2.1" \
+            --secret id=gar_token,src=/tmp/gar_token \
+            -t $IMAGE -t ${{ env.ARTIFACT_REGISTRY }}/roundtable-core:latest .
+          rm -f /tmp/gar_token
           docker push $IMAGE
           docker push ${{ env.ARTIFACT_REGISTRY }}/roundtable-core:latest
           echo "image=$IMAGE" >> $GITHUB_OUTPUT
