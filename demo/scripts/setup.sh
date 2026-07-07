@@ -7,7 +7,6 @@
 #   2. Ensures shared Cloud SQL database + per-workspace DB roles
 #   3. Runs schema migrations (once against shared DB)
 #   4. Seeds demo data (all into shared DB with RLS)
-#   4.5 Creates ConfigMap patches from local source
 #   4.75 Deploys PgBouncer (centralized connection pooler)
 #   5. Creates Kubernetes deployments for each workspace
 #   5.5 Creates Ingress with host rules
@@ -280,30 +279,17 @@ for i in $(seq 0 $((WORKSPACE_COUNT - 1))); do
 done
 
 # ---------------------------------------------------------------------------
-# Phase 4.5: ConfigMap Patches
+# Phase 4.5 (REMOVED): ConfigMap source patches
+#
+# The demo used to mount ConfigMap snapshots of four server source files over
+# the container image (server.ts, intentBridge.ts, aiProvider.ts,
+# contractAuth.js) as a hotfix mechanism. Those snapshots silently shadowed
+# every subsequent image deploy — pods kept running weeks-old code no matter
+# what was built — which is how the A2A chart-injection fix shipped in the
+# image but never ran. All patched fixes are merged upstream; pods now run
+# the image's code directly. Do not reintroduce source mounts — ship fixes
+# through the image.
 # ---------------------------------------------------------------------------
-if [[ "$SKIP_K8S" == false ]]; then
-  log_step "Phase 4.5: ConfigMap Patches"
-
-  for cm_spec in \
-    "a2a-server-patch:server.ts:$REPO_ROOT/server/a2a/server.ts" \
-    "intent-bridge-patch:intentBridge.ts:$REPO_ROOT/server/tools/intentBridge.ts" \
-    "aiprovider-patch:aiProvider.ts:$REPO_ROOT/server/services/aiProvider.ts" \
-    "contract-auth-patch:contractAuth.js:$REPO_ROOT/server/utils/contractAuth.js"; do
-    CM_NAME="${cm_spec%%:*}"
-    cm_rest="${cm_spec#*:}"
-    CM_KEY="${cm_rest%%:*}"
-    CM_FILE="${cm_rest#*:}"
-    if [[ -f "$CM_FILE" ]]; then
-      kubectl create configmap "$CM_NAME" -n "$NAMESPACE" \
-        --from-file="$CM_KEY=$CM_FILE" \
-        --dry-run=client -o yaml | kubectl apply -f -
-      log_success "ConfigMap: $CM_NAME"
-    else
-      log_warn "Source file not found for $CM_NAME: $CM_FILE"
-    fi
-  done
-fi
 
 
 # ---------------------------------------------------------------------------
@@ -436,19 +422,6 @@ spec:
                 secretKeyRef:
                   name: roundtable-secret
                   key: org-master-secret${ORCH_ENV}
-          volumeMounts:
-            - name: a2a-patch
-              mountPath: /app/server/a2a/server.ts
-              subPath: server.ts
-            - name: intent-bridge-patch
-              mountPath: /app/server/tools/intentBridge.ts
-              subPath: intentBridge.ts
-            - name: contract-auth-patch
-              mountPath: /app/server/utils/contractAuth.js
-              subPath: contractAuth.js
-            - name: aiprovider-patch
-              mountPath: /app/server/services/aiProvider.ts
-              subPath: aiProvider.ts
           resources:
             requests:
               cpu: "100m"
@@ -468,19 +441,6 @@ spec:
               port: 3000
             initialDelaySeconds: 30
             periodSeconds: 30
-      volumes:
-        - name: a2a-patch
-          configMap:
-            name: a2a-server-patch
-        - name: intent-bridge-patch
-          configMap:
-            name: intent-bridge-patch
-        - name: contract-auth-patch
-          configMap:
-            name: contract-auth-patch
-        - name: aiprovider-patch
-          configMap:
-            name: aiprovider-patch
 ---
 apiVersion: v1
 kind: Service
