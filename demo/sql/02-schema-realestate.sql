@@ -51,6 +51,22 @@ CREATE TABLE IF NOT EXISTS mortgages (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Mortgages must be unique per property+lender+workspace. Without this, the
+-- seed's ON CONFLICT DO NOTHING is a no-op (no conflict target exists) and
+-- every seed re-run silently duplicates all mortgage rows — doubling reported
+-- mortgage debt and breaking equity/net-worth analysis. Dedupe defensively
+-- (keep lowest id), then add the constraint, idempotently.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_mortgages_property_lender') THEN
+    DELETE FROM mortgages a USING mortgages b
+      WHERE a.property_id = b.property_id AND a.lender = b.lender
+        AND a.workspace_id = b.workspace_id AND a.id > b.id;
+    ALTER TABLE mortgages
+      ADD CONSTRAINT uq_mortgages_property_lender UNIQUE (property_id, lender, workspace_id);
+  END IF;
+END $$;
+
 CREATE INDEX IF NOT EXISTS idx_mortgages_ws ON mortgages(workspace_id);
 ALTER TABLE mortgages ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS workspace_isolation ON mortgages;
@@ -69,6 +85,19 @@ CREATE TABLE IF NOT EXISTS property_valuations (
   source TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Same idempotency guard as mortgages: valuations were also silently
+-- duplicated on every seed re-run (18 rows for 9 valuations observed live).
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_valuations_property_date') THEN
+    DELETE FROM property_valuations a USING property_valuations b
+      WHERE a.property_id = b.property_id AND a.valuation_date = b.valuation_date
+        AND a.workspace_id = b.workspace_id AND a.id > b.id;
+    ALTER TABLE property_valuations
+      ADD CONSTRAINT uq_valuations_property_date UNIQUE (property_id, valuation_date, workspace_id);
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_property_valuations_ws ON property_valuations(workspace_id);
 ALTER TABLE property_valuations ENABLE ROW LEVEL SECURITY;
