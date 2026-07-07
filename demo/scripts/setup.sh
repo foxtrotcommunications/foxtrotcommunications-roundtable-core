@@ -241,7 +241,7 @@ run_sql "$SHARED_DB" "$SQL_DIR/01b-schema-goals.sql"        "Goals schema"
 run_sql "$SHARED_DB" "$SQL_DIR/02-schema-realestate.sql"    "Real Estate schema"
 run_sql "$SHARED_DB" "$SQL_DIR/03-schema-investments.sql"   "Investments schema"
 run_sql "$SHARED_DB" "$SQL_DIR/04-schema-demographics.sql"  "Demographics schema"
-run_sql "$SHARED_DB" "$SQL_DIR/05-roles-rls.sql"            "Roles + RLS"
+run_sql "$SHARED_DB" "$SQL_DIR/05-roles-rls.sql"            "Admin BYPASSRLS (roles created in Phase 2c; RLS policies inline in schemas)"
 
 # ---------------------------------------------------------------------------
 # Phase 4: Seed Data
