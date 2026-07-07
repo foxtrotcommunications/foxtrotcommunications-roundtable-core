@@ -93,6 +93,23 @@ function blockedToolMessage(toolName: string, toolFailures: Map<string, { count:
   return `Tool "${toolName}" has been disabled because it ${reason}. Last error: ${entry?.lastError || 'unknown'}. Do NOT call this tool again — answer the user with the information you already have, or explain what went wrong.`;
 }
 
+/**
+ * Circuit-breaker key for a tool call. Every cross-workspace call uses the tool
+ * name "intent_bridge", so keying the failure counter on the bare name lets a
+ * few unreachable targets trip the breaker (MAX_TOOL_FAILURES) and block calls
+ * to *healthy* targets for the rest of the turn. Scope the key by target
+ * workspace so each domain fails (and is blocked) independently.
+ */
+function breakerKey(toolName: string, rawArgs: unknown): string {
+  if (toolName !== 'intent_bridge') return toolName;
+  let a: any = rawArgs;
+  if (typeof a === 'string') {
+    try { a = JSON.parse(a); } catch { return toolName; }
+  }
+  const target = a && (a.target ?? a.targetWorkspace ?? a.workspace);
+  return target ? `intent_bridge:${target}` : toolName;
+}
+
 // Minimal type for the @google/genai client
 interface GoogleGenAIClient {
   models: {
@@ -248,9 +265,10 @@ async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: str
     // Execute tools and add results
     for (const tc of toolCalls) {
       // ── Fail-fast: skip tools that have exceeded the failure threshold ──
-      const priorFailures = toolFailures.get(tc.name);
+      const _bkey = breakerKey(tc.name, tc.arguments);
+      const priorFailures = toolFailures.get(_bkey);
       if (priorFailures && priorFailures.count >= MAX_TOOL_FAILURES) {
-        const errorMsg = blockedToolMessage(tc.name, toolFailures);
+        const errorMsg = blockedToolMessage(_bkey, toolFailures);
         yield { type: 'tool-call', name: tc.name, args: JSON.parse(tc.arguments), callId: tc.id };
         yield { type: 'tool-result', name: tc.name, callId: tc.id, result: { error: errorMsg } };
         currentMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify({ error: errorMsg }) });
@@ -279,7 +297,7 @@ async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: str
       yield { type: 'tool-result', name: tc.name, callId: tc.id, result };
 
       // ── Track failures ──
-      checkToolResult(tc.name, result, toolFailures);
+      checkToolResult(_bkey, result, toolFailures);
 
       currentMessages.push({
         role: 'tool',
@@ -427,9 +445,10 @@ async function* streamAnthropic(model: string, messages: ChatMessage[], apiKey: 
     const toolResults: Record<string, unknown>[] = [];
     for (const tu of toolUses) {
       // ── Fail-fast: skip tools that have exceeded the failure threshold ──
-      const priorFailures = toolFailures.get(tu.name);
+      const _bkey = breakerKey(tu.name, tu.input);
+      const priorFailures = toolFailures.get(_bkey);
       if (priorFailures && priorFailures.count >= MAX_TOOL_FAILURES) {
-        const errorMsg = blockedToolMessage(tu.name, toolFailures);
+        const errorMsg = blockedToolMessage(_bkey, toolFailures);
         yield { type: 'tool-call', name: tu.name, args: tu.input, callId: tu.id };
         yield { type: 'tool-result', name: tu.name, callId: tu.id, result: { error: errorMsg } };
         toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify({ error: errorMsg }) });
@@ -458,7 +477,7 @@ async function* streamAnthropic(model: string, messages: ChatMessage[], apiKey: 
       yield { type: 'tool-result', name: tu.name, callId: tu.id, result };
 
       // ── Track failures ──
-      checkToolResult(tu.name, result, toolFailures);
+      checkToolResult(_bkey, result, toolFailures);
 
       toolResults.push({
         type: 'tool_result',
@@ -635,9 +654,10 @@ async function* streamGoogle(model: string, messages: ChatMessage[], apiKey: str
     const toolResults = await Promise.all(
       functionCalls.map(async (fc: GoogleFunctionCall, i: number) => {
         // ── Fail-fast: skip tools that have exceeded the failure threshold ──
-        const priorFailures = toolFailures.get(fc.name);
+        const _bkey = breakerKey(fc.name, fc.args);
+        const priorFailures = toolFailures.get(_bkey);
         if (priorFailures && priorFailures.count >= MAX_TOOL_FAILURES) {
-          const errorMsg = blockedToolMessage(fc.name, toolFailures);
+          const errorMsg = blockedToolMessage(_bkey, toolFailures);
           return { fc, callId: callIds[i], result: { error: errorMsg } as Record<string, unknown> };
         }
 
@@ -660,7 +680,7 @@ async function* streamGoogle(model: string, messages: ChatMessage[], apiKey: str
         }
 
         // ── Track failures ──
-        checkToolResult(fc.name, result, toolFailures);
+        checkToolResult(_bkey, result, toolFailures);
 
         return { fc, callId: callIds[i], result };
       })
@@ -809,9 +829,10 @@ async function* streamOllama(model: string, messages: ChatMessage[], enableTools
     // Execute tools and add results
     for (const tc of toolCalls) {
       // ── Fail-fast: skip tools that have exceeded the failure threshold ──
-      const priorFailures = toolFailures.get(tc.name);
+      const _bkey = breakerKey(tc.name, tc.arguments);
+      const priorFailures = toolFailures.get(_bkey);
       if (priorFailures && priorFailures.count >= MAX_TOOL_FAILURES) {
-        const errorMsg = blockedToolMessage(tc.name, toolFailures);
+        const errorMsg = blockedToolMessage(_bkey, toolFailures);
         yield { type: 'tool-call', name: tc.name, args: JSON.parse(tc.arguments), callId: tc.id };
         yield { type: 'tool-result', name: tc.name, callId: tc.id, result: { error: errorMsg } };
         currentMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify({ error: errorMsg }) });
@@ -840,7 +861,7 @@ async function* streamOllama(model: string, messages: ChatMessage[], enableTools
       yield { type: 'tool-result', name: tc.name, callId: tc.id, result };
 
       // ── Track failures ──
-      checkToolResult(tc.name, result, toolFailures);
+      checkToolResult(_bkey, result, toolFailures);
 
       currentMessages.push({
         role: 'tool',
@@ -1087,9 +1108,10 @@ async function* streamVertexAI(model: string, messages: ChatMessage[], enableToo
     const toolResults = await Promise.all(
       functionCalls.map(async (fc: GoogleFunctionCall, i: number) => {
         // ── Fail-fast: skip tools that have exceeded the failure threshold ──
-        const priorFailures = toolFailures.get(fc.name);
+        const _bkey = breakerKey(fc.name, fc.args);
+        const priorFailures = toolFailures.get(_bkey);
         if (priorFailures && priorFailures.count >= MAX_TOOL_FAILURES) {
-          const errorMsg = blockedToolMessage(fc.name, toolFailures);
+          const errorMsg = blockedToolMessage(_bkey, toolFailures);
           return { fc, callId: callIds[i], result: { error: errorMsg } as Record<string, unknown> };
         }
 
@@ -1114,7 +1136,7 @@ async function* streamVertexAI(model: string, messages: ChatMessage[], enableToo
         }
 
         // ── Track failures ──
-        checkToolResult(fc.name, result, toolFailures);
+        checkToolResult(_bkey, result, toolFailures);
 
         return { fc, callId: callIds[i], result };
       })
