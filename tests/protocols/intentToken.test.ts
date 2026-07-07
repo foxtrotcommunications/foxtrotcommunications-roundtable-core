@@ -733,6 +733,38 @@ describe('Intent Executor', () => {
     expect(result.error).toContain('tool:shell_exec');
   });
 
+  it('does not serve a cached result to a contract that lacks the action', async () => {
+    // Unique SQL so this intent's cache entry cannot collide with other tests.
+    const intent: QueryIntent = {
+      op: 'query',
+      tool: 'query_bigquery',
+      params: { sql: 'SELECT cached_auth_probe FROM sales LIMIT 1' },
+      responseFormat: 'json_table',
+    };
+
+    // 1. An authorized contract runs the intent and populates the intent cache.
+    const authedToken = await buildIntentToken(
+      intent, TEST_CONTRACT_ID, TEST_CONTRACT_VERSION, TEST_MASTER_SECRET, { encrypt: false },
+    );
+    const first = await executeIntentToken(authedToken, await makeExecutionContext());
+    expect(first.status).toBe('success');
+
+    // 2. A different contract WITHOUT query:query_bigquery replays the same
+    //    intent. It must be denied and must NOT receive the cached data —
+    //    authorization runs before the cache lookup.
+    const deniedToken = await buildIntentToken(
+      intent, TEST_CONTRACT_ID, TEST_CONTRACT_VERSION, TEST_MASTER_SECRET, { encrypt: false },
+    );
+    const deniedCtx = await makeExecutionContext({
+      contract: { contractId: 'contract-restricted', allowedActions: ['discover'], status: 'active' },
+    });
+    const second = await executeIntentToken(deniedToken, deniedCtx);
+
+    expect(second.status).toBe('denied');
+    expect(second.error).toContain('not authorized');
+    expect(second.data).toBeUndefined();
+  });
+
   it('returns error for invalid intent (missing tool name)', async () => {
     const badIntent = { op: 'query', tool: '', params: { sql: 'SELECT 1' }, responseFormat: 'json_table' } as QueryIntent;
 
