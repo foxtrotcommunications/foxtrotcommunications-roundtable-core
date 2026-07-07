@@ -22,3 +22,9 @@ tmp-dep*.json
 # Debug/patch scripts
 patch-*.cjs
 patch-*.js
+
+# Never commit credential dumps / SA keys
+userlist.txt
+*-key.json
+sa-key.json
+deploy-key.json
