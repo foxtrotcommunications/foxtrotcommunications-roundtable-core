@@ -215,6 +215,24 @@ const intentBridge: Tool = {
       return { success: false, error: 'target and op are required' };
     }
 
+    // ── Self-bridge guard ────────────────────────────────────────
+    // A workspace should never bridge to itself. The LLM occasionally emits a
+    // self-referential intent_bridge (e.g. Arthur → "Arthur"), which then fails
+    // with "No bridge found" and burns a circuit-breaker slot. Return guidance
+    // instead of an error so it does NOT count as a tool failure.
+    const ownId = String(_workspaceConfig?.workspaceId || '').toLowerCase();
+    const ownName = String(_workspaceConfig?.workspaceName || '').toLowerCase();
+    const targetLc = String(target).toLowerCase();
+    if (targetLc && (targetLc === ownId || targetLc === ownName)) {
+      endSpan(span, 'completed', { outputPreview: 'self-bridge skipped' });
+      recordSpan(span);
+      return {
+        success: true,
+        skipped: true,
+        message: `You are already operating as "${target}". Use your own local tools directly — do not bridge to yourself.`,
+      };
+    }
+
     // ── 1. Fetch manifest and resolve bridge ─────────────────────
     const manifest = await fetchManifest();
     const bridges = manifest.RT_BRIDGES;

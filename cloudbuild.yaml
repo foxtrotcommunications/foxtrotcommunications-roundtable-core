@@ -1,4 +1,14 @@
 steps:
+  # Mint a short-lived Artifact Registry npm token using Cloud Build's own
+  # service-account identity, so the private @pendragon plugin can be installed
+  # during the Docker build. The token is written to the shared /workspace and
+  # mounted as a BuildKit secret (never baked into an image layer).
+  - name: 'gcr.io/cloud-builders/gcloud'
+    entrypoint: bash
+    args:
+      - '-c'
+      - 'gcloud auth print-access-token > /workspace/gar_token'
+
   - name: 'gcr.io/cloud-builders/docker'
     env:
       # Dockerfile uses `RUN --mount=type=secret` (GAR token for plugin installs),
@@ -7,10 +17,19 @@ steps:
     args:
       - 'build'
       - '--no-cache'
+      - '--build-arg'
+      - 'PLUGINS=${_PLUGINS}'
+      - '--secret'
+      - 'id=gar_token,src=/workspace/gar_token'
       - '-t'
       - '${_IMAGE}'
       - '.'
+
 images:
   - '${_IMAGE}'
 substitutions:
   _IMAGE: us-central1-docker.pkg.dev/roundtable-public/roundtable/roundtable-core:latest
+  # Private plugins installed from Artifact Registry at build time. Pinned to a
+  # known-good version — 1.2.0 is broken (undeclared express dep). See
+  # forge-outstanding-security-items / pendragon-demo-deployment-facts.
+  _PLUGINS: '@pendragon/tools-plaid@1.3.1'
