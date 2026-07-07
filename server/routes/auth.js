@@ -157,6 +157,19 @@ router.get('/sso', async (req, res) => {
       return res.status(401).json({ error: 'Token expired' });
     }
 
+    // Bind the token to THIS workspace. The control plane mints a distinct token
+    // per workspace (payload.workspace_id) after checking the user's access to
+    // that workspace. Without this check, a token minted for one workspace would
+    // be accepted by any other pod sharing the SSO secret — a cross-workspace
+    // privilege boundary bypass. Fail closed: reject if the claim is missing or
+    // does not match our own workspace id.
+    if (payload.workspace_id !== config.workspaceId) {
+      console.warn(
+        `[Auth] SSO workspace mismatch: token for '${payload.workspace_id}' presented to '${config.workspaceId}'`
+      );
+      return res.status(403).json({ error: 'Token not valid for this workspace' });
+    }
+
     const { sub: ssoId, email: rawEmail, name: displayName } = payload;
     if (!ssoId) return res.status(400).json({ error: 'Invalid token payload' });
     const email = rawEmail || `${ssoId}@sso`;
