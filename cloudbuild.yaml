@@ -1,5 +1,9 @@
 steps:
   - name: 'gcr.io/cloud-builders/docker'
+    env:
+      # Dockerfile uses `RUN --mount=type=secret` (GAR token for plugin installs),
+      # which requires BuildKit.
+      - 'DOCKER_BUILDKIT=1'
     args:
       - 'build'
       - '--no-cache'
