@@ -81,14 +81,20 @@ if (isProd && !config.demoMode && !process.env.API_KEY_ENCRYPTION_KEY) {
   process.exit(1);
 }
 // Ensure purpose-specific secrets are not sharing the same value in production.
-// Falling back to SESSION_SECRET collapses all three security domains.
-if (isProd && config.bridgeHmacSecret === config.sessionSecret) {
-  console.warn('[SECURITY] BRIDGE_HMAC_SECRET is not set — falling back to SESSION_SECRET.');
-  console.warn('  Set a unique BRIDGE_HMAC_SECRET for proper secret separation.');
+// Falling back to SESSION_SECRET collapses three distinct security domains
+// (session signing, bridge HMAC, cross-workspace SSO) onto one key — a single
+// leak would then break all three. Fail closed in production.
+// (Demo-mode pods are exempt, matching the API_KEY_ENCRYPTION_KEY check above —
+// they hold no real user data and must not brick on sandbox secret hygiene.)
+if (isProd && !config.demoMode && config.bridgeHmacSecret === config.sessionSecret) {
+  console.error('[FATAL] BRIDGE_HMAC_SECRET must be set to a value distinct from SESSION_SECRET in production.');
+  console.error('  Generate one: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
+  process.exit(1);
 }
-if (isProd && config.ssoJwtSecret === config.sessionSecret) {
-  console.warn('[SECURITY] SSO_JWT_SECRET is not set — falling back to SESSION_SECRET.');
-  console.warn('  Set a unique SSO_JWT_SECRET for proper secret separation.');
+if (isProd && !config.demoMode && config.ssoJwtSecret === config.sessionSecret) {
+  console.error('[FATAL] SSO_JWT_SECRET must be set to a value distinct from SESSION_SECRET in production.');
+  console.error('  Generate one: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
+  process.exit(1);
 }
 
 // ─── HMAC Verification Middleware for Server-to-Server Endpoints ─────────────
