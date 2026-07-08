@@ -265,8 +265,16 @@ async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: str
       return;
     }
 
-    const { toolCalls, text, usage } = yield* parseOpenAIStream(response, signal);
+    const { toolCalls, text, usage, finishReason, streamEndedCleanly } = yield* parseOpenAIStream(response, signal);
     fullText += text;
+
+    // ── TRUNCATION DEBUG (2026-07-08) ──
+    // The definitive per-round signal: WHY did this round's generation end?
+    //   stop        = model chose to end (short prose here => voluntary truncation)
+    //   length      = hit max_completion_tokens (mid-sentence/mid-chart cut)
+    //   tool_calls  = ended to call tools (normal)
+    //   null + !clean = the stream was cut/errored before a finish_reason
+    console.log(`[trunc-debug] round=${round} finish=${finishReason ?? 'NULL'} cleanEnd=${streamEndedCleanly} roundText=${text.length} fullText=${fullText.length} toolCalls=${toolCalls.length}`);
 
     // Emit usage if available
     if (usage) {
@@ -351,10 +359,12 @@ async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: str
   yield { type: 'done', fullText: fullText || `I was unable to complete your request after ${maxRounds} tool-call rounds. Some tools may have encountered errors. Please try again or simplify your query.` };
 }
 
-async function* parseOpenAIStream(response: NodeFetchResponse, signal: AbortSignal | null): AsyncGenerator<StreamEvent, { toolCalls: OpenAIToolCall[]; text: string; usage: OpenAIUsage | null }> {
+async function* parseOpenAIStream(response: NodeFetchResponse, signal: AbortSignal | null): AsyncGenerator<StreamEvent, { toolCalls: OpenAIToolCall[]; text: string; usage: OpenAIUsage | null; finishReason: string | null; streamEndedCleanly: boolean }> {
   const toolCalls: OpenAIToolCall[] = [];
   let text: string = '';
   let usage: OpenAIUsage | null = null;
+  let finishReason: string | null = null;
+  let sawDone = false;
 
   const body = response.body as AsyncIterable<Buffer>;
   let buffer: string = '';
@@ -369,11 +379,13 @@ async function* parseOpenAIStream(response: NodeFetchResponse, signal: AbortSign
       const trimmed: string = line.trim();
       if (!trimmed || !trimmed.startsWith('data: ')) continue;
       const data: string = trimmed.slice(6);
-      if (data === '[DONE]') continue;
+      if (data === '[DONE]') { sawDone = true; continue; }
 
       try {
         const parsed: Record<string, unknown> = JSON.parse(data);
-        const choices = parsed.choices as Array<{ delta?: Record<string, unknown> }> | undefined;
+        const choices = parsed.choices as Array<{ delta?: Record<string, unknown>; finish_reason?: string | null }> | undefined;
+        // finish_reason arrives on its own final chunk (delta empty).
+        if (choices?.[0]?.finish_reason) finishReason = choices[0].finish_reason;
         const delta = choices?.[0]?.delta;
         if (!delta) continue;
 
@@ -405,7 +417,7 @@ async function* parseOpenAIStream(response: NodeFetchResponse, signal: AbortSign
     }
   }
 
-  return { toolCalls: toolCalls.filter(Boolean), text, usage };
+  return { toolCalls: toolCalls.filter(Boolean), text, usage, finishReason, streamEndedCleanly: sawDone };
 }
 
 // ─── Anthropic ──────────────────────────────────────────
