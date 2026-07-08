@@ -669,9 +669,19 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
             snapshotText = fullText;
           }
         } else if (event.type === 'done') {
-          // If we snapshotted text before a tool call, use the snapshot
-          // to avoid duplicated responses from post-tool-call generation.
-          if (snapshotText && event.fullText && event.fullText.length > snapshotText.length * 1.5) {
+          // Prefer the model's complete final text. Only fall back to a
+          // pre-tool-call snapshot when that snapshot is itself a SUBSTANTIAL
+          // answer AND the final text is much larger — the signature of the old
+          // duplicate-composition bug (model re-composed the whole answer 2-3x).
+          //
+          // A SMALL snapshot (e.g. a one-line opening preamble the model wrote
+          // before gathering data) must NEVER override the real analysis it
+          // composes in a later round. That was silently discarding thousands
+          // of chars — the intermittent "charts-only" truncation: whether the
+          // model happened to emit an early preamble decided whether its whole
+          // analysis got thrown away here.
+          const snapshotIsSubstantial = snapshotText.trim().length > 1500;
+          if (snapshotIsSubstantial && event.fullText && event.fullText.length > snapshotText.length * 1.8) {
             fullText = snapshotText;
           } else {
             fullText = event.fullText || fullText;
