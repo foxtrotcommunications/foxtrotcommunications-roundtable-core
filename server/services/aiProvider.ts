@@ -127,8 +127,10 @@ function breakerKey(toolName: string, rawArgs: unknown): string {
  */
 function proseLength(fullText: string): number {
   return fullText
-    .replace(/```chart[\s\S]*?```/g, '')
-    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/```chart[\s\S]*?```/g, '')          // charts (fenced)
+    .replace(/```[a-z]*\s*[\s\S]*?```/g, '')       // any other fenced block
+    .replace(/<tool_call[\s\S]*?<\/tool_call>/gi, '') // inline emit_provenance/render_chart-as-text
+    .replace(/<!--[\s\S]*?-->/g, '')                // follow-ups comment
     .trim().length;
 }
 
