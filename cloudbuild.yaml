@@ -32,4 +32,4 @@ substitutions:
   # Private plugins installed from Artifact Registry at build time. Pinned to a
   # known-good version — 1.2.0 is broken (undeclared express dep). See
   # forge-outstanding-security-items / pendragon-demo-deployment-facts.
-  _PLUGINS: '@pendragon/tools-plaid@1.3.1'
+  _PLUGINS: '@pendragon/tools-plaid@1.4.0'
