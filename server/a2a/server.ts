@@ -266,9 +266,21 @@ export function extractProvenance(toolResults: Array<{ name: string; result: Rec
       if (r?.success) {
         succeededLookups.add(lookupKey);
       } else {
-        const label = lookupTarget && lookupCap
-          ? `${lookupTarget} (${lookupCap})`
-          : lookupTarget || lookupCap || (typeof r?.error === 'string' ? r.error.slice(0, 80) : 'unknown lookup');
+        // Self-describing labels: distinguish name-resolution misses (the model
+        // guessed a workspace that doesn't exist — no data is actually missing)
+        // from capability gaps and real data failures, so the UI never renders
+        // "X did not return data" for a target that never existed.
+        const errStr = typeof r?.error === 'string' ? r.error : '';
+        let label: string;
+        if (/No bridge found/i.test(errStr)) {
+          label = `${lookupTarget || 'unknown target'} — unrecognized workspace name`;
+        } else if (/is not (?:registered|available) in this workspace/i.test(errStr)) {
+          label = `${lookupTarget || 'workspace'} — ${lookupCap || 'capability'} not available there`;
+        } else {
+          label = lookupTarget && lookupCap
+            ? `${lookupTarget} (${lookupCap})`
+            : lookupTarget || lookupCap || errStr.slice(0, 80) || 'unknown lookup';
+        }
         failedLookupLabels.set(lookupKey, label);
       }
     }
