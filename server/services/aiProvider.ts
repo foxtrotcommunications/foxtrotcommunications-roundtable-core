@@ -268,13 +268,12 @@ async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: str
     const { toolCalls, text, usage, finishReason, streamEndedCleanly } = yield* parseOpenAIStream(response, signal);
     fullText += text;
 
-    // ── TRUNCATION DEBUG (2026-07-08) ──
-    // The definitive per-round signal: WHY did this round's generation end?
-    //   stop        = model chose to end (short prose here => voluntary truncation)
-    //   length      = hit max_completion_tokens (mid-sentence/mid-chart cut)
-    //   tool_calls  = ended to call tools (normal)
-    //   null + !clean = the stream was cut/errored before a finish_reason
-    console.log(`[trunc-debug] round=${round} finish=${finishReason ?? 'NULL'} cleanEnd=${streamEndedCleanly} roundText=${text.length} fullText=${fullText.length} toolCalls=${toolCalls.length}`);
+    // Permanent low-volume tripwire: a completion that ended WITHOUT a clean
+    // finish_reason was cut upstream (network/provider), not by us. Logged only
+    // on that anomaly, so it stays silent in normal operation.
+    if (finishReason === null && !streamEndedCleanly) {
+      console.warn(`[aiProvider] round ${round} stream ended with no finish_reason (upstream cut) — text so far ${fullText.length} chars`);
+    }
 
     // Emit usage if available
     if (usage) {
