@@ -120,6 +120,24 @@ function breakerKey(toolName: string, rawArgs: unknown): string {
   return target ? `intent_bridge:${target}` : toolName;
 }
 
+/**
+ * Detect a "preamble-only" answer: the model rendered charts / did tool work
+ * but wrote almost no user-facing prose (e.g. "I'll pull together a health
+ * check…" + charts, then stopped). Strips chart fences and the follow-ups
+ * comment so only real analysis prose counts.
+ */
+function isPreambleOnly(fullText: string): boolean {
+  const prose = fullText
+    .replace(/```chart[\s\S]*?```/g, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .trim();
+  const renderedSomething = /```chart|"chartType"/.test(fullText);
+  return renderedSomething && prose.length < 400;
+}
+
+const COMPOSE_NUDGE =
+  'You rendered charts/data but have not written your analysis yet. Write the COMPLETE written financial analysis for the user NOW — findings, numbers, tables, and recommendations — followed by the follow_ups comment. Do not call any more tools.';
+
 // Minimal type for the @google/genai client
 interface GoogleGenAIClient {
   models: {
@@ -213,6 +231,7 @@ async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: str
   const llmSpan = workspaceConfig?._llmSpan || null;
   const currentMessages: Array<Record<string, unknown> | ChatMessage> = [...messages];
   let fullText: string = '';
+  let composeNudged = false;
   const toolFailures = new Map<string, { count: number; lastError: string }>();
 
   for (let round: number = 0; round < maxRounds; round++) {
@@ -256,7 +275,17 @@ async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: str
     }
 
     if (toolCalls.length === 0) {
-      if (llmSpan) { endSpan(llmSpan, 'completed', { metadata: { rounds: round + 1, provider: 'openai', model } }); recordSpan(llmSpan); }
+      // Anti-preamble guard: the model sometimes ends its turn after only an
+      // opening line + charts, never writing the analysis. If it terminates
+      // with a preamble-only answer, nudge it ONCE (tools off) to compose the
+      // full written analysis rather than shipping a broken half-answer.
+      if (!composeNudged && round < maxRounds - 1 && isPreambleOnly(fullText)) {
+        composeNudged = true;
+        currentMessages.push({ role: 'assistant', content: text || null });
+        currentMessages.push({ role: 'user', content: COMPOSE_NUDGE });
+        continue;
+      }
+      if (llmSpan) { endSpan(llmSpan, 'completed', { metadata: { rounds: round + 1, provider: 'openai', model, composeNudged } }); recordSpan(llmSpan); }
       yield { type: 'done', fullText };
       return;
     }
