@@ -121,18 +121,15 @@ function breakerKey(toolName: string, rawArgs: unknown): string {
 }
 
 /**
- * Detect a "preamble-only" answer: the model rendered charts / did tool work
- * but wrote almost no user-facing prose (e.g. "I'll pull together a health
- * check…" + charts, then stopped). Strips chart fences and the follow-ups
- * comment so only real analysis prose counts.
+ * Length of real user-facing prose in a response: strips chart fences (charts
+ * are also often rendered via the render_chart TOOL, in which case they aren't
+ * in the text at all) and the follow-ups comment.
  */
-function isPreambleOnly(fullText: string): boolean {
-  const prose = fullText
+function proseLength(fullText: string): number {
+  return fullText
     .replace(/```chart[\s\S]*?```/g, '')
     .replace(/<!--[\s\S]*?-->/g, '')
-    .trim();
-  const renderedSomething = /```chart|"chartType"/.test(fullText);
-  return renderedSomething && prose.length < 400;
+    .trim().length;
 }
 
 const COMPOSE_NUDGE =
@@ -276,10 +273,11 @@ async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: str
 
     if (toolCalls.length === 0) {
       // Anti-preamble guard: the model sometimes ends its turn after only an
-      // opening line + charts, never writing the analysis. If it terminates
-      // with a preamble-only answer, nudge it ONCE (tools off) to compose the
+      // opening line, having done its data-gathering via tools but never
+      // writing the analysis. If it did real multi-round tool work (round >= 2)
+      // yet produced almost no prose, nudge it ONCE (tools off) to compose the
       // full written analysis rather than shipping a broken half-answer.
-      if (!composeNudged && round < maxRounds - 1 && isPreambleOnly(fullText)) {
+      if (!composeNudged && round >= 2 && round < maxRounds - 1 && proseLength(fullText) < 400) {
         composeNudged = true;
         currentMessages.push({ role: 'assistant', content: text || null });
         currentMessages.push({ role: 'user', content: COMPOSE_NUDGE });
