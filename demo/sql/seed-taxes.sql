@@ -12,27 +12,27 @@ ON CONFLICT (account_id) DO UPDATE SET balance_current = EXCLUDED.balance_curren
 INSERT INTO plaid_transactions (transaction_id, account_id, date, name, merchant_name, amount, category, workspace_id)
 VALUES
   -- Estimated tax payments
-  ('ttx_001', 'acct_tax_001', '2026-04-15', 'IRS - Q1 Estimated Tax',        'IRS',              3200.00, 'Tax Payment', '4x5OQpZSA29iLJIrhmAC'),
-  ('ttx_002', 'acct_tax_001', '2026-06-15', 'IRS - Q2 Estimated Tax',        'IRS',              3200.00, 'Tax Payment', '4x5OQpZSA29iLJIrhmAC'),
-  ('ttx_003', 'acct_tax_001', '2026-04-15', 'IL Dept of Revenue - Q1',       'IL DOR',            640.00, 'State Tax Payment', '4x5OQpZSA29iLJIrhmAC'),
-  ('ttx_004', 'acct_tax_001', '2026-06-15', 'IL Dept of Revenue - Q2',       'IL DOR',            640.00, 'State Tax Payment', '4x5OQpZSA29iLJIrhmAC'),
+  ('ttx_001', 'acct_tax_001', '2026-04-15', 'IRS - Q1 Estimated Tax',        'IRS',              -3200.00, 'Tax Payment', '4x5OQpZSA29iLJIrhmAC'),
+  ('ttx_002', 'acct_tax_001', '2026-06-15', 'IRS - Q2 Estimated Tax',        'IRS',              -3200.00, 'Tax Payment', '4x5OQpZSA29iLJIrhmAC'),
+  ('ttx_003', 'acct_tax_001', '2026-04-15', 'IL Dept of Revenue - Q1',       'IL DOR',            -640.00, 'State Tax Payment', '4x5OQpZSA29iLJIrhmAC'),
+  ('ttx_004', 'acct_tax_001', '2026-06-15', 'IL Dept of Revenue - Q2',       'IL DOR',            -640.00, 'State Tax Payment', '4x5OQpZSA29iLJIrhmAC'),
   -- Charitable donations (deductible)
-  ('ttx_005', 'acct_tax_001', '2026-03-20', 'Red Cross Donation',            'Red Cross',         500.00, 'Charitable Donation', '4x5OQpZSA29iLJIrhmAC'),
-  ('ttx_006', 'acct_tax_001', '2026-05-10', 'Habitat for Humanity',          'Habitat',           250.00, 'Charitable Donation', '4x5OQpZSA29iLJIrhmAC'),
-  ('ttx_007', 'acct_tax_001', '2026-06-01', 'Local Food Bank',               'Food Bank',         100.00, 'Charitable Donation', '4x5OQpZSA29iLJIrhmAC'),
+  ('ttx_005', 'acct_tax_001', '2026-03-20', 'Red Cross Donation',            'Red Cross',         -500.00, 'Charitable Donation', '4x5OQpZSA29iLJIrhmAC'),
+  ('ttx_006', 'acct_tax_001', '2026-05-10', 'Habitat for Humanity',          'Habitat',           -250.00, 'Charitable Donation', '4x5OQpZSA29iLJIrhmAC'),
+  ('ttx_007', 'acct_tax_001', '2026-06-01', 'Local Food Bank',               'Food Bank',         -100.00, 'Charitable Donation', '4x5OQpZSA29iLJIrhmAC'),
   -- HSA contributions and medical expenses
-  ('ttx_008', 'acct_tax_002', '2026-01-15', 'HSA Contribution - Payroll',    'Employer',        -375.00, 'HSA Contribution', '4x5OQpZSA29iLJIrhmAC'),
-  ('ttx_009', 'acct_tax_002', '2026-02-15', 'HSA Contribution - Payroll',    'Employer',        -375.00, 'HSA Contribution', '4x5OQpZSA29iLJIrhmAC'),
-  ('ttx_010', 'acct_tax_002', '2026-03-15', 'HSA Contribution - Payroll',    'Employer',        -375.00, 'HSA Contribution', '4x5OQpZSA29iLJIrhmAC'),
-  ('ttx_011', 'acct_tax_002', '2026-04-15', 'HSA Contribution - Payroll',    'Employer',        -375.00, 'HSA Contribution', '4x5OQpZSA29iLJIrhmAC'),
-  ('ttx_012', 'acct_tax_002', '2026-05-15', 'HSA Contribution - Payroll',    'Employer',        -375.00, 'HSA Contribution', '4x5OQpZSA29iLJIrhmAC'),
-  ('ttx_013', 'acct_tax_002', '2026-06-15', 'HSA Contribution - Payroll',    'Employer',        -375.00, 'HSA Contribution', '4x5OQpZSA29iLJIrhmAC'),
-  ('ttx_014', 'acct_tax_002', '2026-02-20', 'Dr. Smith - Copay',            'Dr. Smith',          40.00, 'Medical', '4x5OQpZSA29iLJIrhmAC'),
-  ('ttx_015', 'acct_tax_002', '2026-04-08', 'CVS Pharmacy - Prescription',  'CVS',                28.50, 'Medical', '4x5OQpZSA29iLJIrhmAC'),
-  ('ttx_016', 'acct_tax_002', '2026-05-22', 'Vision Center - Eye Exam',     'LensCrafters',      185.00, 'Medical', '4x5OQpZSA29iLJIrhmAC'),
+  ('ttx_008', 'acct_tax_002', '2026-01-15', 'HSA Contribution - Payroll',    'Employer',        375.00, 'HSA Contribution', '4x5OQpZSA29iLJIrhmAC'),
+  ('ttx_009', 'acct_tax_002', '2026-02-15', 'HSA Contribution - Payroll',    'Employer',        375.00, 'HSA Contribution', '4x5OQpZSA29iLJIrhmAC'),
+  ('ttx_010', 'acct_tax_002', '2026-03-15', 'HSA Contribution - Payroll',    'Employer',        375.00, 'HSA Contribution', '4x5OQpZSA29iLJIrhmAC'),
+  ('ttx_011', 'acct_tax_002', '2026-04-15', 'HSA Contribution - Payroll',    'Employer',        375.00, 'HSA Contribution', '4x5OQpZSA29iLJIrhmAC'),
+  ('ttx_012', 'acct_tax_002', '2026-05-15', 'HSA Contribution - Payroll',    'Employer',        375.00, 'HSA Contribution', '4x5OQpZSA29iLJIrhmAC'),
+  ('ttx_013', 'acct_tax_002', '2026-06-15', 'HSA Contribution - Payroll',    'Employer',        375.00, 'HSA Contribution', '4x5OQpZSA29iLJIrhmAC'),
+  ('ttx_014', 'acct_tax_002', '2026-02-20', 'Dr. Smith - Copay',            'Dr. Smith',          -40.00, 'Medical', '4x5OQpZSA29iLJIrhmAC'),
+  ('ttx_015', 'acct_tax_002', '2026-04-08', 'CVS Pharmacy - Prescription',  'CVS',                -28.50, 'Medical', '4x5OQpZSA29iLJIrhmAC'),
+  ('ttx_016', 'acct_tax_002', '2026-05-22', 'Vision Center - Eye Exam',     'LensCrafters',      -185.00, 'Medical', '4x5OQpZSA29iLJIrhmAC'),
   -- Property tax (deductible)
-  ('ttx_017', 'acct_tax_001', '2026-03-01', 'Springfield Property Tax H1',   'Springfield IL',   3420.00, 'Property Tax', '4x5OQpZSA29iLJIrhmAC'),
-  ('ttx_018', 'acct_tax_001', '2026-06-10', 'Mortgage Interest - Wells',     'Wells Fargo',      3048.00, 'Mortgage Interest', '4x5OQpZSA29iLJIrhmAC')
+  ('ttx_017', 'acct_tax_001', '2026-03-01', 'Springfield Property Tax H1',   'Springfield IL',   -3420.00, 'Property Tax', '4x5OQpZSA29iLJIrhmAC'),
+  ('ttx_018', 'acct_tax_001', '2026-06-10', 'Mortgage Interest - Wells',     'Wells Fargo',      -3048.00, 'Mortgage Interest', '4x5OQpZSA29iLJIrhmAC')
 ON CONFLICT (transaction_id) DO NOTHING;
 
 -- Sync state
