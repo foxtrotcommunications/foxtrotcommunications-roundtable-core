@@ -1158,7 +1158,7 @@ Rules:
           if (dashboardUrl && usageData?.totalTokens) {
             const crypto = require('crypto') as typeof import('crypto');
             const ts: string = Date.now().toString();
-            const sig: string = crypto.createHmac('sha256', config.sessionSecret)
+            const sig: string = crypto.createHmac('sha256', config.bridgeHmacSecret)
               .update(`${config.workspaceId}:${ts}`)
               .digest('hex');
             fetch(`${dashboardUrl}/api/usage-report/report`, {
