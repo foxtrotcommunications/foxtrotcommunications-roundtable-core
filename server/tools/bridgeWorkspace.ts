@@ -434,7 +434,8 @@ const bridgeWorkspace: Tool = {
   async _legacyRelay(bridge, action, content) {
     const controlPlaneUrl = process.env.CONTROL_PLANE_URL || 'https://roundtable.foxtrotcommunications.net';
     const wsId = config.workspaceId;
-    const secret = config.sessionSecret || '';
+    // Must match the control plane's BRIDGE_HMAC_SECRET verification.
+    const secret = config.bridgeHmacSecret || '';
 
     const timestamp = Date.now().toString();
     const signature = crypto.createHmac('sha256', secret).update(`${wsId}:${timestamp}`).digest('hex');

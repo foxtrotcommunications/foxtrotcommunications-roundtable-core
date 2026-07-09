@@ -27,7 +27,9 @@ async function fetchManifest() {
 
   const controlPlaneUrl = process.env.CONTROL_PLANE_URL || 'https://roundtable.foxtrotcommunications.net';
   const wsId = config.workspaceId;
-  const secret = config.sessionSecret || '';
+  // Control plane verifies with BRIDGE_HMAC_SECRET (falls back to SESSION_SECRET
+  // in config) — signing with sessionSecret directly 401s once the secrets split.
+  const secret = config.bridgeHmacSecret || '';
 
   const timestamp = Date.now().toString();
   const signature = crypto.createHmac('sha256', secret).update(`${wsId}:${timestamp}`).digest('hex');
