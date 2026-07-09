@@ -70,21 +70,29 @@ function isToolError(result: Record<string, unknown>): boolean {
  * Check a tool result for errors and update the failure map.
  * Returns the number of failures for this tool after the check.
  */
-function checkToolResult(toolName: string, result: Record<string, unknown>, toolFailures: Map<string, { count: number; lastError: string }>): number {
+function checkToolResult(toolName: string, result: Record<string, unknown>, toolFailures: Map<string, { count: number; lastError: string }>, fineKey?: string | null): number {
   const resultStr = JSON.stringify(result);
   if (!isToolError(result)) return 0; // success — don't reset count, just don't increment
 
-  const entry = toolFailures.get(toolName) || { count: 0, lastError: '' };
-
   if (isNonTransientError(resultStr)) {
-    // Permanent failure — never retry
+    // Action-level contract rejections ("Contract rejected: Action X not
+    // permitted") poison only that ACTION — the target workspace is healthy
+    // and the model should be free to retry with a valid tool. Recording them
+    // at the target key disabled the whole domain after one hallucinated
+    // action name. Target-resolution failures ("No bridge found", etc.) still
+    // block the whole target — that protection prevents duplicated-answer
+    // retry loops (see NON_TRANSIENT_PATTERNS comment).
+    const isActionRejection = /Contract rejected: Action/.test(resultStr) || /not permitted by contract/.test(resultStr);
+    const key = (fineKey && isActionRejection) ? fineKey : toolName;
+    const entry = toolFailures.get(key) || { count: 0, lastError: '' };
     entry.count = PERM_FAIL;
     entry.lastError = resultStr.slice(0, 500);
-    toolFailures.set(toolName, entry);
-    console.warn(`[aiProvider] Tool '${toolName}' permanently failed (non-transient): ${entry.lastError.slice(0, 200)}`);
+    toolFailures.set(key, entry);
+    console.warn(`[aiProvider] Tool '${key}' permanently failed (non-transient): ${entry.lastError.slice(0, 200)}`);
     return PERM_FAIL;
   }
 
+  const entry = toolFailures.get(toolName) || { count: 0, lastError: '' };
   entry.count += 1;
   entry.lastError = resultStr.slice(0, 500);
   toolFailures.set(toolName, entry);
@@ -118,6 +126,40 @@ function breakerKey(toolName: string, rawArgs: unknown): string {
   }
   const target = a && (a.target ?? a.targetWorkspace ?? a.workspace);
   return target ? `intent_bridge:${target}` : toolName;
+}
+
+/**
+ * Finer-grained breaker key including the specific action (op + tool/
+ * capability name). Used to record action-level contract rejections so one
+ * hallucinated action name doesn't disable an otherwise-healthy target.
+ */
+function fineBreakerKey(toolName: string, rawArgs: unknown): string | null {
+  if (toolName !== 'intent_bridge') return null;
+  let a: any = rawArgs;
+  if (typeof a === 'string') {
+    try { a = JSON.parse(a); } catch { return null; }
+  }
+  const target = a && (a.target ?? a.targetWorkspace ?? a.workspace);
+  if (!target) return null;
+  const op = a.op ?? '';
+  const detail = a.tool ?? a.name ?? a.capability ?? '';
+  return `intent_bridge:${target}#${op}:${detail}`;
+}
+
+/**
+ * Fail-fast lookup across both breaker tiers. Returns the key that tripped,
+ * or null if the call may proceed.
+ */
+function trippedBreakerKey(
+  toolName: string,
+  rawArgs: unknown,
+  toolFailures: Map<string, { count: number; lastError: string }>,
+): string | null {
+  const coarse = breakerKey(toolName, rawArgs);
+  if ((toolFailures.get(coarse)?.count ?? 0) >= MAX_TOOL_FAILURES) return coarse;
+  const fine = fineBreakerKey(toolName, rawArgs);
+  if (fine && (toolFailures.get(fine)?.count ?? 0) >= MAX_TOOL_FAILURES) return fine;
+  return null;
 }
 
 /**
@@ -312,9 +354,10 @@ async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: str
     for (const tc of toolCalls) {
       // ── Fail-fast: skip tools that have exceeded the failure threshold ──
       const _bkey = breakerKey(tc.name, tc.arguments);
-      const priorFailures = toolFailures.get(_bkey);
-      if (priorFailures && priorFailures.count >= MAX_TOOL_FAILURES) {
-        const errorMsg = blockedToolMessage(_bkey, toolFailures);
+      const _fkey = fineBreakerKey(tc.name, tc.arguments);
+      const _tripped = trippedBreakerKey(tc.name, tc.arguments, toolFailures);
+      if (_tripped) {
+        const errorMsg = blockedToolMessage(_tripped, toolFailures);
         yield { type: 'tool-call', name: tc.name, args: JSON.parse(tc.arguments), callId: tc.id };
         yield { type: 'tool-result', name: tc.name, callId: tc.id, result: { error: errorMsg } };
         currentMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify({ error: errorMsg }) });
@@ -343,7 +386,7 @@ async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: str
       yield { type: 'tool-result', name: tc.name, callId: tc.id, result };
 
       // ── Track failures ──
-      checkToolResult(_bkey, result, toolFailures);
+      checkToolResult(_bkey, result, toolFailures, _fkey);
 
       currentMessages.push({
         role: 'tool',
@@ -496,9 +539,10 @@ async function* streamAnthropic(model: string, messages: ChatMessage[], apiKey: 
     for (const tu of toolUses) {
       // ── Fail-fast: skip tools that have exceeded the failure threshold ──
       const _bkey = breakerKey(tu.name, tu.input);
-      const priorFailures = toolFailures.get(_bkey);
-      if (priorFailures && priorFailures.count >= MAX_TOOL_FAILURES) {
-        const errorMsg = blockedToolMessage(_bkey, toolFailures);
+      const _fkey = fineBreakerKey(tu.name, tu.input);
+      const _tripped = trippedBreakerKey(tu.name, tu.input, toolFailures);
+      if (_tripped) {
+        const errorMsg = blockedToolMessage(_tripped, toolFailures);
         yield { type: 'tool-call', name: tu.name, args: tu.input, callId: tu.id };
         yield { type: 'tool-result', name: tu.name, callId: tu.id, result: { error: errorMsg } };
         toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify({ error: errorMsg }) });
@@ -527,7 +571,7 @@ async function* streamAnthropic(model: string, messages: ChatMessage[], apiKey: 
       yield { type: 'tool-result', name: tu.name, callId: tu.id, result };
 
       // ── Track failures ──
-      checkToolResult(_bkey, result, toolFailures);
+      checkToolResult(_bkey, result, toolFailures, _fkey);
 
       toolResults.push({
         type: 'tool_result',
@@ -705,9 +749,10 @@ async function* streamGoogle(model: string, messages: ChatMessage[], apiKey: str
       functionCalls.map(async (fc: GoogleFunctionCall, i: number) => {
         // ── Fail-fast: skip tools that have exceeded the failure threshold ──
         const _bkey = breakerKey(fc.name, fc.args);
-        const priorFailures = toolFailures.get(_bkey);
-        if (priorFailures && priorFailures.count >= MAX_TOOL_FAILURES) {
-          const errorMsg = blockedToolMessage(_bkey, toolFailures);
+        const _fkey = fineBreakerKey(fc.name, fc.args);
+        const _tripped = trippedBreakerKey(fc.name, fc.args, toolFailures);
+        if (_tripped) {
+          const errorMsg = blockedToolMessage(_tripped, toolFailures);
           return { fc, callId: callIds[i], result: { error: errorMsg } as Record<string, unknown> };
         }
 
@@ -730,7 +775,7 @@ async function* streamGoogle(model: string, messages: ChatMessage[], apiKey: str
         }
 
         // ── Track failures ──
-        checkToolResult(_bkey, result, toolFailures);
+        checkToolResult(_bkey, result, toolFailures, _fkey);
 
         return { fc, callId: callIds[i], result };
       })
@@ -880,9 +925,10 @@ async function* streamOllama(model: string, messages: ChatMessage[], enableTools
     for (const tc of toolCalls) {
       // ── Fail-fast: skip tools that have exceeded the failure threshold ──
       const _bkey = breakerKey(tc.name, tc.arguments);
-      const priorFailures = toolFailures.get(_bkey);
-      if (priorFailures && priorFailures.count >= MAX_TOOL_FAILURES) {
-        const errorMsg = blockedToolMessage(_bkey, toolFailures);
+      const _fkey = fineBreakerKey(tc.name, tc.arguments);
+      const _tripped = trippedBreakerKey(tc.name, tc.arguments, toolFailures);
+      if (_tripped) {
+        const errorMsg = blockedToolMessage(_tripped, toolFailures);
         yield { type: 'tool-call', name: tc.name, args: JSON.parse(tc.arguments), callId: tc.id };
         yield { type: 'tool-result', name: tc.name, callId: tc.id, result: { error: errorMsg } };
         currentMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify({ error: errorMsg }) });
@@ -911,7 +957,7 @@ async function* streamOllama(model: string, messages: ChatMessage[], enableTools
       yield { type: 'tool-result', name: tc.name, callId: tc.id, result };
 
       // ── Track failures ──
-      checkToolResult(_bkey, result, toolFailures);
+      checkToolResult(_bkey, result, toolFailures, _fkey);
 
       currentMessages.push({
         role: 'tool',
@@ -1159,9 +1205,10 @@ async function* streamVertexAI(model: string, messages: ChatMessage[], enableToo
       functionCalls.map(async (fc: GoogleFunctionCall, i: number) => {
         // ── Fail-fast: skip tools that have exceeded the failure threshold ──
         const _bkey = breakerKey(fc.name, fc.args);
-        const priorFailures = toolFailures.get(_bkey);
-        if (priorFailures && priorFailures.count >= MAX_TOOL_FAILURES) {
-          const errorMsg = blockedToolMessage(_bkey, toolFailures);
+        const _fkey = fineBreakerKey(fc.name, fc.args);
+        const _tripped = trippedBreakerKey(fc.name, fc.args, toolFailures);
+        if (_tripped) {
+          const errorMsg = blockedToolMessage(_tripped, toolFailures);
           return { fc, callId: callIds[i], result: { error: errorMsg } as Record<string, unknown> };
         }
 
@@ -1186,7 +1233,7 @@ async function* streamVertexAI(model: string, messages: ChatMessage[], enableToo
         }
 
         // ── Track failures ──
-        checkToolResult(_bkey, result, toolFailures);
+        checkToolResult(_bkey, result, toolFailures, _fkey);
 
         return { fc, callId: callIds[i], result };
       })
