@@ -289,6 +289,13 @@ async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: str
     if (enableTools && round < maxRounds - 1) {
       body.tools = toOpenAITools(enabledToolNames);
       body.tool_choice = 'auto';
+      // gpt-5.6-sol rejects function tools on /v1/chat/completions unless
+      // reasoning_effort is explicitly 'none' (reasoning defaults on). Tool
+      // rounds run without reasoning; the final compose round (no tools)
+      // keeps the model's default reasoning.
+      if (/-sol$/.test(model)) {
+        body.reasoning_effort = 'none';
+      }
     }
 
     const response: NodeFetchResponse = await fetch('https://api.openai.com/v1/chat/completions', {
