@@ -203,6 +203,7 @@ export interface AppConfig {
   platformOrg: string;
   aiProvider?: string;
   aiModel?: string;
+  systemPrompt?: string;
   embedMode: boolean;
   demoMode: boolean;
   sessionIdleMinutes: number;

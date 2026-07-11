@@ -27,6 +27,11 @@ const config: AppConfig = {
   aiProvider: process.env.AI_PROVIDER || undefined,
   aiModel: process.env.AI_MODEL || undefined,
 
+  // System prompt (injected by provisioner from the workspace blueprint).
+  // Synced into the workspaces DB row at boot — the chat paths read the DB
+  // row, and self-registration creates it empty.
+  systemPrompt: process.env.SYSTEM_PROMPT || undefined,
+
   embedMode: process.env.EMBED_MODE === 'true',
   demoMode: process.env.DEMO_MODE === 'true',
 

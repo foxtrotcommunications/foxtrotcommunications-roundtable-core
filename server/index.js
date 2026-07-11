@@ -602,6 +602,19 @@ async function start() {
   const db = getAdapter();
   await db.registerWorkspace(config.workspaceId, config.workspaceName, config.workspaceUrl, null);
 
+  // Sync the provisioned system prompt into our DB row. Self-registration
+  // creates the row with an empty prompt and the chat paths read the row —
+  // without this sync the workspace runs as a promptless generic assistant.
+  // Env is the source of truth: a direct-DB prompt edit is reverted on the
+  // next restart, so push prompt changes through the control plane.
+  if (config.systemPrompt) {
+    const ws = await db.getWorkspace(config.workspaceId);
+    if (ws && ws.system_prompt !== config.systemPrompt) {
+      await db.updateWorkspace(config.workspaceId, { systemPrompt: config.systemPrompt });
+      console.log(`[Config] Synced system prompt from env (${config.systemPrompt.length} chars)`);
+    }
+  }
+
   // Sync provisioned AI settings if present
   if (config.aiProvider || config.aiModel) {
     const ws = await db.getWorkspace(config.workspaceId);
