@@ -58,27 +58,27 @@ COPY public/ ./public/
 # extensionless require. The @pendragon plugin ships TS sources with
 # `main: src/index.ts`, so its src tree gets the same treatment plus a main
 # rewrite. esbuild is removed afterwards — nothing TS-aware ships at runtime.
-# --platform=neutral, NOT node: node-mode __toESM forces default=module.exports
-# even on __esModule modules, so the plugin's `import tool from './x.js'`
-# received the exports wrapper instead of the default export — every plugin
-# tool lost its .name and OpenAI rejected the tools array (400
-# "tools[23].function.name"). Neutral-mode interop respects __esModule
-# (standard TS semantics) and still handles plain-CJS deps like express.
+# ORDER MATTERS: the plugin's package.json is rewritten BEFORE esbuild runs on
+# its src tree. esbuild keys its CJS interop flavor off the nearest
+# package.json "type" field — with "type": "module" present it emits
+# node-mode __toESM(…, 1), which forces default = module.exports even on
+# __esModule modules. That made the plugin's `import tool from './x.js'` bind
+# the exports wrapper instead of the default export: every plugin tool lost
+# its .name and OpenAI rejected the tools array (400 "tools[23].function.name").
+# With "type" stripped first, esbuild emits standard __esModule-respecting
+# interop and the compiled CJS tree loads correctly under plain node
+# (verified: bare require, deep src/domains/* requires, 39/39 named tools).
 RUN npm install -g esbuild@0.25.6 && \
     find server -name '*.ts' ! -name '*.d.ts' -print0 | \
       xargs -0 esbuild --outdir=server --outbase=server \
         --format=cjs --platform=neutral --target=es2022 --log-level=error && \
     if [ -d node_modules/@pendragon/tools-plaid/src ]; then \
+      sed -i -e 's#"main": "src/index.ts"#"main": "src/index.js"#' \
+             -e 's#"type": "module",##' node_modules/@pendragon/tools-plaid/package.json && \
       find node_modules/@pendragon/tools-plaid/src -name '*.ts' ! -name '*.d.ts' -print0 | \
         xargs -0 esbuild --outdir=node_modules/@pendragon/tools-plaid/src \
           --outbase=node_modules/@pendragon/tools-plaid/src \
-          --format=cjs --platform=neutral --target=es2022 --log-level=error && \
-      # main → compiled entry; drop "type": "module" so the CJS-compiled .js
-      # siblings load as CJS (core consumes the plugin via require throughout —
-      # node 20 cannot require() ESM). Verified: both the bare package require
-      # and the deep src/domains/* requires load under plain node after this.
-      sed -i -e 's#"main": "src/index.ts"#"main": "src/index.js"#' \
-             -e 's#"type": "module",##' node_modules/@pendragon/tools-plaid/package.json; \
+          --format=cjs --platform=neutral --target=es2022 --log-level=error; \
     fi && \
     npm uninstall -g esbuild
 
