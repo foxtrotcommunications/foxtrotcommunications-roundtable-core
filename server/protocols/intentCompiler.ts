@@ -80,6 +80,12 @@ function extractGroupByClause(sql: string): string | null {
   return match ? match[1].trim() : null;
 }
 
+/** Extract the ORDER BY clause from a SQL string */
+function extractOrderByClause(sql: string): string | null {
+  const match = sql.match(/\bORDER\s+BY\s+([\s\S]*?)(?:\bLIMIT\b|$)/i);
+  return match ? match[1].trim() : null;
+}
+
 /** Check if a SQL query has a LIMIT clause */
 function hasLimit(sql: string): boolean {
   return /\bLIMIT\s+\d+/i.test(sql);
@@ -174,9 +180,12 @@ interface FusionCandidate {
  * - No CTEs in either query
  * - Same WHERE clause (or both null)
  * - Compatible GROUP BY (same or both null)
- * - No conflicting ORDER BY
+ * - No ORDER BY and no explicit LIMIT in any query (enforced at candidate
+ *   collection — fusion rebuilds the SQL without them, which would silently
+ *   break top-N semantics)
  *
- * Result: merged SELECT list, preserving WHERE/GROUP BY, with LIMIT max.
+ * Result: merged SELECT list, preserving WHERE/GROUP BY, with the default
+ * safety LIMIT.
  */
 function fuseQueries(candidates: FusionCandidate[]): QueryIntent | null {
   if (candidates.length < 2) return null;
@@ -237,6 +246,14 @@ function applySqlFusion(
         continue;
       }
 
+      // Skip queries with ORDER BY or an explicit LIMIT — fusion rebuilds the
+      // SQL without them, so a top-N query would lose its ordering and row
+      // bound and return arbitrary rows.
+      if (extractOrderByClause(sql) || hasLimit(sql)) {
+        nonQueryOps.push({ index: i, op });
+        continue;
+      }
+
       const table = extractFromClause(sql);
       const columns = extractSelectColumns(sql);
 
@@ -274,16 +291,16 @@ function applySqlFusion(
 
   // Attempt fusion for each group
   let fusionCount = 0;
-  const fusedOps: IntentOperation[] = [];
   const fusedIndices = new Set<number>();
+  const fusedAt = new Map<number, IntentOperation>(); // group's first index → fused op
 
   for (const [, group] of groups) {
     if (group.length < 2) continue;
 
     const fused = fuseQueries(group);
     if (fused) {
-      fusedOps.push(fused);
       fusionCount += group.length - 1; // N queries → 1 = (N-1) fusions
+      fusedAt.set(Math.min(...group.map(c => c.index)), fused);
       for (const c of group) {
         fusedIndices.add(c.index);
       }
@@ -294,18 +311,18 @@ function applySqlFusion(
     return { result: ops, fusionCount: 0 };
   }
 
-  // Rebuild the operation list: non-fused ops in original order + fused ops at the end
+  // Rebuild the operation list in original order, substituting each fused
+  // group at the position of its first member. Position matters: aggregate
+  // reduce strategies ('concat', 'last') are sensitive to step order.
   const result: IntentOperation[] = [];
-
-  // Add non-query ops and unfused query ops in original order
   for (let i = 0; i < ops.length; i++) {
-    if (!fusedIndices.has(i)) {
+    const fused = fusedAt.get(i);
+    if (fused) {
+      result.push(fused);
+    } else if (!fusedIndices.has(i)) {
       result.push(ops[i]);
     }
   }
-
-  // Add fused queries
-  result.push(...fusedOps);
 
   return { result, fusionCount };
 }
