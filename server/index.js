@@ -585,16 +585,20 @@ app.delete('/api/keys/:id', requireAuth, async (req, res) => {
 let heartbeatInterval;
 
 async function start() {
-  // Retry DB init — Cloud SQL proxy sidecar may take 15-20s to be ready
-  const maxRetries = 10;
+  // Retry DB init — the Cloud SQL proxy sidecar usually needs only a moment.
+  // Exponential backoff from 250ms (capped at 3s): a fixed 3s sleep quantized
+  // every wake to multiples of 3s even when the sidecar was ready in <1s,
+  // which added seconds to every cold start.
+  const maxRetries = 12;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       await initAdapter();
       break;
     } catch (err) {
       if (attempt === maxRetries) throw err;
-      console.log(`[DB] Connection failed (attempt ${attempt}/${maxRetries}): ${err.code || err.message}. Retrying in 3s...`);
-      await new Promise(r => setTimeout(r, 3000));
+      const delayMs = Math.min(250 * 2 ** (attempt - 1), 3000);
+      console.log(`[DB] Connection failed (attempt ${attempt}/${maxRetries}): ${err.code || err.message}. Retrying in ${delayMs}ms...`);
+      await new Promise(r => setTimeout(r, delayMs));
     }
   }
 
