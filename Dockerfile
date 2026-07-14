@@ -58,15 +58,21 @@ COPY public/ ./public/
 # extensionless require. The @pendragon plugin ships TS sources with
 # `main: src/index.ts`, so its src tree gets the same treatment plus a main
 # rewrite. esbuild is removed afterwards — nothing TS-aware ships at runtime.
+# --platform=neutral, NOT node: node-mode __toESM forces default=module.exports
+# even on __esModule modules, so the plugin's `import tool from './x.js'`
+# received the exports wrapper instead of the default export — every plugin
+# tool lost its .name and OpenAI rejected the tools array (400
+# "tools[23].function.name"). Neutral-mode interop respects __esModule
+# (standard TS semantics) and still handles plain-CJS deps like express.
 RUN npm install -g esbuild@0.25.6 && \
     find server -name '*.ts' ! -name '*.d.ts' -print0 | \
       xargs -0 esbuild --outdir=server --outbase=server \
-        --format=cjs --platform=node --target=es2022 --log-level=error && \
+        --format=cjs --platform=neutral --target=es2022 --log-level=error && \
     if [ -d node_modules/@pendragon/tools-plaid/src ]; then \
       find node_modules/@pendragon/tools-plaid/src -name '*.ts' ! -name '*.d.ts' -print0 | \
         xargs -0 esbuild --outdir=node_modules/@pendragon/tools-plaid/src \
           --outbase=node_modules/@pendragon/tools-plaid/src \
-          --format=cjs --platform=node --target=es2022 --log-level=error && \
+          --format=cjs --platform=neutral --target=es2022 --log-level=error && \
       # main → compiled entry; drop "type": "module" so the CJS-compiled .js
       # siblings load as CJS (core consumes the plugin via require throughout —
       # node 20 cannot require() ESM). Verified: both the bare package require

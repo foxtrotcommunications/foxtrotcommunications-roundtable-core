@@ -1,5 +1,5 @@
 
-import { resolveTools, toOpenAITools, toAnthropicTools, executeTool } from '../../server/tools/index';
+import { resolveTools, toOpenAITools, toAnthropicTools, executeTool, registerDynamicTools, clearDynamicTools } from '../../server/tools/index';
 
 describe('Tool Index', () => {
   it('should resolve specific enabled tools', () => {
@@ -22,5 +22,27 @@ describe('Tool Index', () => {
   it('should execute a resolved tool', async () => {
     const result = await executeTool('calculator', { expression: '2+2' }, {});
     expect(result.result).toBe('4');
+  });
+
+  // A registry entry without a .name (e.g. a module-interop wrapper object
+  // registered by a plugin) must never reach a provider tools array —
+  // OpenAI rejects the whole request with 400 "tools[N].function.name",
+  // taking chat down (observed live 2026-07-14).
+  it('drops nameless tool definitions from provider payloads', () => {
+    registerDynamicTools([
+      { default: { name: 'wrapped_tool' }, execute: async () => ({}) } as any,
+      { name: 'legit_dynamic_tool', description: 'ok', parameters: { type: 'object', properties: {} }, execute: async () => ({}) } as any,
+    ]);
+    try {
+      const openai = toOpenAITools(null);
+      expect(openai.every(t => typeof t.function.name === 'string' && t.function.name.length > 0)).toBe(true);
+      expect(openai.find(t => t.function.name === 'legit_dynamic_tool')).toBeDefined();
+      const anthropic = toAnthropicTools(null);
+      expect(anthropic.every(t => typeof t.name === 'string' && t.name.length > 0)).toBe(true);
+    } finally {
+      clearDynamicTools('wrapped_tool');
+      clearDynamicTools('legit_dynamic_tool');
+      clearDynamicTools('undefined');
+    }
   });
 });

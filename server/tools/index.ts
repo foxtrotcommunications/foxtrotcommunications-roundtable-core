@@ -176,11 +176,25 @@ function getAvailableTools() {
 }
 
 /**
+ * Drop registry entries that lack a name — providers hard-reject a tools
+ * array containing one (OpenAI 400 "tools[N].function.name"), which took the
+ * whole chat down when a module-interop bug registered wrapper objects.
+ */
+function validToolDefs(enabledNames?: string[] | null) {
+  const defs = Object.values(resolveTools(enabledNames));
+  const valid = defs.filter((t) => t && typeof t.name === 'string' && t.name.length > 0);
+  if (valid.length !== defs.length) {
+    console.warn(`[tools] Dropped ${defs.length - valid.length} malformed tool definition(s) without a name`);
+  }
+  return valid;
+}
+
+/**
  * Convert tool definitions to OpenAI format.
  * @param {string[]|null} enabledNames — optional allowlist; null/undefined = all tools
  */
 function toOpenAITools(enabledNames?: string[] | null) {
-  return Object.values(resolveTools(enabledNames)).map((t) => ({
+  return validToolDefs(enabledNames).map((t) => ({
     type: 'function',
     function: {
       name: t.name,
@@ -195,7 +209,7 @@ function toOpenAITools(enabledNames?: string[] | null) {
  * @param {string[]|null} enabledNames — optional allowlist; null/undefined = all tools
  */
 function toAnthropicTools(enabledNames?: string[] | null) {
-  return Object.values(resolveTools(enabledNames)).map((t) => ({
+  return validToolDefs(enabledNames).map((t) => ({
     name: t.name,
     description: t.description,
     input_schema: t.parameters,
@@ -209,7 +223,7 @@ function toAnthropicTools(enabledNames?: string[] | null) {
 function toGoogleTools(enabledNames?: string[] | null) {
   return [
     {
-      functionDeclarations: Object.values(resolveTools(enabledNames)).map((t) => {
+      functionDeclarations: validToolDefs(enabledNames).map((t) => {
         // Clean parameters for Gemini: strip empty required arrays
         const params = JSON.parse(JSON.stringify(t.parameters));
         if (params.required && params.required.length === 0) {
