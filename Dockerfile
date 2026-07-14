@@ -28,12 +28,11 @@ COPY package*.json ./
 COPY packages/ ./packages/
 RUN npm install --omit=dev --omit=optional
 
-# Runtime TypeScript loader. Installed GLOBALLY on purpose: a local
-# `npm install tsx` reifies against this project's lockfile and silently drops
-# the request (exit 0, tsx absent) — which is what broke the runtime CMD. A
-# global install lives outside the project tree and cannot be pruned. The CMD
-# below invokes `tsx` from PATH.
-RUN npm install -g tsx
+# TypeScript is precompiled at build time (esbuild step after the server COPY
+# below) — the runtime is plain node. This removes the per-boot transpile from
+# the wake path and retires the global-tsx workaround that lived here (a local
+# `npm install tsx` was silently pruned against the lockfile; global installs
+# were the fix — now nothing TS-aware is needed at runtime at all).
 
 # Optional private plugins (e.g. @pendragon/tools-plaid) from Artifact Registry.
 # Installed only when a PLUGINS build-arg AND a gar_token BuildKit secret are
@@ -52,6 +51,30 @@ RUN --mount=type=secret,id=gar_token,required=false,uid=0 \
 # Copy server source
 COPY server/ ./server/
 COPY public/ ./public/
+
+# ─── Precompile TypeScript → sibling .js (build-time, esbuild) ───
+# The server tree mixes .js and .ts; transpiling each .ts to a sibling .js
+# (CJS, same transform tsx applies at runtime) lets plain `node` resolve every
+# extensionless require. The @pendragon plugin ships TS sources with
+# `main: src/index.ts`, so its src tree gets the same treatment plus a main
+# rewrite. esbuild is removed afterwards — nothing TS-aware ships at runtime.
+RUN npm install -g esbuild@0.25.6 && \
+    find server -name '*.ts' ! -name '*.d.ts' -print0 | \
+      xargs -0 esbuild --outdir=server --outbase=server \
+        --format=cjs --platform=node --target=es2022 --log-level=error && \
+    if [ -d node_modules/@pendragon/tools-plaid/src ]; then \
+      find node_modules/@pendragon/tools-plaid/src -name '*.ts' ! -name '*.d.ts' -print0 | \
+        xargs -0 esbuild --outdir=node_modules/@pendragon/tools-plaid/src \
+          --outbase=node_modules/@pendragon/tools-plaid/src \
+          --format=cjs --platform=node --target=es2022 --log-level=error && \
+      # main → compiled entry; drop "type": "module" so the CJS-compiled .js
+      # siblings load as CJS (core consumes the plugin via require throughout —
+      # node 20 cannot require() ESM). Verified: both the bare package require
+      # and the deep src/domains/* requires load under plain node after this.
+      sed -i -e 's#"main": "src/index.ts"#"main": "src/index.js"#' \
+             -e 's#"type": "module",##' node_modules/@pendragon/tools-plaid/package.json; \
+    fi && \
+    npm uninstall -g esbuild
 
 # Copy React client build from stage 1
 COPY --from=client-build /build/dist ./client/dist/
@@ -81,4 +104,4 @@ USER roundtable
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- http://localhost:3000/api/health || exit 1
 
-CMD ["tsx", "server/index.js"]
+CMD ["node", "server/index.js"]

@@ -113,17 +113,19 @@ router.post('/', async (req, res) => {
             continue;
           }
 
-          // Try domain-specific sync module
+          // Try domain-specific sync module. Extensionless specifiers on
+          // purpose: tsx (dev) resolves the .ts source, plain node (image)
+          // resolves the .js sibling precompiled at Docker build time.
           let syncModule;
           try {
             if (domainType === 'debt' || domainType === 'realestate') {
-              syncModule = require('@pendragon/tools-plaid/src/domains/debt.ts');
+              syncModule = require('@pendragon/tools-plaid/src/domains/debt');
             } else if (domainType === 'investments' || domainType === 'retirement') {
-              syncModule = require('@pendragon/tools-plaid/src/domains/investments.ts');
+              syncModule = require('@pendragon/tools-plaid/src/domains/investments');
             } else if (domainType === 'demographics') {
-              syncModule = require('@pendragon/tools-plaid/src/domains/demographics.ts');
+              syncModule = require('@pendragon/tools-plaid/src/domains/demographics');
             } else {
-              syncModule = require('@pendragon/tools-plaid/src/domains/checking.ts');
+              syncModule = require('@pendragon/tools-plaid/src/domains/checking');
             }
           } catch (importErr: any) {
             console.warn(`[sync] Domain module import failed for "${connLabel}" (will use direct Plaid API): ${importErr.message}`);
