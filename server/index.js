@@ -367,6 +367,12 @@ try {
   if (correctionsRoute) app.use('/api/corrections', requireHmac('corrections'), correctionsRoute);
 } catch { /* plugin absent or older version — no route */ }
 
+// Arthur's audit log — typed activity feed per domain, read-only.
+try {
+  const { activityRoute } = require('@pendragon/tools-plaid');
+  if (activityRoute) app.use('/api/activity', requireHmac('activity'), activityRoute);
+} catch { /* plugin absent or older version — no route */ }
+
 app.use('/api', requireAuth, fileRoutes);
 app.use('/api/insights', requireAuth, insightRoutes);
 
