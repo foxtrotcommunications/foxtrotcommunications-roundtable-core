@@ -354,6 +354,13 @@ try {
   if (snapshotRoute) app.use('/api/snapshot', requireHmac('snapshot'), snapshotRoute);
 } catch { /* plugin absent or pre-snapshot version — no route */ }
 
+// Relationship memory — read-only digest + list, HMAC-authenticated.
+// Writes stay on the capability layer (consent invariant, forget tombstones).
+try {
+  const { memoryRoute } = require('@pendragon/tools-plaid');
+  if (memoryRoute) app.use('/api/memory', requireHmac('memory'), memoryRoute);
+} catch { /* plugin absent or pre-memory version — no route */ }
+
 app.use('/api', requireAuth, fileRoutes);
 app.use('/api/insights', requireAuth, insightRoutes);
 
