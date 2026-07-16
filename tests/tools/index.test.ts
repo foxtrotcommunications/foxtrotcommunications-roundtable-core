@@ -1,5 +1,5 @@
 
-import { resolveTools, toOpenAITools, toAnthropicTools, executeTool, registerDynamicTools, clearDynamicTools } from '../../server/tools/index';
+import { resolveTools, toOpenAITools, toAnthropicTools, toGoogleTools, executeTool, registerDynamicTools, clearDynamicTools } from '../../server/tools/index';
 
 describe('Tool Index', () => {
   it('should resolve specific enabled tools', () => {
@@ -22,6 +22,49 @@ describe('Tool Index', () => {
   it('should execute a resolved tool', async () => {
     const result = await executeTool('calculator', { expression: '2+2' }, {});
     expect(result.result).toBe('4');
+  });
+
+  // Vertex rejects the entire request with INVALID_ARGUMENT if ANY array
+  // property lacks an items schema (observed live 2026-07-16 switching user
+  // domain pods to gemini-enterprise: render_chart annotations took every
+  // A2A message/send down). Every array reaching the Gemini payload must
+  // carry items, patched from the description when the author omitted it.
+  it('patches array properties missing items in Gemini payloads', () => {
+    registerDynamicTools([
+      {
+        name: 'sloppy_tool',
+        description: 'tool with untyped arrays',
+        parameters: {
+          type: 'object',
+          properties: {
+            accounts: { type: 'array', description: 'Account records with balance fields' },
+            names: { type: 'array', description: 'Plain names' },
+            nested: {
+              type: 'object',
+              properties: { rows: { type: 'array', description: 'Data rows' } },
+            },
+          },
+        },
+        execute: async () => ({}),
+      } as any,
+    ]);
+    try {
+      const [group] = toGoogleTools(null) as any[];
+      const decl = group.functionDeclarations.find((d: any) => d.name === 'sloppy_tool');
+      expect(decl.parameters.properties.accounts.items).toEqual({ type: 'object' });
+      expect(decl.parameters.properties.names.items).toEqual({ type: 'string' });
+      expect(decl.parameters.properties.nested.properties.rows.items).toEqual({ type: 'object' });
+      // every array anywhere in every declaration has items
+      const everyArrayHasItems = (node: any): boolean => {
+        if (!node || typeof node !== 'object') return true;
+        if (Array.isArray(node)) return node.every(everyArrayHasItems);
+        if (node.type === 'array' && !node.items) return false;
+        return Object.values(node).every(everyArrayHasItems);
+      };
+      expect(everyArrayHasItems(group.functionDeclarations)).toBe(true);
+    } finally {
+      clearDynamicTools('sloppy_tool');
+    }
   });
 
   // A registry entry without a .name (e.g. a module-interop wrapper object
