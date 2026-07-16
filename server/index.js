@@ -340,6 +340,13 @@ try {
   app.use('/api/demographics/seed', requireHmac('demographics/seed'), demographicsSeedRoute);
 }
 
+// Household-goal story cards — read-only, HMAC-authenticated (server-to-server
+// from Pendragon). Writes stay on the capability layer; this is a window.
+try {
+  const { goalsRoute } = require('@pendragon/tools-plaid');
+  if (goalsRoute) app.use('/api/goals', requireHmac('goals'), goalsRoute);
+} catch { /* plugin absent or pre-goals version — no route */ }
+
 app.use('/api', requireAuth, fileRoutes);
 app.use('/api/insights', requireAuth, insightRoutes);
 
