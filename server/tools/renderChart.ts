@@ -58,7 +58,18 @@ const tool: Tool = {
       },
       annotations: {
         type: 'array',
-        description: 'Array of reference lines or labels to overlay on the chart. Each object: {type: "line"|"label", value: number, label: string, color?: string, axis?: "x"|"y"}.',
+        items: {
+          type: 'object',
+          properties: {
+            type: { type: 'string', enum: ['line', 'label'], description: 'Annotation kind: reference line or text label' },
+            value: { type: 'number', description: 'Position on the axis' },
+            label: { type: 'string', description: 'Annotation text' },
+            color: { type: 'string', description: 'CSS color (optional)' },
+            axis: { type: 'string', enum: ['x', 'y'], description: 'Which axis the value refers to (default y)' },
+          },
+          required: ['type', 'value', 'label'],
+        },
+        description: 'Array of reference lines or labels to overlay on the chart.',
       },
       horizontal: {
         type: 'boolean',

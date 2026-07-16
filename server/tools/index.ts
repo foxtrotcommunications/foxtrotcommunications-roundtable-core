@@ -220,6 +220,23 @@ function toAnthropicTools(enabledNames?: string[] | null) {
  * Convert tool definitions to Google/Gemini format.
  * @param {string[]|null} enabledNames — optional allowlist; null/undefined = all tools
  */
+/**
+ * Vertex rejects the whole request (INVALID_ARGUMENT "...items: missing
+ * field") if any array property omits an items schema — a shape tool authors
+ * (plugins included) produce routinely and OpenAI/Anthropic accept. Patch in
+ * place; the property description still carries the real element contract.
+ */
+function patchArrayItems(node: any): void {
+  if (!node || typeof node !== 'object') return;
+  if (Array.isArray(node)) { node.forEach(patchArrayItems); return; }
+  if (node.type === 'array' && !node.items) {
+    node.items = /object|record|entr|row/i.test(node.description || '')
+      ? { type: 'object' }
+      : { type: 'string' };
+  }
+  Object.values(node).forEach(patchArrayItems);
+}
+
 function toGoogleTools(enabledNames?: string[] | null) {
   return [
     {
@@ -229,6 +246,7 @@ function toGoogleTools(enabledNames?: string[] | null) {
         if (params.required && params.required.length === 0) {
           delete params.required;
         }
+        patchArrayItems(params);
         return {
           name: t.name,
           description: t.description,
