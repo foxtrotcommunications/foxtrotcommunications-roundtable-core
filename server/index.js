@@ -347,6 +347,13 @@ try {
   if (goalsRoute) app.use('/api/goals', requireHmac('goals'), goalsRoute);
 } catch { /* plugin absent or pre-goals version — no route */ }
 
+// Canonical snapshot — read-only, HMAC-authenticated. Same fetch+compute as
+// the snapshot.get capability, so HTTP and ICE can never disagree.
+try {
+  const { snapshotRoute } = require('@pendragon/tools-plaid');
+  if (snapshotRoute) app.use('/api/snapshot', requireHmac('snapshot'), snapshotRoute);
+} catch { /* plugin absent or pre-snapshot version — no route */ }
+
 app.use('/api', requireAuth, fileRoutes);
 app.use('/api/insights', requireAuth, insightRoutes);
 
