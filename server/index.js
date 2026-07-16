@@ -361,6 +361,12 @@ try {
   if (memoryRoute) app.use('/api/memory', requireHmac('memory'), memoryRoute);
 } catch { /* plugin absent or pre-memory version — no route */ }
 
+// Merchant knowledge — read-only window for the Memory page's merchant tab.
+try {
+  const { correctionsRoute } = require('@pendragon/tools-plaid');
+  if (correctionsRoute) app.use('/api/corrections', requireHmac('corrections'), correctionsRoute);
+} catch { /* plugin absent or older version — no route */ }
+
 app.use('/api', requireAuth, fileRoutes);
 app.use('/api/insights', requireAuth, insightRoutes);
 
