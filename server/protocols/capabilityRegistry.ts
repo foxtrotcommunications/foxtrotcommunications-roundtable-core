@@ -189,10 +189,20 @@ export class CapabilityRegistry {
       return { error: `Capability '${name}' not found` };
     }
 
-    // Validate input against schema
+    // Validate input against schema. Validation errors are TEACHING errors:
+    // the caller is usually an LLM that cannot see this capability's schema
+    // (intent_bridge is generic), so a bare "missing field X" sends it into
+    // one-field-per-retry guesswork until the tool circuit breaker kills the
+    // attempt (observed live 2026-07-17: a real decision brief went unsaved
+    // twice). Return the full expected shape so the next attempt can be right.
     const validation = validateInput(input, cap.inputSchema);
     if (!validation.valid) {
-      return { error: `Input validation failed for '${name}': ${validation.error}` };
+      const required = (cap.inputSchema as { required?: string[] })?.required || [];
+      return {
+        error: `Input validation failed for '${name}': ${validation.error}. `
+          + `Required fields: [${required.join(', ')}]. `
+          + `Full input schema: ${JSON.stringify(cap.inputSchema)}`,
+      };
     }
 
     // Execute the handler
