@@ -373,6 +373,12 @@ try {
   if (activityRoute) app.use('/api/activity', requireHmac('activity'), activityRoute);
 } catch { /* plugin absent or older version — no route */ }
 
+// Decision briefs — read-only window for the Decisions page.
+try {
+  const { briefsRoute } = require('@pendragon/tools-plaid');
+  if (briefsRoute) app.use('/api/briefs', requireHmac('briefs'), briefsRoute);
+} catch { /* plugin absent or older version — no route */ }
+
 app.use('/api', requireAuth, fileRoutes);
 app.use('/api/insights', requireAuth, insightRoutes);
 
