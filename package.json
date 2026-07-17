@@ -1,7 +1,7 @@
 {
   "name": "roundtable",
   "version": "1.1.0",
-  "description": "Real-time multiplayer AI chat sharing platform — collaborate on AI conversations together",
+  "description": "Real-time multiplayer AI chat sharing platform \u2014 collaborate on AI conversations together",
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
@@ -15,7 +15,8 @@
     "dev:ts": "tsx watch server/index.js",
     "test:integration": "node -e \"const v=parseInt(process.version.slice(1)); const args = v>=25 ? ['--localstorage-file=/tmp/roundtable-test-ls'] : []; const cp = require('child_process').spawnSync('node', [...args, './node_modules/.bin/jest', '--verbose', '--forceExit', 'tests/integration/'], {stdio:'inherit'}); process.exit(cp.status)\"",
     "test:e2e": "playwright test",
-    "lint:server": "eslint server/"
+    "lint:server": "eslint server/",
+    "postinstall": "xattr -w 'com.apple.fileprovider.ignore#P' 1 node_modules 2>/dev/null || true"
   },
   "keywords": [
     "ai",
