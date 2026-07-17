@@ -379,6 +379,12 @@ try {
   if (briefsRoute) app.use('/api/briefs', requireHmac('briefs'), briefsRoute);
 } catch { /* plugin absent or older version — no route */ }
 
+// Data export — this workspace's slice of the household's downloadable data.
+try {
+  const { exportRoute } = require('@pendragon/tools-plaid');
+  if (exportRoute) app.use('/api/export', requireHmac('export'), exportRoute);
+} catch { /* plugin absent or older version — no route */ }
+
 app.use('/api', requireAuth, fileRoutes);
 app.use('/api/insights', requireAuth, insightRoutes);
 
