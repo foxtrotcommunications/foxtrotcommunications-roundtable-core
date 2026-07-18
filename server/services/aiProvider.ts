@@ -357,23 +357,13 @@ async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: str
       })),
     });
 
-    // Execute tools and add results
-    for (const tc of toolCalls) {
-      // ── Fail-fast: skip tools that have exceeded the failure threshold ──
-      const _bkey = breakerKey(tc.name, tc.arguments);
-      const _fkey = fineBreakerKey(tc.name, tc.arguments);
-      const _tripped = trippedBreakerKey(tc.name, tc.arguments, toolFailures);
-      if (_tripped) {
-        const errorMsg = blockedToolMessage(_tripped, toolFailures);
-        yield { type: 'tool-call', name: tc.name, args: JSON.parse(tc.arguments), callId: tc.id };
-        yield { type: 'tool-result', name: tc.name, callId: tc.id, result: { error: errorMsg } };
-        currentMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify({ error: errorMsg }) });
-        continue;
-      }
-
-      yield { type: 'tool-call', name: tc.name, args: JSON.parse(tc.arguments), callId: tc.id };
-
-      const toolStart = Date.now();
+    // Execute tools and add results. Calls in one round run in PARALLEL —
+    // a model batching three domain consults should pay one consult's
+    // latency, not three (measured 2026-07-18: serial consults inflated
+    // multi-round answers; the Gemini path already parallelized). Events
+    // and messages are emitted in the original call order so transcript
+    // and UI are indistinguishable from the serial version.
+    {
       const _io = (global as any)._io;
       const _wsId = workspaceConfig?.workspaceId;
       const configWithProgress = {
@@ -382,24 +372,35 @@ async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: str
           _io.to(`ws:${_wsId}`).emit('ai-status', { step, label, state, ...opts });
         } : undefined,
       };
-      const result: Record<string, unknown> = await executeTool(tc.name, JSON.parse(tc.arguments), configWithProgress);
-      const toolDurationMs = Date.now() - toolStart;
-      if (traceCtx) {
-        const toolSpan = startSpan({ traceId: traceCtx.traceId, parentSpanId: llmSpan?.spanId || traceCtx.spanId, workspaceId: workspaceConfig?.workspaceId || '', workspaceName: workspaceConfig?.workspaceName || '', operation: 'tool_execution', toolName: tc.name, inputPreview: preview(tc.arguments), sampled: traceCtx.sampled });
-        toolSpan._startTime = toolStart;
-        endSpan(toolSpan, 'completed', { outputPreview: preview(JSON.stringify(result)), metadata: { durationMs: toolDurationMs } });
-        recordSpan(toolSpan);
+      for (const tc of toolCalls) {
+        yield { type: 'tool-call', name: tc.name, args: JSON.parse(tc.arguments), callId: tc.id };
       }
-      yield { type: 'tool-result', name: tc.name, callId: tc.id, result };
-
-      // ── Track failures ──
-      checkToolResult(_bkey, result, toolFailures, _fkey);
-
-      currentMessages.push({
-        role: 'tool',
-        tool_call_id: tc.id,
-        content: JSON.stringify(result),
-      });
+      const settled = await Promise.all(toolCalls.map(async (tc: OpenAIToolCall) => {
+        const _tripped = trippedBreakerKey(tc.name, tc.arguments, toolFailures);
+        if (_tripped) {
+          return { tc, blocked: true, result: { error: blockedToolMessage(_tripped, toolFailures) } as Record<string, unknown>, toolStart: Date.now(), durationMs: 0 };
+        }
+        const toolStart = Date.now();
+        const result: Record<string, unknown> = await executeTool(tc.name, JSON.parse(tc.arguments), configWithProgress);
+        return { tc, blocked: false, result, toolStart, durationMs: Date.now() - toolStart };
+      }));
+      for (const ex of settled) {
+        if (!ex.blocked && traceCtx) {
+          const toolSpan = startSpan({ traceId: traceCtx.traceId, parentSpanId: llmSpan?.spanId || traceCtx.spanId, workspaceId: workspaceConfig?.workspaceId || '', workspaceName: workspaceConfig?.workspaceName || '', operation: 'tool_execution', toolName: ex.tc.name, inputPreview: preview(ex.tc.arguments), sampled: traceCtx.sampled });
+          toolSpan._startTime = ex.toolStart;
+          endSpan(toolSpan, 'completed', { outputPreview: preview(JSON.stringify(ex.result)), metadata: { durationMs: ex.durationMs } });
+          recordSpan(toolSpan);
+        }
+        yield { type: 'tool-result', name: ex.tc.name, callId: ex.tc.id, result: ex.result };
+        if (!ex.blocked) {
+          checkToolResult(breakerKey(ex.tc.name, ex.tc.arguments), ex.result, toolFailures, fineBreakerKey(ex.tc.name, ex.tc.arguments));
+        }
+        currentMessages.push({
+          role: 'tool',
+          tool_call_id: ex.tc.id,
+          content: JSON.stringify(ex.result),
+        });
+      }
     }
   }
 
@@ -928,23 +929,13 @@ async function* streamOllama(model: string, messages: ChatMessage[], enableTools
       })),
     });
 
-    // Execute tools and add results
-    for (const tc of toolCalls) {
-      // ── Fail-fast: skip tools that have exceeded the failure threshold ──
-      const _bkey = breakerKey(tc.name, tc.arguments);
-      const _fkey = fineBreakerKey(tc.name, tc.arguments);
-      const _tripped = trippedBreakerKey(tc.name, tc.arguments, toolFailures);
-      if (_tripped) {
-        const errorMsg = blockedToolMessage(_tripped, toolFailures);
-        yield { type: 'tool-call', name: tc.name, args: JSON.parse(tc.arguments), callId: tc.id };
-        yield { type: 'tool-result', name: tc.name, callId: tc.id, result: { error: errorMsg } };
-        currentMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify({ error: errorMsg }) });
-        continue;
-      }
-
-      yield { type: 'tool-call', name: tc.name, args: JSON.parse(tc.arguments), callId: tc.id };
-
-      const toolStart = Date.now();
+    // Execute tools and add results. Calls in one round run in PARALLEL —
+    // a model batching three domain consults should pay one consult's
+    // latency, not three (measured 2026-07-18: serial consults inflated
+    // multi-round answers; the Gemini path already parallelized). Events
+    // and messages are emitted in the original call order so transcript
+    // and UI are indistinguishable from the serial version.
+    {
       const _io = (global as any)._io;
       const _wsId = workspaceConfig?.workspaceId;
       const configWithProgress = {
@@ -953,24 +944,35 @@ async function* streamOllama(model: string, messages: ChatMessage[], enableTools
           _io.to(`ws:${_wsId}`).emit('ai-status', { step, label, state, ...opts });
         } : undefined,
       };
-      const result: Record<string, unknown> = await executeTool(tc.name, JSON.parse(tc.arguments), configWithProgress);
-      const toolDurationMs = Date.now() - toolStart;
-      if (traceCtx) {
-        const toolSpan = startSpan({ traceId: traceCtx.traceId, parentSpanId: llmSpan?.spanId || traceCtx.spanId, workspaceId: workspaceConfig?.workspaceId || '', workspaceName: workspaceConfig?.workspaceName || '', operation: 'tool_execution', toolName: tc.name, inputPreview: preview(tc.arguments), sampled: traceCtx.sampled });
-        toolSpan._startTime = toolStart;
-        endSpan(toolSpan, 'completed', { outputPreview: preview(JSON.stringify(result)), metadata: { durationMs: toolDurationMs } });
-        recordSpan(toolSpan);
+      for (const tc of toolCalls) {
+        yield { type: 'tool-call', name: tc.name, args: JSON.parse(tc.arguments), callId: tc.id };
       }
-      yield { type: 'tool-result', name: tc.name, callId: tc.id, result };
-
-      // ── Track failures ──
-      checkToolResult(_bkey, result, toolFailures, _fkey);
-
-      currentMessages.push({
-        role: 'tool',
-        tool_call_id: tc.id,
-        content: JSON.stringify(result),
-      });
+      const settled = await Promise.all(toolCalls.map(async (tc: OpenAIToolCall) => {
+        const _tripped = trippedBreakerKey(tc.name, tc.arguments, toolFailures);
+        if (_tripped) {
+          return { tc, blocked: true, result: { error: blockedToolMessage(_tripped, toolFailures) } as Record<string, unknown>, toolStart: Date.now(), durationMs: 0 };
+        }
+        const toolStart = Date.now();
+        const result: Record<string, unknown> = await executeTool(tc.name, JSON.parse(tc.arguments), configWithProgress);
+        return { tc, blocked: false, result, toolStart, durationMs: Date.now() - toolStart };
+      }));
+      for (const ex of settled) {
+        if (!ex.blocked && traceCtx) {
+          const toolSpan = startSpan({ traceId: traceCtx.traceId, parentSpanId: llmSpan?.spanId || traceCtx.spanId, workspaceId: workspaceConfig?.workspaceId || '', workspaceName: workspaceConfig?.workspaceName || '', operation: 'tool_execution', toolName: ex.tc.name, inputPreview: preview(ex.tc.arguments), sampled: traceCtx.sampled });
+          toolSpan._startTime = ex.toolStart;
+          endSpan(toolSpan, 'completed', { outputPreview: preview(JSON.stringify(ex.result)), metadata: { durationMs: ex.durationMs } });
+          recordSpan(toolSpan);
+        }
+        yield { type: 'tool-result', name: ex.tc.name, callId: ex.tc.id, result: ex.result };
+        if (!ex.blocked) {
+          checkToolResult(breakerKey(ex.tc.name, ex.tc.arguments), ex.result, toolFailures, fineBreakerKey(ex.tc.name, ex.tc.arguments));
+        }
+        currentMessages.push({
+          role: 'tool',
+          tool_call_id: ex.tc.id,
+          content: JSON.stringify(ex.result),
+        });
+      }
     }
   }
 
