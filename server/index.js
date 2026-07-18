@@ -385,6 +385,12 @@ try {
   if (exportRoute) app.use('/api/export', requireHmac('export'), exportRoute);
 } catch { /* plugin absent or older version — no route */ }
 
+// Watches — read-only window for the watch surface and the digest scheduler.
+try {
+  const { watchesRoute } = require('@pendragon/tools-plaid');
+  if (watchesRoute) app.use('/api/watches', requireHmac('watches'), watchesRoute);
+} catch { /* plugin absent or older version — no route */ }
+
 app.use('/api', requireAuth, fileRoutes);
 app.use('/api/insights', requireAuth, insightRoutes);
 
