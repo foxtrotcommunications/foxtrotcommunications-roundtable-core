@@ -72,12 +72,15 @@ export class IntentCache {
   // ─── Cache Key ──────────────────────────────────────────────────────────
 
   /**
-   * Generate a deterministic cache key from an intent.
-   * Uses SHA-256 of the canonical JSON representation.
+   * Generate a deterministic cache key from an intent, scoped to the
+   * executing workspace. The scope is part of the hash so two tenants
+   * issuing byte-identical intents can NEVER share a cache entry — pods
+   * are single-tenant today, but this must already be true the day a
+   * process serves more than one workspace (multi-tenant Phase-0).
    */
-  key(intent: IntentOperation): string {
+  key(intent: IntentOperation, scope = ''): string {
     const canonical = canonicalize(intent as unknown as Record<string, unknown>);
-    return crypto.createHash('sha256').update(canonical).digest('hex');
+    return crypto.createHash('sha256').update(scope + '\u0000' + canonical).digest('hex');
   }
 
   // ─── Get ────────────────────────────────────────────────────────────────
@@ -86,13 +89,13 @@ export class IntentCache {
    * Look up a cached result for an intent.
    * Returns null on miss, expired entry, or non-cacheable op.
    */
-  get(intent: IntentOperation): IntentResult | null {
+  get(intent: IntentOperation, scope = ''): IntentResult | null {
     if (!isCacheable(intent)) {
       this._misses++;
       return null;
     }
 
-    const k = this.key(intent);
+    const k = this.key(intent, scope);
     const entry = this.cache.get(k);
 
     if (!entry) {
@@ -120,11 +123,11 @@ export class IntentCache {
    * Cache a successful result for an intent.
    * Only caches successful results for cacheable operations.
    */
-  set(intent: IntentOperation, result: IntentResult, ttlMs?: number): void {
+  set(intent: IntentOperation, result: IntentResult, ttlMs?: number, scope = ''): void {
     if (!isCacheable(intent)) return;
     if (result.status !== 'success') return; // Only cache successes
 
-    const k = this.key(intent);
+    const k = this.key(intent, scope);
 
     // Evict if at capacity (LRU: remove least recently accessed)
     if (this.cache.size >= this.maxSize && !this.cache.has(k)) {
@@ -143,8 +146,8 @@ export class IntentCache {
   // ─── Invalidate ─────────────────────────────────────────────────────────
 
   /** Remove a specific intent from the cache */
-  invalidate(intent: IntentOperation): boolean {
-    return this.cache.delete(this.key(intent));
+  invalidate(intent: IntentOperation, scope = ''): boolean {
+    return this.cache.delete(this.key(intent, scope));
   }
 
   /** Clear the entire cache */

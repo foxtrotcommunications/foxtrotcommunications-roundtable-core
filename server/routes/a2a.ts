@@ -376,8 +376,8 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
           );
         }
 
-        // 2. Check nonce for replay prevention
-        if (!nonceStore.add(token.nonce)) {
+        // 2. Check nonce for replay prevention (DB-backed; survives restarts)
+        if (!(await nonceStore.add(token.nonce))) {
           console.warn(`[A2A:ICE] Replay detected: nonce ${token.nonce}`);
           return res.json(
             jsonRpcError(id, -32000, 'Replay detected: token nonce already used')
