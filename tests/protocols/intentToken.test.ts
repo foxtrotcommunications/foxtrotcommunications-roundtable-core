@@ -506,48 +506,44 @@ describe('NonceStore', () => {
     store.destroy();
   });
 
-  it('add() returns true for a new nonce', () => {
-    expect(store.add('nonce-1', 10_000)).toBe(true);
+  // add() is async since the Postgres-backed store (multi-tenant Phase-0).
+  // No DATABASE_URL in tests → exercises the in-memory fallback, which must
+  // keep the exact semantics the a2a route depends on.
+  it('add() returns true for a new nonce', async () => {
+    expect(await store.add('nonce-1', 10_000)).toBe(true);
   });
 
-  it('add() returns false for a duplicate nonce (replay)', () => {
-    store.add('nonce-dup', 10_000);
-    expect(store.add('nonce-dup', 10_000)).toBe(false);
-  });
-
-  it('has() returns false after nonce TTL expires', async () => {
-    store.add('nonce-ttl', 10); // 10ms TTL
-    // Wait for TTL to pass
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    expect(store.has('nonce-ttl')).toBe(false);
+  it('add() returns false for a duplicate nonce (replay)', async () => {
+    await store.add('nonce-dup', 10_000);
+    expect(await store.add('nonce-dup', 10_000)).toBe(false);
   });
 
   it('allows re-adding a nonce after TTL expires', async () => {
-    store.add('nonce-reuse', 10);
+    await store.add('nonce-reuse', 10);
     await new Promise((resolve) => setTimeout(resolve, 30));
     // Should be allowed since the old one expired
-    expect(store.add('nonce-reuse', 10_000)).toBe(true);
+    expect(await store.add('nonce-reuse', 10_000)).toBe(true);
   });
 
   it('cleanup() removes expired nonces', async () => {
-    store.add('fresh', 10_000);
-    store.add('expired', 10);
+    await store.add('fresh', 10_000);
+    await store.add('expired', 10);
     await new Promise((resolve) => setTimeout(resolve, 30));
     store.cleanup();
     expect(store.size).toBe(1); // only 'fresh' remains
   });
 
-  it('size tracks the number of stored nonces', () => {
+  it('size tracks the number of stored nonces', async () => {
     expect(store.size).toBe(0);
-    store.add('a', 10_000);
+    await store.add('a', 10_000);
     expect(store.size).toBe(1);
-    store.add('b', 10_000);
+    await store.add('b', 10_000);
     expect(store.size).toBe(2);
   });
 
-  it('destroy() clears everything', () => {
-    store.add('nonce-x', 10_000);
-    store.add('nonce-y', 10_000);
+  it('destroy() clears everything', async () => {
+    await store.add('nonce-x', 10_000);
+    await store.add('nonce-y', 10_000);
     expect(store.size).toBe(2);
     store.destroy();
     expect(store.size).toBe(0);
