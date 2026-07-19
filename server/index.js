@@ -640,7 +640,13 @@ async function start() {
   // Exponential backoff from 250ms (capped at 3s): a fixed 3s sleep quantized
   // every wake to multiples of 3s even when the sidecar was ready in <1s,
   // which added seconds to every cold start.
-  const maxRetries = 12;
+  //
+  // Budget: ~2 minutes, not ~36s. On a BRAND-NEW org's first boot the
+  // cloud-sql-proxy sidecar is still dialing the instance while we retry;
+  // 12 attempts died at 49s, crashed the container, and the kubelet restart
+  // added ~25s to the very first user message (observed 2026-07-19 on a
+  // fresh signup). Patience here is strictly cheaper than a crash loop.
+  const maxRetries = 40;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       await initAdapter();
