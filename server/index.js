@@ -192,6 +192,12 @@ if (config.embedMode) {
 
 // Health check (unauthenticated — used by k8s probes and load balancers)
 app.get('/api/health', async (req, res) => {
+  // 503 until the background boot chain (DB dial → registration → syncs)
+  // completes: the onboarding arthur-ready gate and the dashboard both need
+  // "listening" and "ready to serve" to be different answers.
+  if (!global._bootReady) {
+    return res.status(503).json({ status: 'starting', workspace: config.workspaceId, uptime: Math.floor(process.uptime()) });
+  }
   try {
     const db = getAdapter();
     const version = require('../package.json').version || '1.0.0';
@@ -636,6 +642,27 @@ app.delete('/api/keys/:id', requireAuth, async (req, res) => {
 let heartbeatInterval;
 
 async function start() {
+  // Listen FIRST, dial the database second (2026-07-19): TLS, ingress, and
+  // sockets come up immediately while the DB chain runs behind them, and
+  // /api/health answers 503 'starting' until the chain completes — so
+  // "listening" never impersonates "ready", and a standby wake or first
+  // boot serves its first request seconds sooner.
+  const io = setupSockets(server, sessionMiddleware);
+  global._io = io; // For webhook broadcasting
+  server.listen(config.port, () => {
+    console.log(`
+  ╔═══════════════════════════════════════════════════╗
+  ║                                                   ║
+  ║   🎙️  Roundtable is live!                         ║
+  ║                                                   ║
+  ║   Local:  http://localhost:${config.port}                ║
+  ║   Workspace: ${config.workspaceId.padEnd(36)}║
+  ║   DB:     ${(isPostgres() ? 'PostgreSQL' : 'SQLite (dev)').padEnd(38)}║
+  ║                                                   ║
+  ╚═══════════════════════════════════════════════════╝
+    `);
+  });
+
   // Retry DB init — the Cloud SQL proxy sidecar usually needs only a moment.
   // Exponential backoff from 250ms (capped at 3s): a fixed 3s sleep quantized
   // every wake to multiples of 3s even when the sidecar was ready in <1s,
@@ -695,27 +722,15 @@ async function start() {
     console.log(`[Security] Provider restriction applied: ${config.allowedProviders}`);
   }
 
-  const io = setupSockets(server, sessionMiddleware);
-  global._io = io; // For webhook broadcasting
 
   // Heartbeat every 60s
   heartbeatInterval = setInterval(async () => {
     try { await db.updateWorkspaceHeartbeat(config.workspaceId); } catch { /* intentionally empty */ }
   }, 60000);
 
-  server.listen(config.port, () => {
-    console.log(`
-  ╔═══════════════════════════════════════════════════╗
-  ║                                                   ║
-  ║   🎙️  Roundtable is live!                         ║
-  ║                                                   ║
-  ║   Local:  http://localhost:${config.port}                ║
-  ║   Workspace: ${config.workspaceId.padEnd(36)}║
-  ║   DB:     ${(isPostgres() ? 'PostgreSQL' : 'SQLite (dev)').padEnd(38)}║
-  ║                                                   ║
-  ╚═══════════════════════════════════════════════════╝
-    `);
-  });
+  global._bootReady = true;
+  console.log(`[Boot] Ready — DB connected and workspace registered (${Math.floor(process.uptime())}s after start)`);
+
 }
 
 start().catch((err) => { console.error('Failed to start:', err); process.exit(1); });
