@@ -303,8 +303,11 @@ export async function executeIntentToken(
       });
     }
 
-    // 3. Check intent cache (only reached once the action is authorized)
-    const cached = intentCache.get(token.intent);
+    // 3. Check intent cache (only reached once the action is authorized).
+    // Scoped to this workspace's identity — see intentCache.key().
+    const cacheScope = String((ctx.workspaceConfig as any)?.workspaceId
+      || process.env.WS_ID || process.env.WORKSPACE_ID || '');
+    const cached = intentCache.get(token.intent, cacheScope);
     if (cached) {
       intentMetrics.record(cached.toolExecuted || 'cache_hit', 0, true);
       intentMetrics.recordCacheHit();
@@ -377,7 +380,7 @@ export async function executeIntentToken(
     });
 
     // 7. Cache the successful result
-    intentCache.set(token.intent, intentResult);
+    intentCache.set(token.intent, intentResult, undefined, cacheScope);
 
     return intentResult;
   } catch (err: unknown) {
