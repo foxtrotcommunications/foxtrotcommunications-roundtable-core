@@ -397,6 +397,14 @@ try {
   if (watchesRoute) app.use('/api/watches', requireHmac('watches'), watchesRoute);
 } catch { /* plugin absent or older version — no route */ }
 
+// CSV import — parse/dedup/commit on the transaction domain that owns the
+// ledger. HMAC-authenticated; the Pendragon API proxies file text and confirmed
+// rows here (the raw file is discarded in the API tier — parse-and-discard).
+try {
+  const { importRoute } = require('@pendragon/tools-plaid');
+  if (importRoute) app.use('/api/import', requireHmac('import'), importRoute);
+} catch { /* plugin absent or older version — no route */ }
+
 app.use('/api', requireAuth, fileRoutes);
 app.use('/api/insights', requireAuth, insightRoutes);
 
