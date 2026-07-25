@@ -6,14 +6,14 @@ import type { Tool } from '../types';
 
 const tool: Tool = {
   name: 'render_chart',
-  description: 'Render an interactive chart visualization inline in your response. The chart is automatically displayed to the user — do NOT include any raw JSON, chart blocks, or mermaid diagrams in your text. After the chart renders, simply provide a blockquote italic caption with the key takeaway and continue your analysis. Supports: bar, line, pie, doughnut, scatter, area, waterfall, treemap, fan, scenario, overlap, polar, radar, rose. COMBO CHARTS: To mix chart types (e.g. income as bars + spending as line), set the overall type to "bar" and add a "type" field on individual datasets to override (e.g. {"label":"Spending","type":"line","data":[...]}).',
+  description: 'Render an interactive chart visualization inline in your response. The chart is automatically displayed to the user — do NOT include any raw JSON, chart blocks, or mermaid diagrams in your text. After the chart renders, simply provide a blockquote italic caption with the key takeaway and continue your analysis. Supports: bar, line, pie, doughnut, scatter, area, waterfall, treemap, fan, scenario, overlap, polar, radar, rose, timeline. COMBO CHARTS: To mix chart types (e.g. income as bars + spending as line), set the overall type to "bar" and add a "type" field on individual datasets to override (e.g. {"label":"Spending","type":"line","data":[...]}). DECISION TRACES: for milestone/decision-history answers use type "timeline" — datasets[0].data is an array of dated nodes {date: "YYYY-MM-DD", label, detail (their verbatim words), amount?, kind?: "decision"|"outcome"|"event"} in chronological order, with kind "outcome" marking the milestone the decisions produced; a bar chart of amounts hides sequence and causality.',
   parameters: {
     type: 'object',
     properties: {
       type: {
         type: 'string',
-        enum: ['bar', 'line', 'pie', 'doughnut', 'scatter', 'area', 'waterfall', 'treemap', 'fan', 'scenario', 'overlap', 'polar', 'radar', 'rose'],
-        description: 'Chart type. Use bar for comparisons, line for trends over time, pie/doughnut for proportions, scatter for correlations, waterfall for value buildups/breakdowns, treemap for hierarchical proportions, fan for projections with confidence bands, scenario for side-by-side comparisons, overlap for exposure/overlap analysis, polar for radial proportions (like pie but with magnitude), radar for multi-dimensional comparisons, rose for coxcomb charts encoding TWO variables (datasets[0] = theta/angular widths as % shares, datasets[1] = radius/petal lengths as values — perfect for "slice by X, radius by Y" requests). IMPORTANT: For scatter charts, each data point must be an object {x: number, y: number} — do NOT use flat number arrays.',
+        enum: ['bar', 'line', 'pie', 'doughnut', 'scatter', 'area', 'waterfall', 'treemap', 'fan', 'scenario', 'overlap', 'polar', 'radar', 'rose', 'timeline'],
+        description: 'Chart type. Use bar for comparisons, line for trends over time, pie/doughnut for proportions, scatter for correlations, waterfall for value buildups/breakdowns, treemap for hierarchical proportions, fan for projections with confidence bands, scenario for side-by-side comparisons, overlap for exposure/overlap analysis, polar for radial proportions (like pie but with magnitude), radar for multi-dimensional comparisons, rose for coxcomb charts encoding TWO variables (datasets[0] = theta/angular widths as % shares, datasets[1] = radius/petal lengths as values — perfect for "slice by X, radius by Y" requests), timeline for decision traces (dated nodes with the household's verbatim words and outcome markers — the only correct choice for "how did we get here" answers). IMPORTANT: For scatter charts, each data point must be an object {x: number, y: number} — do NOT use flat number arrays.',
       },
       title: {
         type: 'string',
@@ -31,7 +31,7 @@ const tool: Tool = {
           properties: {
             label: { type: 'string', description: 'Dataset name (legend label)' },
             type: { type: 'string', enum: ['bar', 'line'], description: 'Override chart type for this dataset. Use for combo charts — e.g. set the overall type to "bar" and override one dataset to "line".' },
-            data: { type: 'array', items: { oneOf: [{ type: 'number' }, { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' } }, required: ['x', 'y'] }, { type: 'object', properties: { label: { type: 'string' }, value: { type: 'number' }, group: { type: 'string' } }, required: ['label', 'value'] }] }, description: 'Data values. For scatter charts, use [{x, y}, ...]. For treemap, use [{label, value, group?}, ...]. For all other charts, use [number, ...].' },
+            data: { type: 'array', items: { oneOf: [{ type: 'number' }, { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' } }, required: ['x', 'y'] }, { type: 'object', properties: { label: { type: 'string' }, value: { type: 'number' }, group: { type: 'string' } }, required: ['label', 'value'] }, { type: 'object', properties: { date: { type: 'string' }, label: { type: 'string' }, detail: { type: 'string' }, amount: { type: 'number' }, kind: { type: 'string', enum: ['decision', 'outcome', 'event'] } }, required: ['date', 'label'] }] }, description: 'Data values. For scatter charts, use [{x, y}, ...]. For treemap, use [{label, value, group?}, ...]. For timeline, use [{date: "YYYY-MM-DD", label, detail?, amount?, kind?}, ...] in chronological order — detail carries the household's verbatim words, kind "outcome" marks the milestone. For all other charts, use [number, ...].' },
             backgroundColor: { type: 'string', description: 'Fill color (CSS color string)' },
             borderColor: { type: 'string', description: 'Border color (CSS color string)' },
           },
@@ -91,13 +91,13 @@ const tool: Tool = {
         description: 'For waterfall charts only. Array of booleans (same length as labels) — true means that bar shows the running total, false means it shows the delta.',
       },
     },
-    required: ['type', 'title', 'labels', 'datasets'],
+    required: ['type', 'title', 'datasets'],
   },
   async execute(args: any, _workspaceConfig: any = {}, _context?: any) {
     const { type, title, labels, datasets } = args;
 
     // For waterfall and treemap, labels can be derived from data — relax the requirement
-    const labelsRequired = !['waterfall', 'treemap'].includes(type);
+    const labelsRequired = !['waterfall', 'treemap', 'timeline'].includes(type);
 
     if (labelsRequired && (!Array.isArray(labels) || labels.length === 0)) {
       return { error: 'labels must be a non-empty array' };
