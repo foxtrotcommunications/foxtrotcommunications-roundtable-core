@@ -385,6 +385,13 @@ try {
   if (briefsRoute) app.use('/api/briefs', requireHmac('briefs'), briefsRoute);
 } catch { /* plugin absent or older version — no route */ }
 
+// Household roster — attribution backbone for two-voice households.
+// GET list + the join-flow upsert (consent recorded web-side at accept).
+try {
+  const { membersRoute } = require('@pendragon/tools-plaid');
+  if (membersRoute) app.use('/api/household-members', requireHmac('household-members'), membersRoute);
+} catch { /* plugin absent or older version — no route */ }
+
 // Data export — this workspace's slice of the household's downloadable data.
 try {
   const { exportRoute } = require('@pendragon/tools-plaid');
