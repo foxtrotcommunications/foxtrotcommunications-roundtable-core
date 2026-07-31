@@ -143,8 +143,50 @@ export function extractProvenance(toolResults: Array<{ name: string; result: Rec
   const intentResults = toolResults.filter(t => t.name === 'intent_bridge');
   const emitOnlyResults = toolResults.filter(t => t.name === 'emit_provenance');
 
-  // If no intent_bridge AND no emit_provenance results, no provenance to extract
-  if (intentResults.length === 0 && emitOnlyResults.length === 0) return null;
+  // declare_missing_data is a REAL tool call whose result echoes its args
+  // ({domains, wouldEnable}). Before this, the declaration only survived when
+  // the model wrote it as inline <tool_call> XML in its text — an actual tool
+  // call executed pod-side and its content died here, because no artifact
+  // carried it. Observed live 2026-07-31: ai-status showed the tool
+  // completing, the client still rendered "none emitted".
+  const declResults = toolResults.filter(t => t.name === 'declare_missing_data');
+  const decl = (declResults[0]?.result ?? {}) as Record<string, unknown>;
+  const declMissing = Array.isArray(decl.domains)
+    ? (decl.domains as unknown[]).filter((d): d is string => typeof d === 'string')
+    : [];
+  const declEnables = Array.isArray(decl.wouldEnable)
+    ? (decl.wouldEnable as unknown[]).filter((d): d is string => typeof d === 'string')
+    : [];
+
+  // If no intent_bridge, no emit_provenance, and no declaration — nothing to extract
+  if (intentResults.length === 0 && emitOnlyResults.length === 0 && declMissing.length === 0) return null;
+
+  // Declaration only: the model consulted nothing and emitted nothing, but
+  // said what it LACKED. Ship that as a minimal provenance artifact — the
+  // consumer marks the answer unverified and keeps the declarations, which
+  // is the whole point of the tool.
+  if (intentResults.length === 0 && emitOnlyResults.length === 0) {
+    return {
+      domains: [],
+      accounts: [],
+      accounts_analyzed: 0,
+      transactions_scanned: 0,
+      answer_coverage_pct: 0,
+      confidence_pct: 0,
+      confidence_factors: {},
+      claims: [],
+      alignment_penalties: [],
+      executionMs: 0,
+      timestamp: new Date().toISOString(),
+      cached: false,
+      coverage_pct: 0,
+      confidence: 'low' as const,
+      visible: [],
+      assumptions: [],
+      missing: declMissing,
+      wouldImprove: declEnables,
+    };
+  }
 
   // If no intent_bridge but we have emit_provenance, build minimal provenance
   if (intentResults.length === 0 && emitOnlyResults.length > 0) {
@@ -192,7 +234,11 @@ export function extractProvenance(toolResults: Array<{ name: string; result: Rec
       confidence: confidencePct >= 85 ? 'high' as const : confidencePct >= 60 ? 'medium' as const : 'low' as const,
       visible: [],
       assumptions: ep.assumptions || [],
-      missing: ep.missingDomains || [],
+      // The separated declaration is the more reliable source for these two
+      // (emit_provenance tends not to fire on data-less answers); the emit's
+      // own fields win when both exist.
+      missing: (Array.isArray(ep.missingDomains) && ep.missingDomains.length > 0) ? ep.missingDomains : declMissing,
+      wouldImprove: (Array.isArray(ep.wouldImprove) && ep.wouldImprove.length > 0) ? ep.wouldImprove : declEnables,
     };
   }
 
@@ -514,7 +560,10 @@ export function extractProvenance(toolResults: Array<{ name: string; result: Rec
     confidence: confidencePct >= 85 ? 'high' as const : confidencePct >= 60 ? 'medium' as const : 'low' as const,
     visible: [],
     assumptions: [],
-    missing: [],
+    // Even with domains consulted, the model may declare what it still
+    // lacked — that declaration drives the connect/improve ask downstream.
+    missing: declMissing,
+    wouldImprove: declEnables,
   };
 }
 
