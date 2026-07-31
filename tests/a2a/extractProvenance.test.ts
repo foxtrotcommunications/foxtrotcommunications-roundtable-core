@@ -127,3 +127,60 @@ describe('extractProvenance', () => {
     expect(p.domains).toHaveLength(1);
   });
 });
+
+// declare_missing_data is a real tool call whose result echoes its args.
+// Observed live 2026-07-31: the pod executed it, the artifact never carried
+// it, and the client rendered "none emitted" — the declaration died here.
+describe('extractProvenance — declare_missing_data', () => {
+  const declResult = {
+    name: 'declare_missing_data',
+    result: {
+      recorded: true,
+      domains: ['Retirement'],
+      wouldEnable: ['I could compare the plans against your actual contribution room'],
+    } as Record<string, unknown>,
+  };
+
+  it('a declaration alone produces a minimal provenance carrying it', () => {
+    const p = extractProvenance([declResult]) as any;
+    expect(p).not.toBeNull();
+    expect(p.domains).toHaveLength(0);
+    expect(p.missing).toEqual(['Retirement']);
+    expect(p.wouldImprove).toEqual(['I could compare the plans against your actual contribution room']);
+  });
+
+  it('no bridge, no emit, no declaration — still null', () => {
+    expect(extractProvenance([])).toBeNull();
+    expect(extractProvenance([
+      { name: 'declare_missing_data', result: { recorded: true, domains: [] } },
+    ])).toBeNull();
+  });
+
+  it('emit-only: declaration fills missing/wouldImprove when the emit lacks them', () => {
+    const p = extractProvenance([
+      { name: 'emit_provenance', result: { domainsConsulted: [], dataFreshMinutes: 0 } },
+      declResult,
+    ]) as any;
+    expect(p.missing).toEqual(['Retirement']);
+    expect(p.wouldImprove).toEqual(['I could compare the plans against your actual contribution room']);
+  });
+
+  it("emit-only: the emit's own fields win when both exist", () => {
+    const p = extractProvenance([
+      { name: 'emit_provenance', result: { domainsConsulted: [], missingDomains: ['Taxes'], wouldImprove: ['tax view'] } },
+      declResult,
+    ]) as any;
+    expect(p.missing).toEqual(['Taxes']);
+    expect(p.wouldImprove).toEqual(['tax view']);
+  });
+
+  it('full path: a declaration rides along even when domains were consulted', () => {
+    const p = extractProvenance([
+      bridgeResult('Checking & Savings', 'capability:plaid.getBalances', balanceProvenance(100)),
+      declResult,
+    ]) as any;
+    expect(p.domains).toHaveLength(1);
+    expect(p.missing).toEqual(['Retirement']);
+    expect(p.wouldImprove).toEqual(['I could compare the plans against your actual contribution room']);
+  });
+});
