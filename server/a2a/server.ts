@@ -843,6 +843,22 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
       });
     }
 
+    // Answer manifest metadata (2026-08-02): the epistemic record of this
+    // answer — which model produced it under which system prompt. Consumers
+    // persist this alongside the message so any past answer can state what
+    // configuration generated it (three prompt versions shipped in one week
+    // with no way to attribute answers to them — that gap ends here).
+    // sha256 of the prompt, never the prompt text: pods may hold per-tenant
+    // customizations that shouldn't leak through response artifacts.
+    artifacts.push({
+      name: 'answer_meta',
+      parts: [{ type: 'data', data: {
+        provider,
+        model,
+        prompt_sha256: crypto.createHash('sha256').update(systemPrompt || '').digest('hex'),
+      } }],
+    });
+
     task.artifacts = artifacts;
 
     if (task.history) {
