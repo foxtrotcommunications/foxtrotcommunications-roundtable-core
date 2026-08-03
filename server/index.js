@@ -705,16 +705,31 @@ async function start() {
   const db = getAdapter();
   await db.registerWorkspace(config.workspaceId, config.workspaceName, config.workspaceUrl, null);
 
-  // Sync the provisioned system prompt into our DB row. Self-registration
-  // creates the row with an empty prompt and the chat paths read the row —
-  // without this sync the workspace runs as a promptless generic assistant.
-  // Env is the source of truth: a direct-DB prompt edit is reverted on the
-  // next restart, so push prompt changes through the control plane.
+  // Seed the provisioned system prompt into our DB row — ONCE. Self-
+  // registration creates the row with an empty prompt and the chat paths
+  // read the row; without this seed the workspace runs as a promptless
+  // generic assistant.
+  //
+  // The DB row is the runtime source of truth, NOT the env. The env value is
+  // frozen into the Deployment at provisioning/deploy time, while prompt
+  // pushes update the DB (and Firestore) without touching the Deployment —
+  // so the old overwrite-on-boot behavior meant ANY pod bounce (kubectl
+  // restart, node drain, eviction, crash) silently reverted every pushed
+  // prompt to whatever the env held. Observed live 2026-08-03: three
+  // freshly-pushed Arthur prompts reverted to a weeks-old version minutes
+  // later because a fleet restart followed the push. Boot now seeds only an
+  // EMPTY row and logs drift loudly instead of "fixing" it.
   if (config.systemPrompt) {
     const ws = await db.getWorkspace(config.workspaceId);
-    if (ws && ws.system_prompt !== config.systemPrompt) {
+    if (ws && !ws.system_prompt) {
       await db.updateWorkspace(config.workspaceId, { systemPrompt: config.systemPrompt });
-      console.log(`[Config] Synced system prompt from env (${config.systemPrompt.length} chars)`);
+      console.log(`[Config] Seeded system prompt from env (${config.systemPrompt.length} chars)`);
+    } else if (ws && ws.system_prompt !== config.systemPrompt) {
+      console.warn(
+        `[Config] System prompt drift: env has ${config.systemPrompt.length} chars, ` +
+        `DB row has ${ws.system_prompt.length} chars. DB wins (env is a provisioning seed); ` +
+        `redeploy the workspace if the env copy matters.`,
+      );
     }
   }
 
