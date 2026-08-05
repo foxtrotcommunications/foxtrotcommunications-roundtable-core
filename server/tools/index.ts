@@ -71,15 +71,22 @@ const tools = {
 
 // ─── Plaid Plugin (sync + capabilities) ─────────────────────────────
 // If @pendragon/tools-plaid is installed and RT_CONNECTIONS has a plaid
-// connection, register domain-scoped sync tools + capabilities.
+// connection, register domain-scoped sync tools + capabilities. The third
+// argument hands the plugin core's app hooks so it can register its
+// provenance extractor and activity labels (see server/a2a/appHooks.ts);
+// older plugin versions ignore the extra argument.
 try {
   const { registerFromEnv } = require('@pendragon/tools-plaid');
   const { capabilityRegistry } = require('../protocols/capabilityRegistry');
+  const { registerActivityDescriptor, registerProvenanceExtractor } = require('../a2a/appHooks');
   registerFromEnv({
     register(name: string, tool: any) {
       tools[name] = tool;
     },
-  }, capabilityRegistry);
+  }, capabilityRegistry, {
+    registerActivityDescriptor,
+    registerProvenanceExtractor,
+  });
 } catch (err: any) {
   // Package not installed or no plaid connection — skip silently
   if (err.code !== 'MODULE_NOT_FOUND') {

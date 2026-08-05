@@ -62,68 +62,11 @@ interface BridgeToolResult {
 }
 
 // ─── Human-friendly step descriptions for tool calls ──────────────────
-/** Human-friendly descriptions for tool calls — uses financial advisor language */
-function describeActivity(toolName: string, args: Record<string, unknown>): { step: string; label: string } {
-  // Bridge/intent tools — use the target workspace name
-  if (toolName === 'intent_bridge') {
-    const target = (args.targetWorkspace || args.target || 'workspace') as string;
-    return { step: target, label: describeWorkspace(target) };
-  }
-  if (toolName === 'bridge_workspace') {
-    const target = (args.target || 'workspace') as string;
-    return { step: target, label: describeWorkspace(target) };
-  }
-  // Domain tools
-  const descriptions: Record<string, { step: string; label: string }> = {
-    describe_workspace: { step: 'planning', label: 'Planning analysis' },
-    get_user_profile: { step: 'demographics', label: 'Reviewing your profile' },
-    get_household: { step: 'demographics', label: 'Reviewing household details' },
-    get_investment_preferences: { step: 'demographics', label: 'Reviewing investment preferences' },
-    list_accounts: { step: 'accounts', label: 'Listing accounts' },
-    get_balance: { step: 'balances', label: 'Checking balances' },
-    get_transactions: { step: 'transactions', label: 'Reviewing transactions' },
-    get_financial_snapshot: { step: 'snapshot', label: 'Building financial snapshot' },
-    get_debt_summary: { step: 'debt', label: 'Evaluating debt obligations' },
-    get_credit_utilization: { step: 'credit', label: 'Checking credit utilization' },
-    get_cashflow: { step: 'cashflow', label: 'Checking cash flow' },
-    get_income_summary: { step: 'income', label: 'Analyzing income' },
-    get_spending_by_category: { step: 'spending', label: 'Analyzing spending patterns' },
-    get_spending_by_merchant: { step: 'spending', label: 'Reviewing merchant spending' },
-    get_recurring_charges: { step: 'recurring', label: 'Identifying recurring charges' },
-    get_balance_history: { step: 'history', label: 'Reviewing balance history' },
-    get_payoff_projection: { step: 'payoff', label: 'Projecting payoff timeline' },
-    get_liabilities: { step: 'liabilities', label: 'Reviewing liabilities' },
-    render_chart: { step: 'chart', label: 'Generating chart' },
-    discover: { step: 'discover', label: 'Discovering available data' },
-    calculator: { step: 'calculating', label: 'Running calculations' },
-    emit_provenance: { step: 'provenance', label: 'Verifying sources' },
-    query_bigquery: { step: 'querying', label: 'Querying data warehouse' },
-    query_snowflake: { step: 'querying', label: 'Querying data warehouse' },
-    query_databricks: { step: 'querying', label: 'Querying data warehouse' },
-    call_agent: { step: 'consulting', label: 'Consulting specialist' },
-    financial_plan: { step: 'planning', label: 'Building financial plan' },
-    run_code: { step: 'computing', label: 'Running analysis' },
-    read_file: { step: 'reading', label: 'Reading documents' },
-    read_url: { step: 'researching', label: 'Researching online' },
-  };
-  if (descriptions[toolName]) return descriptions[toolName];
-  // Fallback: humanize the tool name
-  const humanized = toolName.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-  return { step: toolName, label: humanized };
-}
-
-function describeWorkspace(name: string): string {
-  const wsDescriptions: Record<string, string> = {
-    'Retirement': 'Analyzing retirement accounts',
-    'Investments': 'Reviewing investments',
-    'Checking & Savings': 'Checking cash flow',
-    'Debt Management': 'Evaluating debt obligations',
-    'Real Estate': 'Reviewing real estate holdings',
-    'Taxes': 'Considering tax implications',
-    'Demographics': 'Reviewing your profile',
-  };
-  return wsDescriptions[name] || `Consulting ${name}`;
-}
+// Shared with a2a/server.ts via the app-hook boundary: application plugins
+// (e.g. @pendragon/tools-plaid) register their own labels; core falls back
+// to generic ones. The two hand-mirrored copies that used to live here and
+// in a2a/server.ts are gone.
+const { describeActivity } = require('../a2a/appHooks') as typeof import('../a2a/appHooks');
 
 // ─── Per-socket rate limiting ─────────────────────────────────────────
 const RATE_LIMIT_WINDOW: number = 60_000; // 1 minute
