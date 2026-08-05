@@ -259,6 +259,20 @@ Data warehouse tools enforce **read-only access** — write operations are block
 
 Domain-isolated Plaid financial tools published to Google Artifact Registry.
 
+### Application Hooks
+
+Core is vertical-agnostic. Application-specific behavior is registered through
+`server/a2a/appHooks.ts` at plugin load time (`registerFromEnv` receives the
+registrars as its third argument):
+
+| Hook | Purpose | Without a plugin |
+|------|---------|------------------|
+| `registerProvenanceExtractor` | Builds the per-answer provenance artifact from tool results | No provenance artifact; a loud warning is logged when tool results carried provenance signal |
+| `registerActivityDescriptor` | Human-friendly `ai-status` step labels for the application's tools and bridge targets | Generic labels (`Consulting <workspace>`, humanized tool names) |
+
+Pendragon's implementations (financial provenance, advisor-language labels)
+live in `@pendragon/tools-plaid` under `src/provenance/extract.ts`.
+
 ### Domain Modules
 
 | Domain | Account Types | Capabilities |
