@@ -24,8 +24,25 @@ export type ProvenanceExtractor = (
   toolResults: ToolResultRecord[],
 ) => Record<string, unknown> | null;
 
+/**
+ * Application-supplied system-prompt block for the browser-chat envCtx
+ * (sockets/chatHandler.ts). Inserted between core's RESPONSE ATTRIBUTION and
+ * DIAGRAM STYLING sections. Returns null for no extra sections.
+ */
+export type SystemPromptSectionsProvider = () => string | null;
+
+/**
+ * Application-supplied DOMAIN DATA ROUTING prompt block, given the names of
+ * outbound-contract counterparty workspaces. Returns the full block (starting
+ * with its own '\n\n--- DOMAIN DATA ROUTING ---' separator) or null to use
+ * core's generic fallback.
+ */
+export type DomainRoutingDescriber = (domainNames: string[]) => string | null;
+
 let activityDescriptor: ActivityDescriptor | null = null;
 let provenanceExtractor: ProvenanceExtractor | null = null;
+let systemPromptSectionsProvider: SystemPromptSectionsProvider | null = null;
+let domainRoutingDescriber: DomainRoutingDescriber | null = null;
 let missingExtractorWarned = false;
 
 /** Register an application-specific activity descriptor (plugin load time). */
@@ -36,6 +53,16 @@ export function registerActivityDescriptor(fn: ActivityDescriptor): void {
 /** Register an application-specific provenance extractor (plugin load time). */
 export function registerProvenanceExtractor(fn: ProvenanceExtractor): void {
   provenanceExtractor = fn;
+}
+
+/** Register application-specific system-prompt sections (plugin load time). */
+export function registerSystemPromptSections(fn: SystemPromptSectionsProvider): void {
+  systemPromptSectionsProvider = fn;
+}
+
+/** Register an application-specific domain-routing describer (plugin load time). */
+export function registerDomainRoutingDescriber(fn: DomainRoutingDescriber): void {
+  domainRoutingDescriber = fn;
 }
 
 // ─── Activity descriptions ──────────────────────────────────────────────────
@@ -108,9 +135,38 @@ export function extractProvenance(
   return null;
 }
 
+// ─── System prompt sections ─────────────────────────────────────────────────
+
+/**
+ * Application-specific system-prompt block for browser chat, or null when no
+ * application registered one (core then ships only its generic sections).
+ */
+export function getSystemPromptSections(): string | null {
+  return systemPromptSectionsProvider ? systemPromptSectionsProvider() : null;
+}
+
+/**
+ * DOMAIN DATA ROUTING prompt block for the given outbound counterparty names.
+ * Application describer wins; the generic fallback lists each domain with a
+ * 'discover' hint and adds no domain-specific routing rules.
+ */
+export function describeDomainRouting(domainNames: string[]): string {
+  const custom = domainRoutingDescriber ? domainRoutingDescriber(domainNames) : null;
+  if (custom !== null) return custom;
+
+  let block = '\n\n--- DOMAIN DATA ROUTING ---\n';
+  block += 'Each domain workspace holds specific data. Route queries to the correct domain:\n';
+  for (const name of domainNames) {
+    block += `\n• **${name}**: Use 'discover' to learn what data this domain has`;
+  }
+  return block;
+}
+
 /** Test-only: reset registered hooks and warning state. */
 export function _resetAppHooks(): void {
   activityDescriptor = null;
   provenanceExtractor = null;
+  systemPromptSectionsProvider = null;
+  domainRoutingDescriber = null;
   missingExtractorWarned = false;
 }

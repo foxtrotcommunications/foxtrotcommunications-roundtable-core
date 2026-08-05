@@ -10,8 +10,12 @@
 import {
   describeActivity,
   extractProvenance,
+  getSystemPromptSections,
+  describeDomainRouting,
   registerActivityDescriptor,
   registerProvenanceExtractor,
+  registerSystemPromptSections,
+  registerDomainRoutingDescriber,
   _resetAppHooks,
 } from '../../server/a2a/appHooks';
 
@@ -73,5 +77,35 @@ describe('extractProvenance', () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     extractProvenance([{ name: 'declare_missing_data', result: { domains: ['Retirement'] } }]);
     expect(warn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('getSystemPromptSections', () => {
+  it('returns null with no registered provider (core ships only generic sections)', () => {
+    expect(getSystemPromptSections()).toBeNull();
+  });
+
+  it('returns the registered application block', () => {
+    registerSystemPromptSections(() => '--- APP RULES ---\nBe helpful.');
+    expect(getSystemPromptSections()).toBe('--- APP RULES ---\nBe helpful.');
+  });
+});
+
+describe('describeDomainRouting', () => {
+  it('falls back to a generic discover hint per domain', () => {
+    const block = describeDomainRouting(['Sales', 'Ops']);
+    expect(block).toContain('--- DOMAIN DATA ROUTING ---');
+    expect(block).toContain("• **Sales**: Use 'discover' to learn what data this domain has");
+    expect(block).toContain("• **Ops**: Use 'discover' to learn what data this domain has");
+    // Generic fallback carries no application-specific routing rules
+    expect(block).not.toContain('CRITICAL ROUTING RULES');
+  });
+
+  it('prefers a registered describer, falling back when it returns null', () => {
+    registerDomainRoutingDescriber((names) =>
+      names.includes('Sales') ? '\n\n--- DOMAIN DATA ROUTING ---\ncustom sales block' : null,
+    );
+    expect(describeDomainRouting(['Sales'])).toContain('custom sales block');
+    expect(describeDomainRouting(['Ops'])).toContain("• **Ops**: Use 'discover'");
   });
 });

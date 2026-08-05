@@ -78,7 +78,12 @@ const tools = {
 try {
   const { registerFromEnv } = require('@pendragon/tools-plaid');
   const { capabilityRegistry } = require('../protocols/capabilityRegistry');
-  const { registerActivityDescriptor, registerProvenanceExtractor } = require('../a2a/appHooks');
+  const {
+    registerActivityDescriptor,
+    registerProvenanceExtractor,
+    registerSystemPromptSections,
+    registerDomainRoutingDescriber,
+  } = require('../a2a/appHooks');
   registerFromEnv({
     register(name: string, tool: any) {
       tools[name] = tool;
@@ -86,6 +91,13 @@ try {
   }, capabilityRegistry, {
     registerActivityDescriptor,
     registerProvenanceExtractor,
+    registerSystemPromptSections,
+    registerDomainRoutingDescriber,
+    // Lets the application replace a core-owned tool's description with its
+    // own domain language (e.g. emit_provenance's financial examples).
+    overrideToolDescription(name: string, description: string) {
+      if (tools[name]) tools[name].description = description;
+    },
   });
 } catch (err: any) {
   // Package not installed or no plaid connection — skip silently
