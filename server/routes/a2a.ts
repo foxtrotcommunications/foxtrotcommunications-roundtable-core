@@ -91,8 +91,9 @@ async function requireA2aAuth(req: Request, res: Response, next: () => void): Pr
     try {
       const { deriveContractKey, verifyRequest, findAndValidateContract } = require('../utils/contractAuth');
 
-      // Load contracts: prefer live manifest (Firestore, 5s TTL cache),
-      // fall back to static env var for resilience during outages
+      // Load contracts from the live manifest (Firestore, 5s TTL cache).
+      // On fetch failure the list stays empty and auth FAILS CLOSED below —
+      // there is no static fallback.
       let contracts: any[] = [];
       try {
         const { fetchManifest } = require('../utils/fetchManifest');
