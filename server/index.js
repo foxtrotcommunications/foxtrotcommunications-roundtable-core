@@ -328,13 +328,21 @@ app.use('/api', apiLimiter);
 app.use('/api/auth', authRoutes);
 app.use('/api/bridge', bridgeReceive);  // HMAC-authed, no user session needed
 
-// Plaid data-sync endpoint — HMAC-authenticated (server-to-server from Pendragon)
+// Plaid data-sync endpoint — HMAC-authenticated (server-to-server from Pendragon).
+// The route lives entirely in the application plugin. Core's old fallback route
+// (server/routes/sync.ts) was removed 2026-08-05: it only ran when the plugin
+// was absent, yet required the plugin internally to do any actual syncing, so
+// it could never succeed. Warn LOUDLY when the route can't mount — a Pendragon
+// image without it breaks provisioning (do-not-regress).
 try {
   const { syncRoute } = require('@pendragon/tools-plaid');
-  app.use('/api/sync', requireHmac('sync'), syncRoute);
+  if (syncRoute) {
+    app.use('/api/sync', requireHmac('sync'), syncRoute);
+  } else {
+    console.warn('[boot] @pendragon/tools-plaid has no syncRoute export — /api/sync NOT mounted');
+  }
 } catch {
-  const syncRoute = require('./routes/sync').default;
-  app.use('/api/sync', requireHmac('sync'), syncRoute);
+  console.warn('[boot] No application plugin installed — /api/sync not mounted');
 }
 
 // Demographics seed endpoint — HMAC-authenticated (server-to-server from Pendragon)

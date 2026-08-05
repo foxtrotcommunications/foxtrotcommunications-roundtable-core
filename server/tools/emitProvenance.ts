@@ -1,7 +1,10 @@
 // @ts-nocheck
-// server/tools/emitProvenance.ts — Provenance tool for financial AI workspaces
-// Arthur calls this at the end of financial responses to emit structured provenance.
-// The tool computes confidence deterministically — the AI never scores itself.
+// server/tools/emitProvenance.ts — Provenance tool for AI workspaces
+// The workspace AI calls this at the end of analytical responses to emit
+// structured provenance. The tool computes confidence deterministically — the
+// AI never scores itself. Applications can replace the description with their
+// own domain language via the overrideToolDescription app hook (e.g.
+// @pendragon/tools-plaid restores the financial examples).
 import type { Tool } from '../types';
 
 /**
@@ -152,16 +155,16 @@ function computeAlignment(claims: any[], responseText: string, coveragePct: numb
 
 const tool: Tool = {
   name: 'emit_provenance',
-  description: `Emit a structured provenance footer after financial analysis. Call this ONCE at the END of every financial response. Do NOT render provenance yourself — this tool handles it.
+  description: `Emit a structured provenance footer after data analysis. Call this ONCE at the END of every analytical response. Do NOT render provenance yourself — this tool handles it.
 
 You provide:
-- domainsConsulted: which domain workspaces you queried (e.g. ["Checking & Savings", "Debt Management"])
-- assumptions: every assumption you made (e.g. ["APR = 20% (estimated)", "Monthly income from last 3 deposits"])
-- keyCalculations: show the math steps (e.g. ["Monthly interest: $5,020 × (20% ÷ 12) = $83.67"])
-- keyDrivers: the 2-4 most influential factors (e.g. ["Business card APR", "Recurring charges $4,157/mo"])
-- limitations: constraints on your answer (e.g. ["Only 1 institution connected"])
-- missingDomains: domains that would improve this answer (e.g. ["Investments", "Retirement"])
-- wouldImprove: specific analyses missing data would enable (e.g. ["Employer match analysis"])
+- domainsConsulted: which domain workspaces you queried (e.g. ["Sales", "Operations"])
+- assumptions: every assumption you made (e.g. ["Growth rate = 5% (estimated)", "Averages from last 3 periods"])
+- keyCalculations: show the math steps (e.g. ["Monthly total: 450 × 12 = 5,400"])
+- keyDrivers: the 2-4 most influential factors (e.g. ["Seasonal demand", "Recurring costs"])
+- limitations: constraints on your answer (e.g. ["Only 1 data source connected"])
+- missingDomains: domains that would improve this answer (e.g. ["Inventory", "Logistics"])
+- wouldImprove: specific analyses missing data would enable (e.g. ["Cross-domain trend analysis"])
 - dataFreshMinutes: approximate age of the data you used (0 = just fetched, 60 = 1 hour old)
 - toolCallCount: how many tool calls you made for this response
 
