@@ -39,10 +39,25 @@ export type SystemPromptSectionsProvider = () => string | null;
  */
 export type DomainRoutingDescriber = (domainNames: string[]) => string | null;
 
+/**
+ * Application-mandated pre-consults: intent_bridge calls core executes BEFORE
+ * the model's first reasoning round, so app-declared domains are always
+ * consulted fresh — the model cannot skip a consult that already happened.
+ * `args` is passed to intent_bridge verbatim. The describer receives the
+ * receiving workspace's name and returns [] for workspaces that shouldn't
+ * pre-consult (core stays vertical-agnostic; the app decides).
+ */
+export interface PreConsult {
+  args: Record<string, unknown>;
+  label?: string;
+}
+export type PreConsultDescriber = (ctx: { workspaceName?: string }) => PreConsult[];
+
 let activityDescriptor: ActivityDescriptor | null = null;
 let provenanceExtractor: ProvenanceExtractor | null = null;
 let systemPromptSectionsProvider: SystemPromptSectionsProvider | null = null;
 let domainRoutingDescriber: DomainRoutingDescriber | null = null;
+let preConsultDescriber: PreConsultDescriber | null = null;
 let missingExtractorWarned = false;
 
 /** Register an application-specific activity descriptor (plugin load time). */
@@ -63,6 +78,20 @@ export function registerSystemPromptSections(fn: SystemPromptSectionsProvider): 
 /** Register an application-specific domain-routing describer (plugin load time). */
 export function registerDomainRoutingDescriber(fn: DomainRoutingDescriber): void {
   domainRoutingDescriber = fn;
+}
+
+/** Register an application-specific pre-consult describer (plugin load time). */
+export function registerPreConsultDescriber(fn: PreConsultDescriber): void {
+  preConsultDescriber = fn;
+}
+
+/** Pre-consults for a workspace, [] when none registered. Never throws. */
+export function getPreConsults(ctx: { workspaceName?: string }): PreConsult[] {
+  try {
+    return preConsultDescriber ? preConsultDescriber(ctx) : [];
+  } catch {
+    return [];
+  }
 }
 
 // ─── Activity descriptions ──────────────────────────────────────────────────
@@ -168,5 +197,6 @@ export function _resetAppHooks(): void {
   provenanceExtractor = null;
   systemPromptSectionsProvider = null;
   domainRoutingDescriber = null;
+  preConsultDescriber = null;
   missingExtractorWarned = false;
 }
