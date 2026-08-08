@@ -30,7 +30,8 @@ const { streamCompletion } = require('../services/aiProvider') as {
 // Application-specific labels and provenance semantics are registered by the
 // application plugin via server/a2a/appHooks.ts; core only has generic
 // fallbacks. (Pendragon's financial versions live in @pendragon/tools-plaid.)
-const { describeActivity, extractProvenance } = require('./appHooks') as typeof import('./appHooks');
+const { describeActivity, extractProvenance, getPreConsults } = require('./appHooks') as typeof import('./appHooks');
+const { executeTool } = require('../tools') as { executeTool: (name: string, args: any, workspaceConfig?: any) => Promise<any> };
 
 // ─── A2A Task Types ────────────────────────────────────────
 
@@ -165,6 +166,42 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
     let snapshotText = '';  // Captures text before post-response tool calls to prevent duplicates
     const toolResults: Array<{ name: string; result: Record<string, unknown> }> = [];
     const injectedChartBlocks: string[] = [];  // Chart blocks injected from render_chart — tracked separately so they survive the done handler's fullText overwrite
+
+    // ── App-mandated pre-consults (2026-08-08) ──────────────────────────
+    // Domains the application declares must be consulted FRESH before the
+    // model's first reasoning round. Executed as real intent_bridge calls
+    // (wake-and-retry included), recorded as real tool spans and toolResults
+    // so provenance, receipts, and confidence reflect them — then surfaced
+    // to the model as data already in hand. The model cannot skip a consult
+    // that has already happened, and there is no cache to go stale: an edit
+    // in the source domain is visible to the very next conversation turn.
+    // Fail-open per consult: a pre-consult error must never block the chat
+    // (worst case is exactly the old behavior — the model asks).
+    for (const pc of getPreConsults({ workspaceName: config.workspaceName })) {
+      try {
+        const pcResult = await executeTool('intent_bridge', pc.args, tracedWorkspaceConfig);
+        const pcSpan = startSpan({
+          traceId: rootSpan.traceId,
+          parentSpanId: rootSpan.spanId,
+          workspaceId: rootSpan.workspaceId,
+          workspaceName: rootSpan.workspaceName,
+          operation: 'tool_call',
+          toolName: 'intent_bridge',
+          inputPreview: preview(JSON.stringify(pc.args)),
+          sampled: rootSpan._sampled,
+        });
+        endSpan(pcSpan, 'completed', { outputPreview: preview(JSON.stringify(pcResult)) });
+        recordSpan(pcSpan);
+        toolResults.push({ name: 'intent_bridge', result: pcResult as Record<string, unknown> });
+        toolCallCount++;
+        messages.push({
+          role: 'system',
+          content: `[Pre-consulted ${pc.label || String(pc.args.target)} — live data retrieved for this conversation; treat as already known, do not re-request it]\n${JSON.stringify(pcResult).slice(0, 4000)}`,
+        });
+      } catch (pcErr: any) {
+        console.warn(`[A2A] pre-consult "${pc.label || pc.args?.target}" failed: ${pcErr.message} — continuing without it`);
+      }
+    }
 
     // Add a 4-minute timeout to prevent indefinite hangs
     const controller = new AbortController();
