@@ -83,6 +83,7 @@ try {
     registerProvenanceExtractor,
     registerSystemPromptSections,
     registerDomainRoutingDescriber,
+    registerPreConsultDescriber,
   } = require('../a2a/appHooks');
   registerFromEnv({
     register(name: string, tool: any) {
@@ -93,6 +94,7 @@ try {
     registerProvenanceExtractor,
     registerSystemPromptSections,
     registerDomainRoutingDescriber,
+    registerPreConsultDescriber,
     // Lets the application replace a core-owned tool's description with its
     // own domain language (e.g. emit_provenance's financial examples).
     overrideToolDescription(name: string, description: string) {
