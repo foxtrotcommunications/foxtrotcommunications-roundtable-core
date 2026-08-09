@@ -31,6 +31,7 @@ const { streamCompletion } = require('../services/aiProvider') as {
 // application plugin via server/a2a/appHooks.ts; core only has generic
 // fallbacks. (Pendragon's financial versions live in @pendragon/tools-plaid.)
 const { describeActivity, extractProvenance, getPreConsults } = require('./appHooks') as typeof import('./appHooks');
+const { dedupeMetadataComments } = require('./textShaping') as { dedupeMetadataComments: (t: string) => string };
 const { executeTool } = require('../tools') as { executeTool: (name: string, args: any, workspaceConfig?: any) => Promise<any> };
 
 // ─── A2A Task Types ────────────────────────────────────────
@@ -375,6 +376,16 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
 
     // Extract provenance from intent_bridge tool results
     const provenance = extractProvenance(toolResults);
+
+    // Collapse exact-duplicate metadata comment blocks (confirm_action /
+    // follow_ups). fullText accumulates across model rounds, so a short
+    // first-round answer that already carried its directive blocks gets
+    // concatenated with a fuller recomposition ending in the same blocks —
+    // observed 2026-08-09 (published in the head-to-head study, Q7): both
+    // blocks appeared twice in one response artifact. Keep the LAST
+    // occurrence: directives describe the final composition. Only EXACT
+    // duplicates are touched — distinct blocks of the same kind pass through.
+    fullText = dedupeMetadataComments(fullText);
 
     // 5. Set status to 'completed' with result as an artifact
     const agentMessage: A2aMessage = {
