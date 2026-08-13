@@ -197,6 +197,8 @@ export interface AppConfig {
   ssoJwtSecret: string;
   bridgeHmacSecret: string;
   databaseUrl: string;
+  /** Pooled runtime: domain type this service pools (null = dedicated pod). */
+  pooledDomainType: string | null;
   workspaceId: string;
   workspaceName: string;
   workspaceUrl: string;
