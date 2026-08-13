@@ -21,6 +21,10 @@ export type JSONSchema = Record<string, unknown>;
 export interface CapabilityContext {
   /** Standard execution context (contract, keys, workspace config) */
   executionCtx: ExecutionContext;
+  /** Pooled runtime: the request's tenant (workspace id, service DB URL,
+   *  per-request credentials). Plugins overlay it on their base config via
+   *  resolveConfig(config, ctx). Absent on dedicated pods. */
+  tenant?: Record<string, unknown>;
   /** Make an outbound ICE call to another workspace (internal hop) */
   iceCall: (
     targetUrl: string,

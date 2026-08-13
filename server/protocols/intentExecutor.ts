@@ -48,6 +48,9 @@ export interface ExecutionContext {
   contract: { contractId: string; allowedActions: string[]; status: string };
   workspaceConfig: Record<string, unknown>;
   enabledToolNames: string[] | null;
+  /** Pooled runtime: per-request tenant, copied onto CapabilityContext so
+   *  plugin handlers can resolve their config. Absent on dedicated pods. */
+  tenant?: Record<string, unknown>;
 }
 
 // ─── Authorization ──────────────────────────────────────────────────────────
@@ -244,6 +247,7 @@ async function executeCapability(
   const masterSecret = (ctx.workspaceConfig as Record<string, string>).ORG_MASTER_SECRET || '';
   const capCtx: CapabilityContext = {
     executionCtx: ctx,
+    tenant: ctx.tenant,
     iceCall: async (targetUrl, contractId, capabilityName, input) => {
       return iceCapabilityCall(targetUrl, contractId, capabilityName, input, masterSecret);
     },
@@ -301,6 +305,33 @@ export async function executeIntentToken(
         status: 'denied',
         error: `Action '${action}' is not authorized by contract '${ctx.contract.contractId}'`,
       });
+    }
+
+    // Pooled runtime guards (ctx.tenant present only on pooled requests):
+    if (ctx.tenant) {
+      // (a) Registry TOOLS still close over the base config — until they
+      //     adopt resolveConfig, only capability/discover ops may run pooled.
+      //     Consult traffic runs on capabilities, so this is traffic-invisible;
+      //     shadow parity is the proof.
+      if (token.intent.op !== 'capability' && token.intent.op !== 'discover') {
+        policyChecks.push({
+          type: 'pooled_op_restriction', passed: false,
+          detail: `op '${token.intent.op}' not available in pooled mode`,
+        });
+        return buildResult(token, ctx, startTime, policyChecks, {
+          status: 'denied',
+          error: `Operation '${token.intent.op}' is not available on a pooled service`,
+        });
+      }
+      // (b) A pooled request must carry a workspace id — an empty scope would
+      //     collapse every tenant onto one cache key. Error, never proceed.
+      const tenantWs = (ctx.tenant as any).workspaceId;
+      if (typeof tenantWs !== 'string' || tenantWs.trim() === '') {
+        return buildResult(token, ctx, startTime, policyChecks, {
+          status: 'error',
+          error: 'Pooled execution requires a tenant workspace id',
+        });
+      }
     }
 
     // 3. Check intent cache (only reached once the action is authorized).

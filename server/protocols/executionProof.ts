@@ -11,7 +11,7 @@ import type { IntentOperation } from './intentToken';
 
 /** A policy check that was applied during execution */
 export interface PolicyCheck {
-  type: 'sql_safety' | 'action_auth' | 'tool_exists' | 'capability_exists' | 'rate_limit' | 'data_scope';
+  type: 'sql_safety' | 'action_auth' | 'tool_exists' | 'capability_exists' | 'rate_limit' | 'data_scope' | 'pooled_op_restriction';
   passed: boolean;
   detail?: string;
 }
