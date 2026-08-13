@@ -93,13 +93,25 @@ interface ProcessMessageOptions {
   systemPrompt?: string;
   /** Incoming HTTP request headers for trace context propagation */
   headers?: Record<string, string | string[] | undefined>;
+  /** Pooled runtime: the tenant this message is FOR — stamps the task,
+   *  scopes the socket fan-out channel, and labels the root span. Absent on
+   *  dedicated pods (config.workspaceId applies). */
+  tenantWsId?: string;
+  /** Tenant workspace row name (pooled: every household row is named
+   *  'Arthur', so pre-consult gates fire per tenant). */
+  workspaceName?: string;
 }
 
 /**
  * Process an incoming A2A message: create a task, run AI completion, return result.
  */
 async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> {
-  const { message, provider, model, apiKey, enabledToolNames, workspaceConfig, systemPrompt, headers } = options;
+  const { message, provider, model, apiKey, enabledToolNames, workspaceConfig, systemPrompt, headers, tenantWsId, workspaceName } = options;
+
+  // Pooled runtime: the tenant rides the options; dedicated pods resolve to
+  // exactly the old config-derived values.
+  const effectiveWsId = tenantWsId || config.workspaceId || '';
+  const effectiveWsName = workspaceName || config.workspaceName || '';
 
   const taskId = crypto.randomUUID();
   const now = new Date().toISOString();
@@ -113,8 +125,8 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
   const rootSpan = startSpan({
     traceId: traceCtx?.traceId || generateTraceId(),
     parentSpanId: traceCtx?.parentSpanId || null,
-    workspaceId: config.workspaceId || '',
-    workspaceName: config.workspaceName || '',
+    workspaceId: effectiveWsId,
+    workspaceName: effectiveWsName,
     operation: 'a2a.message_send',
     inputPreview: preview(messageText),
     sampled: traceCtx?.sampled,
@@ -138,6 +150,9 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
       timestamp: now,
     },
     history: [message],
+    // Pooled: stamp the owning tenant — tasks/get and tasks/cancel report a
+    // task recorded for another tenant as not-found (no existence oracle).
+    ...(tenantWsId !== undefined ? { tenantWsId } : {}),
   };
   taskStore.set(taskId, task);
 
@@ -181,7 +196,7 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
     // in the source domain is visible to the very next conversation turn.
     // Fail-open per consult: a pre-consult error must never block the chat
     // (worst case is exactly the old behavior — the model asks).
-    for (const pc of getPreConsults({ workspaceName: config.workspaceName })) {
+    for (const pc of getPreConsults({ workspaceName: effectiveWsName })) {
       try {
         const pcResult = await executeTool('intent_bridge', pc.args, tracedWorkspaceConfig);
         const pcSpan = startSpan({
@@ -223,7 +238,7 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
         tracedWorkspaceConfig
       );
 
-      const wsChannel = `ws:${config.workspaceId}`;
+      const wsChannel = `ws:${effectiveWsId}`;
       const io = (global as any)._io;
       let firstTextChunk = true;
 
