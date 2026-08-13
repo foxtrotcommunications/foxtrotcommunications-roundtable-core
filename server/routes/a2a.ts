@@ -21,8 +21,8 @@ const { generateAgentCard } = require('../a2a/agentCard') as {
 };
 const { processMessage, getTask, cancelTask } = require('../a2a/server') as {
   processMessage: (opts: Record<string, unknown>) => Promise<Record<string, unknown>>;
-  getTask: (id: string) => Record<string, unknown> | undefined;
-  cancelTask: (id: string) => Record<string, unknown> | null;
+  getTask: (id: string, expectedTenant?: string) => Record<string, unknown> | undefined;
+  cancelTask: (id: string, expectedTenant?: string) => Record<string, unknown> | null;
 };
 const { getAvailableTools, resolveTools } = require('../tools') as {
   getAvailableTools: () => Array<{ name: string; description: string }>;
@@ -52,6 +52,17 @@ function jsonRpcError(id: unknown, code: number, message: string, data?: unknown
 
 router.get('/.well-known/agent.json', async (_req: Request, res: Response) => {
   try {
+    // Pooled: a service-level card — no single workspace to describe, and
+    // consult traffic never reads the card (senders POST directly).
+    if (config.pooledDomainType) {
+      const { capabilityRegistry } = require('../protocols/capabilityRegistry');
+      return res.json({
+        name: `${config.pooledDomainType}-service`,
+        description: `Pooled Roundtable domain service (${config.pooledDomainType}); tenant per request`,
+        capabilities: capabilityRegistry.getManifest(),
+      });
+    }
+
     const db = getAdapter();
     const workspace = await db.getWorkspace(config.workspaceId);
     if (!workspace) {
@@ -76,9 +87,12 @@ router.get('/.well-known/agent.json', async (_req: Request, res: Response) => {
  * 2. Contract-based auth (X-Contract-Id + X-Contract-Signature + X-Contract-Timestamp headers)
  */
 async function requireA2aAuth(req: Request, res: Response, next: () => void): Promise<void> {
-  // Option 1: API key auth (existing behavior)
+  // Option 1: API key auth (existing behavior).
+  // Pooled services skip it: the key is a per-pod secret with no tenant
+  // semantics — a bare key could not say WHICH workspace is being consulted,
+  // so pooled requests must authenticate with contract headers.
   const apiKey = req.headers['x-api-key'] as string | undefined;
-  if (apiKey && config.a2aApiKey && apiKey === config.a2aApiKey) {
+  if (!config.pooledDomainType && apiKey && config.a2aApiKey && apiKey === config.a2aApiKey) {
     return next();
   }
 
@@ -95,13 +109,16 @@ async function requireA2aAuth(req: Request, res: Response, next: () => void): Pr
       // On fetch failure the list stays empty and auth FAILS CLOSED below —
       // there is no static fallback.
       let contracts: any[] = [];
-      try {
-        const { fetchManifest } = require('../utils/fetchManifest');
-        const manifestData = await fetchManifest();
-        contracts = manifestData.RT_CONTRACTS || [];
-      } catch (err) {
-        console.warn('[A2A] fetchManifest failed:', (err as Error).message);
-        contracts = [];
+      if (!config.pooledDomainType) {
+        // Pooled mode fetches the CLAIMED tenant's manifest instead (below).
+        try {
+          const { fetchManifest } = require('../utils/fetchManifest');
+          const manifestData = await fetchManifest();
+          contracts = manifestData.RT_CONTRACTS || [];
+        } catch (err) {
+          console.warn('[A2A] fetchManifest failed:', (err as Error).message);
+          contracts = [];
+        }
       }
       const masterSecret = process.env.ORG_MASTER_SECRET;
 
@@ -115,19 +132,43 @@ async function requireA2aAuth(req: Request, res: Response, next: () => void): Pr
       // Find and validate the contract
       // Use the action the sender signed with (from header), default to 'message_send' for backward compat
       const signedAction = (req.headers['x-contract-action'] as string) || 'message_send';
-      const { contract, error: contractError } = findAndValidateContract(contracts, contractId, signedAction);
-      if (contractError) {
-        res.status(403).json(
-          jsonRpcError(req.body?.id || null, -32000, `Contract rejected: ${contractError}`)
-        );
-        return;
+
+      // Pooled: the contract must be validated against the CLAIMED tenant's
+      // manifest (X-Rt-Tenant), not this process's — membership there is the
+      // authorization (see server/pooled/tenantResolver.ts). The tenant is
+      // then bound into the signature check below.
+      let contract: any;
+      let resolvedTenant: any = null;
+      if (config.pooledDomainType) {
+        try {
+          const { resolveTenantFromRequest } = require('../pooled/tenantResolver');
+          resolvedTenant = await resolveTenantFromRequest(req, { contractId, action: signedAction });
+          contract = resolvedTenant.contract;
+        } catch (e: any) {
+          res.status(e?.status || 403).json(
+            jsonRpcError(req.body?.id || null, -32000, `Tenant resolution failed: ${e?.message}`)
+          );
+          return;
+        }
+      } else {
+        const { contract: found, error: contractError } = findAndValidateContract(contracts, contractId, signedAction);
+        if (contractError) {
+          res.status(403).json(
+            jsonRpcError(req.body?.id || null, -32000, `Contract rejected: ${contractError}`)
+          );
+          return;
+        }
+        contract = found;
       }
 
-      // Derive key and verify signature
+      // Derive key and verify signature. Pooled: the claimed tenant is part
+      // of the signed string — a signature minted for tenant A cannot be
+      // replayed with tenant B in the header.
       deriveContractKey(masterSecret, contractId, contract.version || 1)
         .then((contractKey: Buffer) => {
           const { valid, error: sigError } = verifyRequest(
-            contractKey, contractId, contractTs, signedAction, contractSig
+            contractKey, contractId, contractTs, signedAction, contractSig,
+            undefined, resolvedTenant ? resolvedTenant.workspaceId : undefined
           );
 
           if (!valid) {
@@ -139,6 +180,7 @@ async function requireA2aAuth(req: Request, res: Response, next: () => void): Pr
 
           // Attach contract info to request for downstream use
           (req as any).contract = contract;
+          if (resolvedTenant) (req as any).rtTenant = resolvedTenant;
           next();
         })
         .catch((err: Error) => {
@@ -196,7 +238,7 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
         // free-form message/send from contract-authenticated callers.
         // Domains only accept intent/execute for structured, capability-scoped operations.
         // This prevents external agents from bypassing the capability system.
-        if ((req as any).contract && process.env.RT_CONNECTIONS) {
+        if ((req as any).contract && (config.pooledDomainType || process.env.RT_CONNECTIONS)) {
           return res.json(
             jsonRpcError(id, -32000,
               'Domain workspaces do not accept message/send via contracts. ' +
@@ -320,7 +362,9 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
           );
         }
 
-        const task = getTask(params.id);
+        // Pooled: a task recorded for another tenant reads as not-found.
+        const task = getTask(params.id, config.pooledDomainType
+          ? ((req as any).rtTenant?.workspaceId ?? '') : undefined);
         if (!task) {
           return res.json(
             jsonRpcError(id, -32001, `Task not found: ${params.id}`)
@@ -338,7 +382,8 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
           );
         }
 
-        const task = cancelTask(params.id);
+        const task = cancelTask(params.id, config.pooledDomainType
+          ? ((req as any).rtTenant?.workspaceId ?? '') : undefined);
         if (!task) {
           return res.json(
             jsonRpcError(id, -32001, `Task not found: ${params.id}`)
@@ -405,14 +450,27 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
           );
         }
 
-        // 5. Check contract authorization for this specific operation
+        // 5. Check contract authorization for this specific operation.
+        // Pooled: the token's contract must live in the CLAIMED tenant's
+        // manifest — the same membership proof the auth middleware ran; the
+        // token adds nonce + its own HMAC on top.
+        const rtTenant = (req as any).rtTenant as { workspaceId: string; manifest: any } | undefined;
+        if (config.pooledDomainType && !rtTenant) {
+          return res.json(
+            jsonRpcError(id, -32000, 'Pooled service requires contract auth with X-Rt-Tenant')
+          );
+        }
         let contracts: any[] = [];
-        try {
-          const { fetchManifest } = require('../utils/fetchManifest');
-          contracts = (await fetchManifest()).RT_CONTRACTS || [];
-        } catch (err) {
-          console.warn('[A2A:ICE] fetchManifest failed:', (err as Error).message);
-          contracts = [];
+        if (rtTenant) {
+          contracts = rtTenant.manifest?.RT_CONTRACTS || [];
+        } else {
+          try {
+            const { fetchManifest } = require('../utils/fetchManifest');
+            contracts = (await fetchManifest()).RT_CONTRACTS || [];
+          } catch (err) {
+            console.warn('[A2A:ICE] fetchManifest failed:', (err as Error).message);
+            contracts = [];
+          }
         }
         const contract = contracts.find((c: any) =>
           c.contractId === token.contractId && c.status === 'active'
@@ -450,7 +508,15 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
           const { executeIntentToken } = require('../protocols/intentExecutor');
 
           const db = getAdapter();
-          const workspace = await db.getWorkspace(config.workspaceId);
+          // Pooled: the TENANT's workspace row decides enabled tools; a
+          // missing row is an error, never a silent all-tools default.
+          const wsIdForRow = rtTenant ? rtTenant.workspaceId : config.workspaceId;
+          const workspace = await db.getWorkspace(wsIdForRow);
+          if (rtTenant && !workspace) {
+            return res.json(
+              jsonRpcError(id, -32000, 'Workspace not found for tenant')
+            );
+          }
           let enabledToolNames: string[] | null = null;
           if (workspace?.enabled_tools) {
             try {
@@ -458,11 +524,20 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
             } catch { /* intentionally empty */ }
           }
 
+          // Pooled: assemble the per-request tenant context (service DB URL +
+          // per-request credentials) that rides ctx.tenant into the plugin.
+          let tenantCtx: Record<string, unknown> | undefined;
+          if (rtTenant) {
+            const { buildTenantContext } = require('../pooled/tenantContext');
+            tenantCtx = await buildTenantContext(rtTenant);
+          }
+
           const result = await executeIntentToken(executableToken, {
             contractKey: verification.contractKey!,
             contract,
-            workspaceConfig: {},
+            workspaceConfig: tenantCtx ? { workspaceId: rtTenant!.workspaceId, tenant: tenantCtx } : {},
             enabledToolNames,
+            ...(tenantCtx ? { tenant: tenantCtx } : {}),
           });
 
           // Track metrics
