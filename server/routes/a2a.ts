@@ -83,9 +83,14 @@ router.get('/.well-known/agent.json', async (_req: Request, res: Response) => {
 // ─── Auth Middleware (API Key or Contract) ─────────────────
 
 /**
- * A2A auth middleware — accepts either:
- * 1. x-api-key header (simple API key auth)
+ * A2A auth middleware — accepts:
+ * 1. x-api-key header (simple API key auth; dedicated pods only)
  * 2. Contract-based auth (X-Contract-Id + X-Contract-Signature + X-Contract-Timestamp headers)
+ * 3. Pooled Arthur only: tenant-bound S2S HMAC (X-Control-Plane-Signature +
+ *    X-Control-Plane-Timestamp + X-Rt-Workspace) — the trusted-app chat
+ *    ingress (Pendragon's roundtable.ts → message/send), replacing the
+ *    guessable per-workspace `a2a-${wsId}` keys. Signed string:
+ *    `a2a:${timestamp}:${workspaceId}` (requireHmac('a2a') semantics).
  */
 async function requireA2aAuth(req: Request, res: Response, next: () => void): Promise<void> {
   // Option 1: API key auth (existing behavior).
@@ -95,6 +100,19 @@ async function requireA2aAuth(req: Request, res: Response, next: () => void): Pr
   const apiKey = req.headers['x-api-key'] as string | undefined;
   if (!config.pooled && apiKey && config.a2aApiKey && apiKey === config.a2aApiKey) {
     return next();
+  }
+
+  // Option 3: tenant-bound S2S HMAC (pooled Arthur only). Delegates to the
+  // shared middleware — tenantRequired binds X-Rt-Workspace into the signed
+  // string and attaches req.rtTenant = { workspaceId } on success. NOTE: this
+  // path carries no contract and no masterSecret; message/send resolves the
+  // tenant's org master secret itself when it needs one.
+  if (config.pooledArthur
+      && req.headers['x-control-plane-signature']
+      && req.headers['x-control-plane-timestamp']
+      && req.headers['x-rt-workspace']) {
+    const { requireHmac } = require('../middleware/requireHmac');
+    return requireHmac('a2a', { tenantRequired: true })(req, res, next);
   }
 
   // Option 2: Contract-based HKDF auth
@@ -263,6 +281,27 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
           );
         }
 
+        // ── Tenant resolution (pooled) ─────────────────────
+        // Contract auth attached rtTenant WITH masterSecret; the S2S HMAC
+        // method attached rtTenant WITHOUT one — resolve it here the same way
+        // the contract path does (manifest orgId → org master secret) so E2E
+        // decryption works on either path. Fail-open: only decryption needs
+        // it, and that check still fails closed below.
+        const rtTenant = (req as any).rtTenant as
+          { workspaceId: string; masterSecret?: string; manifest?: any } | undefined;
+        if (config.pooled && rtTenant && !rtTenant.masterSecret) {
+          try {
+            const { fetchManifest } = require('../utils/fetchManifest');
+            const tenantManifest = rtTenant.manifest || await fetchManifest(rtTenant.workspaceId);
+            if (!rtTenant.manifest) rtTenant.manifest = tenantManifest;
+            const { getOrgMasterSecret } = require('../tenantCredentials');
+            const resolved = await getOrgMasterSecret(rtTenant.workspaceId, tenantManifest?.orgId || '');
+            if (resolved) rtTenant.masterSecret = resolved;
+          } catch (err) {
+            console.warn('[A2A] tenant master-secret resolution failed:', (err as Error).message);
+          }
+        }
+
         // ── E2E Decryption ────────────────────────────────
         // If the request has X-Contract-Encrypted header, the message parts
         // are AES-256-GCM encrypted. Decrypt before processing.
@@ -270,7 +309,9 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
         const isEncrypted = req.headers['x-contract-encrypted'] === 'aes-256-gcm';
         if (isEncrypted && (req as any).contract) {
           const contractId = req.headers['x-contract-id'] as string;
-          const masterSecret = process.env.ORG_MASTER_SECRET;
+          // Pooled: the tenant's ORG owns the HKDF root; dedicated pods keep
+          // the process-env secret.
+          const masterSecret = rtTenant?.masterSecret || process.env.ORG_MASTER_SECRET;
           const contract = (req as any).contract;
 
           if (!masterSecret) {
@@ -315,9 +356,12 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
           }
         }
 
-        // Resolve workspace for AI config
+        // Resolve workspace for AI config. Pooled: the TENANT's row — a
+        // missing row is a JSON-RPC error, never a fallback to a default
+        // workspace.
         const db = getAdapter();
-        const workspace = await db.getWorkspace(config.workspaceId);
+        const sendWsId = rtTenant?.workspaceId || config.workspaceId;
+        const workspace = await db.getWorkspace(sendWsId);
         if (!workspace) {
           return res.json(
             jsonRpcError(id, -32000, 'Workspace not found')
@@ -342,8 +386,19 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
           }
         }
 
-        // Build workspace config
-        const workspaceConfig: Record<string, unknown> = {};
+        // Build workspace config (sender contract, pooled-arthur-plan Q3):
+        // sender tools resolve the tenant's manifest and org master secret
+        // from these fields instead of process env.
+        const workspaceConfig: Record<string, unknown> = {
+          workspaceId: sendWsId,
+          workspaceName: workspace.name,
+        };
+        if (rtTenant) {
+          workspaceConfig.tenant = {
+            workspaceId: rtTenant.workspaceId,
+            orgId: rtTenant.manifest?.orgId ?? null,
+          };
+        }
         if (workspace.data_sources) {
           try {
             workspaceConfig.dataSources =
@@ -365,6 +420,8 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
           workspaceConfig,
           systemPrompt: workspace.system_prompt || undefined,
           headers: req.headers,
+          ...(rtTenant ? { tenantWsId: rtTenant.workspaceId } : {}),
+          workspaceName: workspace.name,
         });
 
         return res.json(jsonRpcSuccess(id, task));

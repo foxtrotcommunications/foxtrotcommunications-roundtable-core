@@ -101,6 +101,9 @@ export interface WorkspaceConfig {
   a2aAgents?: A2aAgentConfig[];
   workspaceId?: string;
   workspaceName?: string;
+  /** Pooled runtime: the executing tenant — sender tools resolve manifests
+   *  and org master secrets from this instead of process env. */
+  tenant?: { workspaceId: string; orgId?: string | null };
   traceContext?: {
     traceId: string;
     spanId: string;
@@ -313,6 +316,11 @@ import type { Socket } from 'socket.io';
 export interface RoundtableSocket extends Socket {
   userId: number;
   username: string;
+  /** Tenant binding set by the handshake middleware in every accepted branch
+   *  (dedicated: config.workspaceId) — downstream has ONE code path. */
+  rtWorkspaceId?: string;
+  /** Set for tenant-bound S2S HMAC handshake sockets (no session to recheck). */
+  rtS2S?: boolean;
   isGenerating?: boolean;
   abortController?: AbortController | null;
 }

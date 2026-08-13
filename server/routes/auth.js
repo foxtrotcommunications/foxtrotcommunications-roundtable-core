@@ -10,6 +10,11 @@ const config = require('../config');
 const router = express.Router();
 
 router.post('/register', async (req, res) => {
+  // Pooled Arthur: sessions must carry a workspace binding minted by the
+  // control plane's SSO token — password/demo auth has no workspace claim.
+  if (config.pooledArthur) {
+    return res.status(403).json({ error: 'SSO required' });
+  }
   // Registration is disabled by default — set ALLOW_REGISTRATION=true to enable
   if (process.env.ALLOW_REGISTRATION !== 'true') {
     return res.status(403).json({ error: 'Registration is currently closed. Use the demo account to try Roundtable.' });
@@ -38,6 +43,9 @@ router.post('/register', async (req, res) => {
 });
 
 router.post('/login', async (req, res) => {
+  if (config.pooledArthur) {
+    return res.status(403).json({ error: 'SSO required' });
+  }
   try {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'Username and password are required' });
@@ -85,6 +93,9 @@ function randomGuestName() {
 }
 
 router.post('/demo', async (req, res) => {
+  if (config.pooledArthur) {
+    return res.status(403).json({ error: 'SSO required' });
+  }
   if (process.env.DEMO_MODE !== 'true') {
     return res.status(403).json({ error: 'Demo mode is not enabled' });
   }
@@ -157,13 +168,27 @@ router.get('/sso', async (req, res) => {
       return res.status(401).json({ error: 'Token expired' });
     }
 
-    // Bind the token to THIS workspace. The control plane mints a distinct token
-    // per workspace (payload.workspace_id) after checking the user's access to
-    // that workspace. Without this check, a token minted for one workspace would
-    // be accepted by any other pod sharing the SSO secret — a cross-workspace
-    // privilege boundary bypass. Fail closed: reject if the claim is missing or
-    // does not match our own workspace id.
-    if (payload.workspace_id !== config.workspaceId) {
+    if (config.pooledArthur) {
+      // Pooled Arthur: ONE service serves many workspaces, so the claim IS the
+      // tenant binding. Fail closed: the claim must be present and must name a
+      // workspace this service actually knows (registry-owned row) — an
+      // unknown or absent claim never falls back to a default workspace.
+      const claim = payload.workspace_id;
+      if (!claim || typeof claim !== 'string') {
+        return res.status(403).json({ error: 'Token missing workspace claim' });
+      }
+      const claimedWorkspace = await getAdapter().getWorkspace(claim);
+      if (!claimedWorkspace) {
+        console.warn(`[Auth] SSO workspace claim '${claim}' has no workspace row — rejecting`);
+        return res.status(403).json({ error: 'Token not valid for this workspace' });
+      }
+    } else if (payload.workspace_id !== config.workspaceId) {
+      // Bind the token to THIS workspace. The control plane mints a distinct token
+      // per workspace (payload.workspace_id) after checking the user's access to
+      // that workspace. Without this check, a token minted for one workspace would
+      // be accepted by any other pod sharing the SSO secret — a cross-workspace
+      // privilege boundary bypass. Fail closed: reject if the claim is missing or
+      // does not match our own workspace id.
       console.warn(
         `[Auth] SSO workspace mismatch: token for '${payload.workspace_id}' presented to '${config.workspaceId}'`
       );
@@ -181,6 +206,11 @@ router.get('/sso', async (req, res) => {
     req.session.userId = user.id;
     req.session.username = user.username;
     req.session.ssoRole = payload.workspace_role || 'viewer';
+    // Pooled Arthur: the session carries its tenant — sockets and routes read
+    // req.session.workspaceId instead of config.workspaceId.
+    if (config.pooledArthur) {
+      req.session.workspaceId = payload.workspace_id;
+    }
 
     // Redirect to workspace
     const dest = redirect.startsWith('/') ? redirect : '/';

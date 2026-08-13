@@ -2,15 +2,32 @@
 const workspaceService = require('../services/workspaceService');
 const config = require('../config');
 
-// Online users in this workspace
-const presence = new Map(); // userId → { socketId, username, displayName, activity, cursorMessageId }
+// Online users, keyed `${wsId}:${userId}` — a pooled process serves many
+// workspaces, and a userId-only key would let one tenant's presence entry
+// shadow (and broadcast into) another's. Dedicated pods have exactly one
+// wsId prefix (config.workspaceId), preserving old behavior.
+const presence = new Map(); // `${wsId}:${userId}` → { wsId, userId, socketId, username, displayName, activity, cursorMessageId }
 
 // Track last meaningful user activity (chat, typing, scrolling, cursor moves)
-// Exported so the health endpoint can report it to the dashboard idle checker
-let lastActivityAt = Date.now();
+// per workspace. Exported so the health endpoint can report it to the
+// dashboard idle checker, and so pooled Arthur's heartbeat can report
+// per-tenant liveness. No-arg reads/touches default to config.workspaceId
+// (dedicated pods keep the old single-workspace semantics).
+const lastActivityByWs = new Map(); // wsId → timestamp ms
+const bootTime = Date.now();
+
+function touchActivity(wsId) {
+  lastActivityByWs.set(wsId || config.workspaceId, Date.now());
+}
+
+function getLastActivityAt(wsId) {
+  return lastActivityByWs.get(wsId || config.workspaceId) || bootTime;
+}
 
 function setupWorkspaceHandlers(io, socket) {
-  const wsChannel = `ws:${config.workspaceId}`;
+  const wsId = socket.rtWorkspaceId || config.workspaceId;
+  const wsChannel = `ws:${wsId}`;
+  const presenceKey = `${wsId}:${socket.userId}`;
 
   // Auto-join workspace channel on connect
   socket.join(wsChannel);
@@ -18,15 +35,17 @@ function setupWorkspaceHandlers(io, socket) {
   // Register presence
   (async () => {
     const user = await workspaceService.getUserById(socket.userId);
-    presence.set(socket.userId, {
+    presence.set(presenceKey, {
+      wsId,
+      userId: socket.userId,
       socketId: socket.id,
       username: socket.username,
       displayName: user ? user.display_name : socket.username,
       activity: 'idle',
       cursorMessageId: null,
     });
-    broadcastPresence(io);
-    console.log(`[Workspace] ${socket.username} joined workspace ${config.workspaceId}`);
+    broadcastPresence(io, wsId);
+    console.log(`[Workspace] ${socket.username} joined workspace ${wsId}`);
   })();
 
   // ─── Activity & Cursor Tracking ───────────────────
@@ -39,12 +58,12 @@ function setupWorkspaceHandlers(io, socket) {
   });
 
   socket.on('cursor-position', ({ messageId }) => {
-    if (presence.has(socket.userId)) {
-      presence.get(socket.userId).cursorMessageId = messageId;
+    if (presence.has(presenceKey)) {
+      presence.get(presenceKey).cursorMessageId = messageId;
       socket.to(wsChannel).emit('cursor-update', {
         userId: socket.userId,
         username: socket.username,
-        displayName: presence.get(socket.userId).displayName,
+        displayName: presence.get(presenceKey).displayName,
         messageId,
       });
     }
@@ -56,24 +75,27 @@ function setupWorkspaceHandlers(io, socket) {
 
   // ─── Disconnect Cleanup ───────────────────────────
   socket.on('disconnect', () => {
-    presence.delete(socket.userId);
-    broadcastPresence(io);
+    presence.delete(presenceKey);
+    broadcastPresence(io, wsId);
   });
 }
 
 function updateActivity(io, socket, activity) {
-  if (presence.has(socket.userId)) {
-    presence.get(socket.userId).activity = activity;
-    lastActivityAt = Date.now();
-    broadcastPresence(io);
+  const wsId = socket.rtWorkspaceId || config.workspaceId;
+  const presenceKey = `${wsId}:${socket.userId}`;
+  if (presence.has(presenceKey)) {
+    presence.get(presenceKey).activity = activity;
+    touchActivity(wsId);
+    broadcastPresence(io, wsId);
   }
 }
 
-function broadcastPresence(io) {
-  const wsChannel = `ws:${config.workspaceId}`;
+function broadcastPresence(io, wsId) {
+  const targetWs = wsId || config.workspaceId;
+  const wsChannel = `ws:${targetWs}`;
   io.to(wsChannel).emit('presence-update', {
-    users: Array.from(presence.values()),
+    users: Array.from(presence.values()).filter((u) => u.wsId === targetWs),
   });
 }
 
-module.exports = { setupWorkspaceHandlers, presence, getLastActivityAt: () => lastActivityAt, touchActivity: () => { lastActivityAt = Date.now(); } };
+module.exports = { setupWorkspaceHandlers, presence, getLastActivityAt, touchActivity };

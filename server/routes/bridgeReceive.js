@@ -23,14 +23,26 @@ router.post('/receive', async (req, res) => {
       action, content, sourceWorkspace, timestamp, signature,
     } = req.body;
 
-    // Verify HMAC signature — now covers taskId:timestamp:contractId:action
-    // This binds the specific action and contract into the signature, so the
+    // Verify HMAC signature — covers taskId:timestamp:contractId:action, and
+    // when the X-Rt-Workspace header names a tenant (pooled runtime), the
+    // tenant is bound in as a trailing component. This binds the specific
+    // action, contract, and receiving tenant into the signature, so the
     // control plane cannot be impersonated by replaying a signature for a
-    // different action or contract.
+    // different action, contract, or tenant. Dedicated (no header): the old
+    // signed string, byte-identical.
     const secret = config.bridgeHmacSecret;
+    const tenantHeader = req.headers ? req.headers['x-rt-workspace'] : undefined;
+    const tenantWsId = typeof tenantHeader === 'string' && tenantHeader.trim() ? tenantHeader.trim() : null;
+    if (config.pooledArthur && !tenantWsId) {
+      // A pooled delivery without a tenant has nowhere to write. Fail closed.
+      return res.status(401).json({ error: 'Missing X-Rt-Workspace header' });
+    }
+    const signedString = tenantWsId
+      ? `${taskId}:${timestamp}:${contractId ?? ''}:${action}:${tenantWsId}`
+      : `${taskId}:${timestamp}:${contractId ?? ''}:${action}`;
     const expectedSig = crypto
       .createHmac('sha256', secret)
-      .update(`${taskId}:${timestamp}:${contractId ?? ''}:${action}`)
+      .update(signedString)
       .digest('hex');
 
     if (!signature || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
@@ -47,11 +59,13 @@ router.post('/receive', async (req, res) => {
     // independently using the live manifest (fetched from Firestore with 5s TTL
     // cache) and the shared BRIDGE_HMAC_SECRET.
     if (contractId) {
-      // Load contracts: prefer live manifest, fall back to env var
+      // Load contracts: prefer live manifest, fall back to env var.
+      // Pooled: the TENANT's manifest — the contract gate must check the
+      // receiving household's contracts, not this process's.
       let rtContracts = [];
       try {
         const { fetchManifest } = require('../utils/fetchManifest');
-        const manifestData = await fetchManifest();
+        const manifestData = await fetchManifest(tenantWsId || undefined);
         rtContracts = manifestData.RT_CONTRACTS || [];
       } catch (err) {
         console.warn('[Bridge] fetchManifest failed:', err.message);
@@ -113,9 +127,11 @@ router.post('/receive', async (req, res) => {
 
     console.log(`[Bridge] Received ${action} from ${sourceWorkspace.name} (${sourceWorkspace.id}): ${content.slice(0, 100)}`);
 
-    // Save incoming message to local DB with source workspace attribution
+    // Save incoming message to the receiving tenant's rows. Dedicated (no
+    // tenant header): the singleton service, pinned to config.workspaceId.
+    const svc = tenantWsId ? workspaceService.scoped(tenantWsId) : workspaceService;
     const bridgeUser = null; // system-level message
-    const savedMessage = await workspaceService.saveMessage(
+    const savedMessage = await svc.saveMessage(
       bridgeUser,
       'user',
       `[Bridge from ${sourceWorkspace.name}] ${content}`,
@@ -126,7 +142,7 @@ router.post('/receive', async (req, res) => {
 
     // Broadcast to connected clients so they see the bridged message
     if (global._io) {
-      const wsChannel = `ws:${config.workspaceId}`;
+      const wsChannel = `ws:${tenantWsId || config.workspaceId}`;
       global._io.to(wsChannel).emit('new-message', {
         ...savedMessage,
         bridged: true,
@@ -139,15 +155,26 @@ router.post('/receive', async (req, res) => {
     }
 
     if (action === 'message') {
+      // Tenant deliveries report the tenant row's name (pooled rows are all
+      // named 'Arthur'); dedicated keeps the env-derived name.
+      let deliveredName = config.workspaceName;
+      if (tenantWsId) {
+        try {
+          const tenantRow = await svc.getWorkspace();
+          deliveredName = (tenantRow && tenantRow.name) || tenantWsId;
+        } catch {
+          deliveredName = tenantWsId;
+        }
+      }
       await reportTaskComplete(taskId, timestamp, secret, {
-        result: `Message delivered to ${config.workspaceName}`,
+        result: `Message delivered to ${deliveredName}`,
       });
       return res.json({ success: true, action: 'message_delivered' });
     }
 
     if (action === 'delegate') {
       res.json({ success: true, action: 'delegation_started' });
-      processDelegation(taskId, timestamp, secret, content, sourceWorkspace).catch(err => {
+      processDelegation(taskId, timestamp, secret, content, sourceWorkspace, tenantWsId).catch(err => {
         console.error('[Bridge] Delegation error:', err);
         reportTaskComplete(taskId, timestamp, secret, { error: err.message });
       });
@@ -165,11 +192,19 @@ router.post('/receive', async (req, res) => {
  * Process an AI delegation task.
  * Invokes the workspace's AI with the delegated content,
  * then reports the result back to the control plane.
+ *
+ * `tenantWsId` (pooled runtime): the receiving tenant — row reads, message
+ * saves, socket channels, and the sender-contract workspaceConfig are all
+ * scoped to it. Null (dedicated) keeps the old config-derived behavior.
  */
-async function processDelegation(taskId, timestamp, secret, content, sourceWorkspace) {
+async function processDelegation(taskId, timestamp, secret, content, sourceWorkspace, tenantWsId = null) {
   const { streamCompletion } = require('../services/aiProvider');
 
-  const workspace = await workspaceService.getWorkspace();
+  const svc = tenantWsId ? workspaceService.scoped(tenantWsId) : workspaceService;
+  const workspace = await svc.getWorkspace();
+  const wsName = tenantWsId
+    ? ((workspace && workspace.name) || 'Arthur')
+    : config.workspaceName;
   const aiProvider = workspace?.ai_provider || 'vertexai';
   const aiModel = workspace?.ai_model || 'gemini-3.5-flash';
   const toolsEnabled = workspace ? (workspace.tools_enabled ?? true) : true;
@@ -183,12 +218,25 @@ async function processDelegation(taskId, timestamp, secret, content, sourceWorks
     } catch { /* intentionally empty */ }
   }
 
-  // Build workspace config for tools
+  // Build workspace config for tools. Pooled: the full sender contract
+  // (pooled-arthur-plan Q3) — tools resolve the tenant's manifest and org
+  // master secret from these fields instead of process env.
   const workspaceConfig = {};
+  if (tenantWsId) {
+    workspaceConfig.workspaceId = tenantWsId;
+    workspaceConfig.workspaceName = wsName;
+    let tenantOrgId = null;
+    try {
+      const { fetchManifest } = require('../utils/fetchManifest');
+      const tenantManifest = await fetchManifest(tenantWsId);
+      tenantOrgId = tenantManifest?.orgId ?? null;
+    } catch { /* org id stays null — sender tools fall back to env secret */ }
+    workspaceConfig.tenant = { workspaceId: tenantWsId, orgId: tenantOrgId };
+  }
   if (config.vertexai?.project) workspaceConfig.vertexProject = config.vertexai.project;
 
   // Notify clients that bridge processing has started
-  const wsChannel = `ws:${config.workspaceId}`;
+  const wsChannel = `ws:${tenantWsId || config.workspaceId}`;
   if (global._io) {
     global._io.to(wsChannel).emit('bridge-processing-start', {
       taskId,
@@ -201,7 +249,7 @@ async function processDelegation(taskId, timestamp, secret, content, sourceWorks
   const messages = [
     {
       role: 'system',
-      content: `You are the AI assistant for the "${config.workspaceName}" workspace. You've received a delegated task from the "${sourceWorkspace.name}" workspace via a bridge. Process the task and provide a clear, complete response. The requesting workspace is waiting for your result.\n\nIMPORTANT: Begin your response with @${sourceWorkspace.name} to indicate who you are responding to.\nYou have tools available including web search. Use them when needed to provide accurate, up-to-date information.`,
+      content: `You are the AI assistant for the "${wsName}" workspace. You've received a delegated task from the "${sourceWorkspace.name}" workspace via a bridge. Process the task and provide a clear, complete response. The requesting workspace is waiting for your result.\n\nIMPORTANT: Begin your response with @${sourceWorkspace.name} to indicate who you are responding to.\nYou have tools available including web search. Use them when needed to provide accurate, up-to-date information.`,
     },
     {
       role: 'user',
@@ -241,7 +289,7 @@ async function processDelegation(taskId, timestamp, secret, content, sourceWorks
           break;
         case 'tool-result':
           console.log(`[Bridge] Tool result: ${event.name}`, JSON.stringify(event.result).slice(0, 200));
-          await workspaceService.saveMessage(null, 'tool', JSON.stringify(event.result), event.name, event.callId);
+          await svc.saveMessage(null, 'tool', JSON.stringify(event.result), event.name, event.callId);
           if (global._io) {
             global._io.to(wsChannel).emit('tool-result', { name: event.name, callId: event.callId, result: event.result });
           }
@@ -259,7 +307,7 @@ async function processDelegation(taskId, timestamp, secret, content, sourceWorks
   }
 
   // Save AI response to local DB
-  const savedResponse = await workspaceService.saveMessage(null, 'assistant', fullText, null, null, sourceWorkspace.id);
+  const savedResponse = await svc.saveMessage(null, 'assistant', fullText, null, null, sourceWorkspace.id);
 
   // Broadcast result to local clients
   if (global._io) {

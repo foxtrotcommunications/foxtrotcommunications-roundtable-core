@@ -20,6 +20,13 @@ const workspaceService = require('../services/workspaceService') as {
   getMessages(options?: { limit?: number; before?: number }): Promise<{ messages: import('../types').Message[]; hasMore: boolean }>;
   getUserApiKey(userId: number, provider: string): Promise<string>;
   getUserById(userId: number): Promise<import('../types').User | null>;
+  scoped(wsId: string): {
+    workspaceId: string;
+    getWorkspace(): Promise<import('../types').Workspace | null>;
+    saveMessage(userId: number | null, role: string, content: string, toolName?: string | null, toolCallId?: string | null, sourceWorkspaceId?: string | null, guestUsername?: string | null, guestDisplayName?: string | null): Promise<import('../types').Message>;
+    getConversationHistory(limit: number): Promise<import('../types').Message[]>;
+    getMessages(options?: { limit?: number; before?: number }): Promise<{ messages: import('../types').Message[]; hasMore: boolean }>;
+  };
 };
 const { streamCompletion } = require('../services/aiProvider') as {
   streamCompletion: (provider: string, model: string, messages: Record<string, unknown>[], apiKey: string, enableTools?: boolean, signal?: AbortSignal | null, enabledToolNames?: string[] | null, workspaceConfig?: WorkspaceConfig) => AsyncGenerator<StreamEvent>;
@@ -73,27 +80,33 @@ const { describeActivity, getSystemPromptSections, describeDomainRouting } =
 const RATE_LIMIT_WINDOW: number = 60_000; // 1 minute
 const RATE_LIMIT_MAX: number = parseInt(process.env.AI_RATE_LIMIT || '5', 10);
 
-function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
-  const wsChannel: string = `ws:${config.workspaceId}`;
-  const aiMessageTimestamps: number[] = []; // per-socket rate tracker
-
-  // Derive workspace alias(es) for @-mention triggering
-  // e.g., "ICU — Critical Care" → "icu", "Pharmacy" → "pharmacy"
-  const wsAlias: string = (config.workspaceName || '').split(/[\s—–-]/)[0].trim().toLowerCase();
-  const wsId: string = config.workspaceId.toLowerCase();
-  const aliasParts: string[] = [wsAlias, wsId]
+// Derive workspace alias regex for @-mention triggering
+// e.g., "ICU — Critical Care" → "icu", "Pharmacy" → "pharmacy"
+// Pure helper — exported for tests.
+function buildAiTriggerPattern(wsName: string, wsId: string): RegExp {
+  const wsAlias: string = (wsName || '').split(/[\s—–-]/)[0].trim().toLowerCase();
+  const wsIdAlias: string = (wsId || '').toLowerCase();
+  const aliasParts: string[] = [wsAlias, wsIdAlias]
     .filter(a => a.length >= 2 && a !== 'roundtable')
     .map(a => a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  const aiTriggerPattern: RegExp = new RegExp(
-    `@(?:ai${aliasParts.map(a => '|' + a).join('')})\\b`, 'i'
-  );
+  return new RegExp(`@(?:ai${aliasParts.map(a => '|' + a).join('')})\\b`, 'i');
+}
 
-const { touchActivity } = require('./workspaceHandler') as { touchActivity: () => void };
+function setupChatHandlers(io: Server, socket: RoundtableSocket): void {
+  // ── Tenant derivation (pooled: from the handshake binding; dedicated:
+  // socket.rtWorkspaceId === config.workspaceId, so every substitution below
+  // resolves to exactly the old values) ──────────────────────────────────
+  const wsId: string = socket.rtWorkspaceId || config.workspaceId;
+  const svc = workspaceService.scoped(wsId);
+  const wsChannel: string = `ws:${wsId}`;
+  const aiMessageTimestamps: number[] = []; // per-socket rate tracker
+
+const { touchActivity } = require('./workspaceHandler') as { touchActivity: (wsId?: string) => void };
 
   socket.on('send-message', async ({ content, activeRepo, _fromQueue }: { content: string; activeRepo?: string; _fromQueue?: boolean }) => {
     // Mark activity on every user message so the dashboard idle checker
     // knows this workspace is actively in use (not just a stale tab)
-    touchActivity();
+    touchActivity(wsId);
     try {
       // ── Input validation: reject oversized messages ──────────────
       const MAX_MESSAGE_LENGTH = 50_000; // 50KB — generous for any chat message
@@ -106,12 +119,19 @@ const { touchActivity } = require('./workspaceHandler') as { touchActivity: () =
         return;
       }
 
+      // ── Tenant workspace row + display name (derivation block) ──
+      const workspace: Workspace | null = await svc.getWorkspace();
+      const wsName: string = workspace?.name
+        || (config.pooledArthur ? 'Arthur' : config.workspaceName)
+        || 'Arthur';
+      const aiTriggerPattern: RegExp = buildAiTriggerPattern(wsName, wsId);
+
       // ── Distributed tracing: root span for this chat message ──
       const traceId = generateTraceId();
       const rootSpan = startSpan({
         traceId,
-        workspaceId: config.workspaceId || '',
-        workspaceName: config.workspaceName || '',
+        workspaceId: wsId || '',
+        workspaceName: wsName || '',
         operation: 'chat.message',
         inputPreview: preview(content),
       });
@@ -120,7 +140,7 @@ const { touchActivity } = require('./workspaceHandler') as { touchActivity: () =
       if (!_fromQueue) {
         // For embed guests (null userId), persist socket username as guest fields
         const guestName = !socket.userId && socket.username ? socket.username : null;
-        const userMessage: Message = await workspaceService.saveMessage(
+        const userMessage: Message = await svc.saveMessage(
           socket.userId, 'user', content, null, null, null, guestName, guestName
         );
         io.to(wsChannel).emit('new-message', userMessage);
@@ -153,8 +173,8 @@ const { touchActivity } = require('./workspaceHandler') as { touchActivity: () =
           return;
         }
 
-        // Check if a bridge exists for this workspace
-        const manifestData = await (require('../utils/fetchManifest') as { fetchManifest: () => Promise<any> }).fetchManifest();
+        // Check if a bridge exists for this workspace (tenant-keyed manifest)
+        const manifestData = await (require('../utils/fetchManifest') as { fetchManifest: (wsId?: string) => Promise<any> }).fetchManifest(wsId);
         const bridges: BridgeEntry[] = manifestData.RT_BRIDGES || [];
         if (!bridges.length) {
           socket.emit('error-message', { error: `No bridges configured. Cannot reach "${targetName}".` });
@@ -229,13 +249,20 @@ const { touchActivity } = require('./workspaceHandler') as { touchActivity: () =
         try {
           const bridgeMod = require('../tools/bridgeWorkspace');
           const bridgeTool = (bridgeMod.default || bridgeMod) as {
-            execute: (args: Record<string, unknown>) => Promise<BridgeToolResult>;
+            execute: (args: Record<string, unknown>, workspaceConfig?: WorkspaceConfig) => Promise<BridgeToolResult>;
+          };
+          // Sender contract: the tool must know WHICH tenant is bridging —
+          // its manifest, its name, and (pooled) its org's master secret.
+          const bridgeWorkspaceConfig: WorkspaceConfig = {
+            workspaceId: wsId,
+            workspaceName: wsName,
+            ...(config.pooled ? { tenant: { workspaceId: wsId, orgId: manifestData.orgId ?? null } } : {}),
           };
           const result: BridgeToolResult = await bridgeTool.execute({
             target: bridge.targetName,
             action: bridgeAction,
             content: bridgeContent,
-          });
+          }, bridgeWorkspaceConfig);
 
           const callId: string = `bridge-${Date.now()}`;
           io.to(wsChannel).emit('tool-result', {
@@ -249,7 +276,7 @@ const { touchActivity } = require('./workspaceHandler') as { touchActivity: () =
             ? `❌ Bridge to ${bridge.targetName} failed: ${result.error}`
             : `🔗 Task delegated to **${bridge.targetName}**. Task ID: \`${result.taskId}\`\n\nThe ${bridge.targetName} workspace's AI is processing your request. Results will appear here when complete.`;
 
-          await workspaceService.saveMessage(null, 'assistant', responseText);
+          await svc.saveMessage(null, 'assistant', responseText);
           io.to(wsChannel).emit('ai-chunk', { content: responseText, userId: socket.userId });
           io.to(wsChannel).emit('ai-complete', { fullText: responseText, userId: socket.userId });
         } catch (err: unknown) {
@@ -269,14 +296,14 @@ const { touchActivity } = require('./workspaceHandler') as { touchActivity: () =
       }
 
       // ── Workspace-level queue: only one AI request at a time ──
-      if (isProcessing(config.workspaceId)) {
-        const queue = getQueue(config.workspaceId);
+      if (isProcessing(wsId)) {
+        const queue = getQueue(wsId);
         queue.push({ socket, content, activeRepo, isOverage: false });
         socket.isGenerating = true; // prevent double-queuing from same user
         const position = queue.length;
         socket.emit('ai-queued', { position, message: `Your request is queued (position ${position}). The AI will respond when the current request finishes.` });
         io.to(wsChannel).emit('ai-queue-update', { queueLength: position });
-        console.log(`[Queue] Request from ${socket.username} queued at position ${position} for workspace ${config.workspaceId}`);
+        console.log(`[Queue] Request from ${socket.username} queued at position ${position} for workspace ${wsId}`);
         return;
       }
 
@@ -291,11 +318,11 @@ const { touchActivity } = require('./workspaceHandler') as { touchActivity: () =
       if (MONTHLY_TOKEN_CREDIT > 0) {
         try {
           const { getAdapter } = require('../db/adapter') as { getAdapter: () => DatabaseAdapter };
-          const monthlyTokens: number = await getAdapter().getMonthlyTokens(config.workspaceId);
+          const monthlyTokens: number = await getAdapter().getMonthlyTokens(wsId);
           if (monthlyTokens >= MONTHLY_TOKEN_CREDIT) {
             isOverage = true;
             const pct: number = Math.round((monthlyTokens / MONTHLY_TOKEN_CREDIT) * 100);
-            console.log(`[Credits] Workspace ${config.workspaceId} is over monthly credit: ${monthlyTokens.toLocaleString()} / ${MONTHLY_TOKEN_CREDIT.toLocaleString()} (${pct}%)`);
+            console.log(`[Credits] Workspace ${wsId} is over monthly credit: ${monthlyTokens.toLocaleString()} / ${MONTHLY_TOKEN_CREDIT.toLocaleString()} (${pct}%)`);
 
             if (TOKEN_CAP_MODE === 'hard') {
               // HARD CAP — block the request (free tier / beta)
@@ -320,7 +347,7 @@ const { touchActivity } = require('./workspaceHandler') as { touchActivity: () =
       }
 
 
-      const workspace: Workspace | null = await workspaceService.getWorkspace();
+      // (workspace row already fetched in the derivation block above)
 
       // AI provider config from workspace or defaults
       const aiProvider: string = (workspace && workspace.ai_provider) || 'vertexai';
@@ -342,7 +369,7 @@ const { touchActivity } = require('./workspaceHandler') as { touchActivity: () =
 
       // Audit: AI request
       { const { getAdapter: _ga } = require('../db/adapter') as { getAdapter: () => DatabaseAdapter };
-        _ga().audit(config.workspaceId, socket.userId, socket.username, 'ai_request', aiProvider, {
+        _ga().audit(wsId, socket.userId, socket.username, 'ai_request', aiProvider, {
           model: aiModel, contentLength: content.length,
         }, socket.handshake?.address).catch(() => {}); }
 
@@ -355,7 +382,17 @@ const { touchActivity } = require('./workspaceHandler') as { touchActivity: () =
             : workspace.data_sources;
         } catch { /* intentionally empty */ }
       }
-      const workspaceConfig: WorkspaceConfig = { dataSources, workspaceId: config.workspaceId, workspaceName: config.workspaceName };
+      // Sender contract (pooled-arthur-plan Q3): tools resolve the tenant's
+      // manifest and org master secret from workspaceConfig, never process env.
+      const tenantManifest = config.pooled
+        ? await (require('../utils/fetchManifest') as { fetchManifest: (wsId?: string) => Promise<any> }).fetchManifest(wsId)
+        : null;
+      const workspaceConfig: WorkspaceConfig = {
+        dataSources,
+        workspaceId: wsId,
+        workspaceName: wsName,
+        ...(config.pooled ? { tenant: { workspaceId: wsId, orgId: tenantManifest?.orgId ?? null } } : {}),
+      };
 
       // Resolve enabled tool names from workspace config (null = all tools)
       let enabledToolNames: string[] | null = null;
@@ -366,45 +403,59 @@ const { touchActivity } = require('./workspaceHandler') as { touchActivity: () =
         } catch { /* intentionally empty */ }
       }
 
-      // ── MCP Tool Discovery ──────────────────────────────────────
-      // Sources: data_sources.mcp_servers (per-workspace settings) OR
-      //          RT_MCP_SERVERS env var (injected by SaaS provisioner)
-      let mcpServerList: Array<{ name: string; url: string; apiKey?: string }> | null = null;
-      if (dataSources && (dataSources as Record<string, unknown>).mcp_servers) {
-        const servers = (dataSources as Record<string, unknown>).mcp_servers;
-        if (Array.isArray(servers) && servers.length > 0) mcpServerList = servers;
-      }
-      if (!mcpServerList) {
-        const mData = await (require('../utils/fetchManifest') as { fetchManifest: () => Promise<any> }).fetchManifest();
-        const parsed = mData.RT_MCP_SERVERS;
-        if (Array.isArray(parsed) && parsed.length > 0) mcpServerList = parsed;
-      }
-      if (mcpServerList) {
-        try {
-          const { createMcpToolsForWorkspace } = require('../mcp/client') as {
-            createMcpToolsForWorkspace: (servers: Array<{ name: string; url: string; apiKey?: string }>) => Promise<Array<{ name: string; description: string; parameters: Record<string, unknown>; execute: Function }>>;
-          };
-          const { registerDynamicTools } = require('../tools/index');
-          const mcpTools = await createMcpToolsForWorkspace(mcpServerList);
-          if (mcpTools.length > 0) {
-            registerDynamicTools(mcpTools);
-            console.log(`[MCP] Registered ${mcpTools.length} tools from ${mcpServerList.length} server(s)`);
+      if (!config.pooled) {
+        // ── MCP Tool Discovery ──────────────────────────────────────
+        // Sources: data_sources.mcp_servers (per-workspace settings) OR
+        //          RT_MCP_SERVERS env var (injected by SaaS provisioner)
+        // DISABLED in pooled mode: registerDynamicTools mutates the process-
+        // global tool registry — one tenant's MCP tools would become callable
+        // by every other tenant on this replica.
+        let mcpServerList: Array<{ name: string; url: string; apiKey?: string }> | null = null;
+        if (dataSources && (dataSources as Record<string, unknown>).mcp_servers) {
+          const servers = (dataSources as Record<string, unknown>).mcp_servers;
+          if (Array.isArray(servers) && servers.length > 0) mcpServerList = servers;
+        }
+        if (!mcpServerList) {
+          const mData = await (require('../utils/fetchManifest') as { fetchManifest: (wsId?: string) => Promise<any> }).fetchManifest(wsId);
+          const parsed = mData.RT_MCP_SERVERS;
+          if (Array.isArray(parsed) && parsed.length > 0) mcpServerList = parsed;
+        }
+        if (mcpServerList) {
+          try {
+            const { createMcpToolsForWorkspace } = require('../mcp/client') as {
+              createMcpToolsForWorkspace: (servers: Array<{ name: string; url: string; apiKey?: string }>) => Promise<Array<{ name: string; description: string; parameters: Record<string, unknown>; execute: Function }>>;
+            };
+            const { registerDynamicTools } = require('../tools/index');
+            const mcpTools = await createMcpToolsForWorkspace(mcpServerList);
+            if (mcpTools.length > 0) {
+              registerDynamicTools(mcpTools);
+              console.log(`[MCP] Registered ${mcpTools.length} tools from ${mcpServerList.length} server(s)`);
+            }
+            workspaceConfig.mcpServers = mcpServerList;
+          } catch (err) {
+            console.warn('[MCP] Tool discovery failed:', (err as Error).message);
           }
-          workspaceConfig.mcpServers = mcpServerList;
-        } catch (err) {
-          console.warn('[MCP] Tool discovery failed:', (err as Error).message);
+        }
+      } else {
+        // Loud, greppable signal: a pooled tenant configured MCP servers that
+        // this runtime deliberately will not register (cross-tenant leak).
+        const mcpConfigured = (Array.isArray((dataSources as Record<string, unknown>)?.mcp_servers) && ((dataSources as Record<string, unknown>).mcp_servers as unknown[]).length > 0)
+          || (Array.isArray(tenantManifest?.RT_MCP_SERVERS) && tenantManifest.RT_MCP_SERVERS.length > 0);
+        if (mcpConfigured) {
+          console.error(`[MCP] POOLED MODE: tenant ${wsId} lists MCP servers, but dynamic MCP tool registration is DISABLED in pooled services (process-global registry would leak tools across tenants). MCP servers ignored for this request.`);
         }
       }
 
       // ── A2A Agent Config ────────────────────────────────────────
-      // Sources: data_sources.a2a_agents OR RT_A2A_AGENTS env var
+      // Sources: data_sources.a2a_agents OR the tenant manifest
       let a2aAgentList: Array<{ name: string; url: string; apiKey?: string }> | null = null;
       if (dataSources && (dataSources as Record<string, unknown>).a2a_agents) {
         const agents = (dataSources as Record<string, unknown>).a2a_agents;
         if (Array.isArray(agents) && agents.length > 0) a2aAgentList = agents;
       }
       if (!a2aAgentList) {
-        const mData = await (require('../utils/fetchManifest') as { fetchManifest: () => Promise<any> }).fetchManifest();
+        const mData = tenantManifest
+          || await (require('../utils/fetchManifest') as { fetchManifest: (wsId?: string) => Promise<any> }).fetchManifest(wsId);
         const parsed = mData.RT_A2A_AGENTS;
         if (Array.isArray(parsed) && parsed.length > 0) a2aAgentList = parsed;
       }
@@ -435,12 +486,14 @@ const { touchActivity } = require('./workspaceHandler') as { touchActivity: () =
 
       // In embed mode, use smaller history window (ephemeral guest sessions)
       const historyLimit: number = config.embedMode ? 10 : 50;
-      const history: Message[] = await workspaceService.getConversationHistory(historyLimit);
+      const history: Message[] = await svc.getConversationHistory(historyLimit);
       const messages: Record<string, unknown>[] = [];
 
       // Build system prompt with workspace context
       let systemPrompt: string = (workspace && workspace.system_prompt) || '';
-      try {
+      // Repo scan reads the pod-local ./workspace tree — a shared filesystem
+      // in a pooled process, so it is disabled there (cross-tenant leak).
+      if (!config.pooled) try {
         const workspaceDir: string = require('path').resolve(__dirname, '..', '..', 'workspace');
         const fs = require('fs') as typeof import('fs');
         if (fs.existsSync(workspaceDir)) {
@@ -524,7 +577,7 @@ const { touchActivity } = require('./workspaceHandler') as { touchActivity: () =
       // discipline + planning sections), registered via the app-hook boundary.
       // Inserted between RESPONSE ATTRIBUTION and DIAGRAM STYLING below.
       const appPromptSections: string | null = getSystemPromptSections();
-      const envCtx: string = `You are the AI assistant for the "${config.workspaceName}" workspace on the Roundtable platform${orgLabel}. This is a real-time multiplayer workspace — multiple users may be present simultaneously.
+      const envCtx: string = `You are the AI assistant for the "${wsName}" workspace on the Roundtable platform${orgLabel}. This is a real-time multiplayer workspace — multiple users may be present simultaneously.
 
 --- SELF-DISCOVERY ---
 You have a describe_workspace tool. Call it when:
@@ -614,7 +667,7 @@ Rules:
       // Inject active contract info so the AI knows its governance relationships
       let contractCtx: string = '';
       try {
-        const contractData = await (require('../utils/fetchManifest') as { fetchManifest: () => Promise<any> }).fetchManifest();
+        const contractData = await (require('../utils/fetchManifest') as { fetchManifest: (wsId?: string) => Promise<any> }).fetchManifest(wsId);
         interface ContractEntry {
           contractId: string;
           type: string;
@@ -659,7 +712,8 @@ Rules:
 
       // Auto-inject schema YAML files from workspace/uploads/ into the system prompt
       // SKIP if dataSources.bigquery.schema is set — workspace config schema takes precedence
-      if (!dataSources?.bigquery?.schema || Object.keys(dataSources.bigquery.schema).length === 0) {
+      // Disabled in pooled mode: workspace/uploads is a shared pod-local tree.
+      if (!config.pooled && (!dataSources?.bigquery?.schema || Object.keys(dataSources.bigquery.schema).length === 0)) {
         try {
           const uploadsDir: string = require('path').resolve(__dirname, '..', '..', 'workspace', 'uploads');
           const fs = require('fs') as typeof import('fs');
@@ -679,7 +733,8 @@ Rules:
       }
 
       // Auto-inject markdown docs from workspace/docs/ into the system prompt
-      try {
+      // Disabled in pooled mode: workspace/docs is a shared pod-local tree.
+      if (!config.pooled) try {
         const docsDir: string = require('path').resolve(__dirname, '..', '..', 'workspace', 'docs');
         const fs = require('fs') as typeof import('fs');
         if (fs.existsSync(docsDir)) {
@@ -716,7 +771,7 @@ Rules:
       }
 
       // Mark workspace as processing
-      workspaceProcessing.set(config.workspaceId, true);
+      workspaceProcessing.set(wsId, true);
 
       // Set up per-socket AbortController
       const abortController: AbortController = new AbortController();
@@ -758,7 +813,7 @@ Rules:
               if (!toolNamesUsed.includes(event.name)) toolNamesUsed.push(event.name);
               // Audit: tool call
               { const { getAdapter: _ga } = require('../db/adapter') as { getAdapter: () => DatabaseAdapter };
-                _ga().audit(config.workspaceId, socket.userId, socket.username, 'tool_call', event.name, {
+                _ga().audit(wsId, socket.userId, socket.username, 'tool_call', event.name, {
                   args: JSON.stringify(event.args).substring(0, 500),
                 }, socket.handshake?.address).catch(() => {}); }
               // Chart telemetry: always-sampled span capturing what type the model chose
@@ -768,8 +823,8 @@ Rules:
                 const chartSpan = startSpan({
                   traceId: rootSpan.traceId,
                   parentSpanId: rootSpan.spanId,
-                  workspaceId: config.workspaceId,
-                  workspaceName: workspace?.name || config.workspaceId,
+                  workspaceId: wsId,
+                  workspaceName: workspace?.name || wsId,
                   operation: 'render_chart',
                   toolName: 'render_chart',
                   inputPreview: JSON.stringify(chartArgs).substring(0, 500),
@@ -792,7 +847,7 @@ Rules:
               break;
             case 'tool-result':
               console.log(`[Tool] Result from ${event.name}:`, JSON.stringify(event.result).substring(0, 200));
-              await workspaceService.saveMessage(null, 'tool', JSON.stringify(event.result), event.name, event.callId);
+              await svc.saveMessage(null, 'tool', JSON.stringify(event.result), event.name, event.callId);
               io.to(wsChannel).emit('tool-result', { name: event.name, callId: event.callId, result: event.result });
               // Mark the step as completed
               const completedActivity = describeActivity(event.name, event.result as Record<string, unknown> || {});
@@ -801,7 +856,7 @@ Rules:
               {
                 const auditType = ['query_bigquery', 'query_snowflake', 'query_databricks'].includes(event.name) ? 'data_query' : 'tool_result';
                 const { getAdapter: _ga } = require('../db/adapter') as { getAdapter: () => DatabaseAdapter };
-                _ga().audit(config.workspaceId, socket.userId, socket.username, auditType, event.name, {
+                _ga().audit(wsId, socket.userId, socket.username, auditType, event.name, {
                   resultPreview: JSON.stringify(event.result).substring(0, 200),
                 }, socket.handshake?.address).catch(() => {});
               }
@@ -836,14 +891,14 @@ Rules:
               io.to(wsChannel).emit('ai-error', { error: event.error });
               break;
             case 'done':
-              if (event.fullText) await workspaceService.saveMessage(null, 'assistant', event.fullText);
+              if (event.fullText) await svc.saveMessage(null, 'assistant', event.fullText);
               break;
           }
         }
       } catch (err: unknown) {
         const error = err as Error & { name: string };
         if (error.name !== 'AbortError') {
-          console.error(`[Chat] AI stream error in workspace ${config.workspaceId}:`, error);
+          console.error(`[Chat] AI stream error in workspace ${wsId}:`, error);
           endSpan(rootSpan, 'error', { outputPreview: preview(error.message) });
           recordSpan(rootSpan);
           io.to(wsChannel).emit('ai-error', { error: `AI generation failed: ${error.message}` });
@@ -858,12 +913,12 @@ Rules:
         io.to(wsChannel).emit('ai-complete', { fullText, userId: socket.userId, traceId: rootSpan.traceId });
 
         // ── Process next queued request ──────────────────────────
-        workspaceProcessing.set(config.workspaceId, false);
-        const queue = getQueue(config.workspaceId);
+        workspaceProcessing.set(wsId, false);
+        const queue = getQueue(wsId);
         if (queue.length > 0) {
           const next = queue.shift()!;
           io.to(wsChannel).emit('ai-queue-update', { queueLength: queue.length });
-          console.log(`[Queue] Processing next request from ${next.socket.username} for workspace ${config.workspaceId} (${queue.length} remaining)`);
+          console.log(`[Queue] Processing next request from ${next.socket.username} for workspace ${wsId} (${queue.length} remaining)`);
           // Reset the queued user's isGenerating so the handler accepts it
           next.socket.isGenerating = false;
           // Re-invoke — message was already saved, so pass _fromQueue to skip re-save
@@ -878,7 +933,7 @@ Rules:
         try {
           const { getAdapter } = require('../db/adapter') as { getAdapter: () => DatabaseAdapter };
           await getAdapter().recordUsage(
-            config.workspaceId,
+            wsId,
             socket.userId,
             aiProvider,
             aiModel,
@@ -900,14 +955,14 @@ Rules:
             const crypto = require('crypto') as typeof import('crypto');
             const ts: string = Date.now().toString();
             const sig: string = crypto.createHmac('sha256', config.bridgeHmacSecret)
-              .update(`${config.workspaceId}:${ts}`)
+              .update(`${wsId}:${ts}`)
               .digest('hex');
             fetch(`${dashboardUrl}/api/usage-report/report`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                workspaceId: config.workspaceId,
-                workspaceName: config.workspaceName || config.workspaceId,
+                workspaceId: wsId,
+                workspaceName: wsName || wsId,
                 userId: socket.userId?.toString() || 'unknown',
                 userName: socket.username || 'unknown',
                 model: aiModel,
@@ -940,14 +995,14 @@ Rules:
       socket.abortController.abort();
     }
     // Remove any queued requests from this socket
-    const queue = getQueue(config.workspaceId);
+    const queue = getQueue(wsId);
     const before = queue.length;
     const filtered = queue.filter(r => r.socket.id !== socket.id);
     if (filtered.length !== before) {
-      workspaceQueues.set(config.workspaceId, filtered);
+      workspaceQueues.set(wsId, filtered);
       console.log(`[Queue] Removed ${before - filtered.length} queued request(s) from disconnected user ${socket.username}`);
     }
   });
 }
 
-module.exports = { setupChatHandlers };
+module.exports = { setupChatHandlers, buildAiTriggerPattern };
