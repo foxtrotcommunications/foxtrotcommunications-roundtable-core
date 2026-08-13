@@ -36,9 +36,13 @@ function decryptApiKey(stored) {
 }
 
 class PostgreSQLAdapter {
-  constructor(connectionString) {
+  constructor(connectionString, options = {}) {
     this.connectionString = connectionString;
     this.pool = null;
+    // Pooled runtime: workspace-scoped statements run inside a transaction
+    // with app.workspace_id pinned (tenant_context RLS). Dedicated pods keep
+    // plain pool queries — the connection role IS the tenant there.
+    this.tenantPinned = !!options.tenantPinned;
   }
 
   async initialize() {
@@ -64,7 +68,7 @@ class PostgreSQLAdapter {
   // ─── Insights ───────────────────────────────────
 
   async getInsights(workspaceId) {
-    const result = await this.pool.query(
+    const result = await this._tenantQuery(workspaceId,
       `SELECT i.*, u.username, u.display_name
        FROM workspace_insights i
        LEFT JOIN users u ON i.user_id = u.id
@@ -76,7 +80,7 @@ class PostgreSQLAdapter {
   }
 
   async addInsight(workspaceId, userId, title, content, sourceMessageId = null, category = 'general') {
-    const result = await this.pool.query(
+    const result = await this._tenantQuery(workspaceId,
       `INSERT INTO workspace_insights (workspace_id, user_id, title, content, source_message_id, category)
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
       [workspaceId, userId, title, content, sourceMessageId, category]
@@ -85,7 +89,7 @@ class PostgreSQLAdapter {
   }
 
   async deleteInsight(insightId, workspaceId) {
-    await this.pool.query(
+    await this._tenantQuery(workspaceId,
       `DELETE FROM workspace_insights WHERE id = $1 AND workspace_id = $2`,
       [insightId, workspaceId]
     );
@@ -95,7 +99,7 @@ class PostgreSQLAdapter {
 
   async audit(workspaceId, userId, username, eventType, eventName, eventDetail, ipAddress) {
     try {
-      await this.pool.query(
+      await this._tenantQuery(workspaceId,
         `INSERT INTO audit_log (workspace_id, user_id, username, event_type, event_name, event_detail, ip_address)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         [workspaceId, userId, username, eventType, eventName, JSON.stringify(eventDetail || {}), ipAddress || null]
@@ -119,7 +123,7 @@ class PostgreSQLAdapter {
       params.push(options.before);
     }
     params.push(limit);
-    const rows = await this._queryAll(
+    const rows = await this._tQueryAll(workspaceId,
       `SELECT * FROM audit_log WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC LIMIT $${idx}`,
       params
     );
@@ -148,6 +152,50 @@ class PostgreSQLAdapter {
 
   async _exec(sql, params = []) {
     await this.pool.query(sql, params);
+  }
+
+  // ─── Tenant-pinned helpers (pooled runtime) ─────
+  // Non-pinned mode delegates straight to the pool — byte-identical to the
+  // plain helpers. Pinned mode wraps each statement in BEGIN +
+  // set_config('app.workspace_id', $1, true) + COMMIT; the setting dies with
+  // the transaction, so nothing leaks across pool checkouts.
+  async _tenantQuery(workspaceId, sql, params = []) {
+    if (!this.tenantPinned) return this.pool.query(sql, params);
+    if (typeof workspaceId !== 'string' || !workspaceId.trim()) {
+      throw new Error('tenant-scoped query requires a workspace id');
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query("SELECT set_config('app.workspace_id', $1, true)", [workspaceId]);
+      const result = await client.query(sql, params);
+      await client.query('COMMIT');
+      return result;
+    } catch (err) {
+      try { await client.query('ROLLBACK'); } catch { /* connection gone */ }
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  async _tQueryOne(workspaceId, sql, params = []) {
+    const { rows } = await this._tenantQuery(workspaceId, sql, params);
+    return rows[0] || null;
+  }
+
+  async _tQueryAll(workspaceId, sql, params = []) {
+    const { rows } = await this._tenantQuery(workspaceId, sql, params);
+    return rows;
+  }
+
+  async _tExecute(workspaceId, sql, params = []) {
+    const { rows } = await this._tenantQuery(workspaceId, sql + ' RETURNING id', params);
+    return rows[0] ? rows[0].id : 0;
+  }
+
+  async _tExec(workspaceId, sql, params = []) {
+    await this._tenantQuery(workspaceId, sql, params);
   }
 
   async _runMigrations() {
@@ -397,11 +445,11 @@ class PostgreSQLAdapter {
 
   // ─── Messages ───────────────────────────────────
   async saveMessage(workspaceId, userId, role, content, toolName = null, toolCallId = null, sourceWorkspaceId = null, guestUsername = null, guestDisplayName = null) {
-    const id = await this._execute(
+    const id = await this._tExecute(workspaceId,
       'INSERT INTO messages (workspace_id, user_id, role, content, tool_name, tool_call_id, source_workspace_id, guest_username, guest_display_name) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
       [workspaceId, userId, role, content, toolName, toolCallId, sourceWorkspaceId, guestUsername, guestDisplayName]
     );
-    return this._queryOne(`
+    return this._tQueryOne(workspaceId, `
       SELECT m.*, COALESCE(u.username, m.guest_username) AS username, COALESCE(u.display_name, m.guest_display_name) AS display_name FROM messages m
       LEFT JOIN users u ON u.id = m.user_id WHERE m.id = $1
     `, [id]);
@@ -410,14 +458,14 @@ class PostgreSQLAdapter {
   async getMessages(workspaceId, options = {}) {
     const limit = Math.min(options.limit || 50, 200);
     if (options.before) {
-      const rows = await this._queryAll(`
+      const rows = await this._tQueryAll(workspaceId, `
         SELECT m.*, COALESCE(u.username, m.guest_username) AS username, COALESCE(u.display_name, m.guest_display_name) AS display_name FROM messages m
         LEFT JOIN users u ON u.id = m.user_id
         WHERE m.workspace_id = $1 AND m.id < $2 ORDER BY m.created_at DESC LIMIT $3
       `, [workspaceId, options.before, limit]);
       return rows.reverse();
     }
-    const rows = await this._queryAll(`
+    const rows = await this._tQueryAll(workspaceId, `
       SELECT m.*, COALESCE(u.username, m.guest_username) AS username, COALESCE(u.display_name, m.guest_display_name) AS display_name FROM messages m
       LEFT JOIN users u ON u.id = m.user_id
       WHERE m.workspace_id = $1 ORDER BY m.created_at DESC LIMIT $2
@@ -430,7 +478,7 @@ class PostgreSQLAdapter {
   }
 
   async clearMessages(workspaceId) {
-    await this._exec('DELETE FROM messages WHERE workspace_id = $1', [workspaceId]);
+    await this._tExec(workspaceId, 'DELETE FROM messages WHERE workspace_id = $1', [workspaceId]);
   }
 
   // ─── API Keys ───────────────────────────────────
@@ -467,7 +515,7 @@ class PostgreSQLAdapter {
 
   // ─── Usage Tracking ─────────────────────────────
   async recordUsage(workspaceId, userId, provider, model, promptTokens, completionTokens, totalTokens, toolCalls, toolNames) {
-    await this._exec(
+    await this._tExec(workspaceId,
       `INSERT INTO workspace_usage (workspace_id, user_id, provider, model, prompt_tokens, completion_tokens, total_tokens, tool_calls, tool_names)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [workspaceId, userId, provider, model, promptTokens || 0, completionTokens || 0, totalTokens || 0, toolCalls || 0, JSON.stringify(toolNames || [])]
@@ -475,7 +523,7 @@ class PostgreSQLAdapter {
   }
 
   async getUsageSummary(workspaceId, periodDays = 30) {
-    return this._queryOne(`
+    return this._tQueryOne(workspaceId, `
       SELECT
         COUNT(*) as total_requests,
         COALESCE(SUM(prompt_tokens), 0) as total_prompt_tokens,
@@ -489,7 +537,7 @@ class PostgreSQLAdapter {
   }
 
   async getUsageByUser(workspaceId, periodDays = 30) {
-    return this._queryAll(`
+    return this._tQueryAll(workspaceId, `
       SELECT
         u.username, u.display_name,
         COUNT(*) as requests,
@@ -505,7 +553,7 @@ class PostgreSQLAdapter {
   }
 
   async getUsageByModel(workspaceId, periodDays = 30) {
-    return this._queryAll(`
+    return this._tQueryAll(workspaceId, `
       SELECT
         provider, model,
         COUNT(*) as requests,
@@ -521,7 +569,7 @@ class PostgreSQLAdapter {
   // ─── Daily spend cap ─────────────────────────────
   /** Returns total tokens used by this workspace since UTC midnight today. */
   async getDailyTokens(workspaceId) {
-    const row = await this._queryOne(`
+    const row = await this._tQueryOne(workspaceId, `
       SELECT COALESCE(SUM(total_tokens), 0)::bigint AS tokens
       FROM workspace_usage
       WHERE workspace_id = $1
@@ -532,7 +580,7 @@ class PostgreSQLAdapter {
 
   /** Returns total tokens used by this workspace since the start of the current UTC month. */
   async getMonthlyTokens(workspaceId) {
-    const row = await this._queryOne(`
+    const row = await this._tQueryOne(workspaceId, `
       SELECT COALESCE(SUM(total_tokens), 0)::bigint AS tokens
       FROM workspace_usage
       WHERE workspace_id = $1

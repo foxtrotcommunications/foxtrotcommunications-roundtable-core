@@ -6,7 +6,9 @@ let adapter = null;
 async function initAdapter() {
   if (config.databaseUrl) {
     const PostgreSQLAdapter = require('./adapters/postgresql');
-    adapter = new PostgreSQLAdapter(config.databaseUrl);
+    // Pooled processes pin workspace-scoped statements to the request's
+    // tenant (tenant_context RLS); dedicated pods keep plain pool queries.
+    adapter = new PostgreSQLAdapter(config.databaseUrl, { tenantPinned: config.pooled });
   } else {
     console.log('[DB] No DATABASE_URL set — using SQLite for local development');
     console.log('[DB] Set DATABASE_URL to use PostgreSQL (required for production)');
