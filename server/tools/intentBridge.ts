@@ -234,7 +234,9 @@ const intentBridge: Tool = {
     }
 
     // ── 1. Fetch manifest and resolve bridge ─────────────────────
-    const manifest = await fetchManifest();
+    // Pooled Arthur: the executing tenant rides workspaceConfig — its
+    // manifest holds ITS bridges. No-arg keeps dedicated identical.
+    const manifest = await fetchManifest(_workspaceConfig?.workspaceId || undefined);
     const bridges = manifest.RT_BRIDGES;
 
     if (!bridges || !bridges.length) {
@@ -363,14 +365,29 @@ const intentBridge: Tool = {
       return { success: false, error: `Invalid intent: ${validation.error}` };
     }
 
-    // ── 5. Check ORG_MASTER_SECRET ───────────────────────────────
-    const masterSecret = process.env.ORG_MASTER_SECRET;
+    // ── 5. Resolve the org master secret ─────────────────────────
+    // Dedicated: pod env (org-scoped fleet). Pooled Arthur: the executing
+    // TENANT's org owns the HKDF root — fetched per tenant (TTL-cached,
+    // audit-logged) because pooled tenants span orgs.
+    let masterSecret = process.env.ORG_MASTER_SECRET;
+    const senderTenant = _workspaceConfig?.tenant as { workspaceId?: string; orgId?: string } | undefined;
+    if (senderTenant?.workspaceId) {
+      try {
+        const { getOrgMasterSecret } = require('../tenantCredentials');
+        masterSecret = await getOrgMasterSecret(
+          senderTenant.workspaceId,
+          senderTenant.orgId || manifest.orgId || '',
+        ) || masterSecret;
+      } catch (e: any) {
+        console.error(`[intent_bridge] tenant master-secret fetch failed: ${e?.message}`);
+      }
+    }
     if (!masterSecret) {
-      endSpan(span, 'error', { outputPreview: 'ORG_MASTER_SECRET not configured' });
+      endSpan(span, 'error', { outputPreview: 'No org master secret available' });
       recordSpan(span);
       return {
         success: false,
-        error: 'ORG_MASTER_SECRET not configured. Intent bridge requires contract-based authentication.',
+        error: 'No org master secret available (env for dedicated pods, per-tenant fetch for pooled). Intent bridge requires contract-based authentication.',
       };
     }
 

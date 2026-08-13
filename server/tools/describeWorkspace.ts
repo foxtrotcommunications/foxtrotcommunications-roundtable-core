@@ -32,7 +32,9 @@ const tool: Tool = {
     const { resolveTools   } = require('./index');
 
     // ── Workspace Identity ──────────────────────────────────
-    const workspace = await getAdapter().getWorkspace(config.workspaceId);
+    // Pooled Arthur: describe the executing TENANT's workspace.
+    const wsId = workspaceConfig?.workspaceId || config.workspaceId;
+    const workspace = await getAdapter().getWorkspace(wsId);
 
     // ── Deployment Mode ─────────────────────────────────────
     const isKubernetes = !!process.env.KUBERNETES_SERVICE_HOST;
@@ -127,7 +129,7 @@ const tool: Tool = {
     }
 
     // ── Fetch Dynamic Manifest ───────────────────────────────
-    const manifest = await fetchManifest();
+    const manifest = await fetchManifest(workspaceConfig?.workspaceId || undefined);
 
     // ── Workspace Bridges (from dynamic manifest) ──────────────────
     const bridges = [];
@@ -190,7 +192,7 @@ const tool: Tool = {
     let usage = null;
     try {
       const db = getAdapter();
-      usage = await db.getUsageSummary(config.workspaceId, 30);
+      usage = await db.getUsageSummary(wsId, 30);
     } catch { /* intentionally empty */ }
 
     return {
@@ -199,8 +201,8 @@ const tool: Tool = {
       organization: config.platformOrg || undefined,
 
       workspace: {
-        id: config.workspaceId,
-        name: config.workspaceName,
+        id: wsId,
+        name: workspaceConfig?.workspaceName || config.workspaceName,
         deployment,
         environment: process.env.NODE_ENV || 'development',
       },

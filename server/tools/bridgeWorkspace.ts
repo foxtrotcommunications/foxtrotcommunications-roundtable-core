@@ -70,7 +70,8 @@ const bridgeWorkspace: Tool = {
     }
 
     // Read bridge manifest dynamically (falls back to env if control plane is down)
-    const manifest = await fetchManifest();
+    // Pooled Arthur: the executing tenant's manifest (workspaceConfig).
+    const manifest = await fetchManifest(_workspaceConfig?.workspaceId || undefined);
     const bridges = manifest.RT_BRIDGES;
 
     if (!bridges || !bridges.length) {
@@ -153,19 +154,34 @@ const bridgeWorkspace: Tool = {
     // Send directly to target workspace's A2A endpoint via the wake proxy.
     // The wake proxy auto-wakes sleeping workspaces on HTTP requests.
     const taskId = crypto.randomUUID();
-    const _sourceName = config.workspaceName || config.workspaceId;
+    const _sourceName = _workspaceConfig?.workspaceName || _workspaceConfig?.workspaceId
+      || config.workspaceName || config.workspaceId;
+
+    // Pooled Arthur: the tenant's ORG owns the contract-key root.
+    let bridgeMasterSecret = process.env.ORG_MASTER_SECRET;
+    const senderTenant = _workspaceConfig?.tenant as { workspaceId?: string; orgId?: string } | undefined;
+    if (senderTenant?.workspaceId) {
+      try {
+        const { getOrgMasterSecret } = require('../tenantCredentials');
+        bridgeMasterSecret = await getOrgMasterSecret(
+          senderTenant.workspaceId, senderTenant.orgId || manifest.orgId || '',
+        ) || bridgeMasterSecret;
+      } catch (e: any) {
+        console.error(`[bridge_workspace] tenant master-secret fetch failed: ${e?.message}`);
+      }
+    }
 
     try {
       const a2aEndpoint = `${targetUrl.replace(/\/$/, '')}/a2a`;
       const headers = { 'Content-Type': 'application/json' };
       injectTraceHeaders(headers, span);
 
-      if (contract && process.env.ORG_MASTER_SECRET) {
+      if (contract && bridgeMasterSecret) {
         // Contract-based HKDF auth — cryptographic proof of valid contract
         const { deriveContractKey, signRequest, encryptPayload   } = require('../utils/contractAuth');
         const timestamp = Date.now().toString();
         const contractKey = await deriveContractKey(
-          process.env.ORG_MASTER_SECRET,
+          bridgeMasterSecret,
           contract.contractId,
           contract.version || 1
         );
@@ -432,6 +448,12 @@ const bridgeWorkspace: Tool = {
    * that don't have A2A enabled yet.
    */
   async _legacyRelay(bridge, action, content) {
+    // Pooled: the relay signs with the PROCESS identity, which a pooled
+    // service doesn't have — and post-cutover there are no legacy dedicated
+    // targets to relay to. Refuse rather than sign as 'default'.
+    if (config.pooled) {
+      return { error: 'Legacy relay is not available on pooled services' };
+    }
     const controlPlaneUrl = process.env.CONTROL_PLANE_URL || 'https://roundtable.foxtrotcommunications.net';
     const wsId = config.workspaceId;
     // Must match the control plane's BRIDGE_HMAC_SECRET verification.
