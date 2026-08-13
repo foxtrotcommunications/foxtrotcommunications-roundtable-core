@@ -95,6 +95,9 @@ async function fetchManifest(workspaceId) {
       // no secrets) — how a pooled service learns which connIds a tenant
       // owns. No env fallback: dedicated pods get connections as CONN_* env.
       RT_CONNECTIONS: Array.isArray(data.RT_CONNECTIONS) ? data.RT_CONNECTIONS : [],
+      // Pooled runtime: the tenant's org — contract keys derive from the
+      // ORG master secret, and pooled tenants span orgs.
+      orgId: typeof data.orgId === 'string' ? data.orgId : null,
     };
     entry.lastFetchTime = now;
 
