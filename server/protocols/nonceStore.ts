@@ -10,10 +10,15 @@
 
 import { Pool } from 'pg';
 
+// workspace_id defaults to the tenant setting when present (pooled runtime,
+// SET LOCAL app.workspace_id) and falls back to current_user (dedicated pods,
+// where the connection role IS the tenant). Replay protection itself is
+// carried by the nonce PRIMARY KEY, which is enforced physically across all
+// policy scopes — ON CONFLICT still fires on a replay from any tenant.
 const TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS intent_nonces (
   nonce TEXT PRIMARY KEY,
-  workspace_id TEXT NOT NULL DEFAULT current_user,
+  workspace_id TEXT NOT NULL DEFAULT COALESCE(NULLIF(current_setting('app.workspace_id', true), ''), current_user),
   expires_at TIMESTAMPTZ NOT NULL
 );
 `;
@@ -74,6 +79,19 @@ export class NonceStore {
       await pool.query(`DO $$ BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='intent_nonces' AND policyname='workspace_isolation') THEN
           EXECUTE 'CREATE POLICY workspace_isolation ON intent_nonces USING (workspace_id = current_user) WITH CHECK (workspace_id = current_user)';
+        END IF;
+      END $$`);
+      // Pooled runtime (additive, cutover-safe): permissive policies OR
+      // together, so tenant_context extends workspace_isolation instead of
+      // replacing it — dedicated pods keep matching on current_user while
+      // pooled services match on the transaction-local tenant setting.
+      await pool.query(`ALTER TABLE intent_nonces ALTER COLUMN workspace_id
+        SET DEFAULT COALESCE(NULLIF(current_setting('app.workspace_id', true), ''), current_user)`);
+      await pool.query(`DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='intent_nonces' AND policyname='tenant_context') THEN
+          EXECUTE 'CREATE POLICY tenant_context ON intent_nonces
+            USING (workspace_id = NULLIF(current_setting(''app.workspace_id'', true), ''''))
+            WITH CHECK (workspace_id = NULLIF(current_setting(''app.workspace_id'', true), ''''))';
         END IF;
       END $$`);
       await pool.query(`ALTER TABLE intent_nonces FORCE ROW LEVEL SECURITY`);
