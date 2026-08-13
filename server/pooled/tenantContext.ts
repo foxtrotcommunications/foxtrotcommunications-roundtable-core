@@ -55,11 +55,12 @@ export async function buildTenantContext(resolved: ResolvedTenant): Promise<Tena
       );
     }
     if (creds) {
-      // Field names follow the control plane's stored connection payload.
-      // VERIFY against a real roundtable-conn-* secret before first pooled
-      // deploy (flagged in the entrypoint plan); tolerate both snake and
-      // camel case so a payload-shape drift degrades to "missing field",
-      // never to another tenant's data.
+      // Field names follow the control plane's stored connection payload,
+      // which is camelCase: buildConnectionEnvVars env-ifies these same keys
+      // via camelCase → UPPER_SNAKE (accessToken → {PREFIX}_ACCESS_TOKEN,
+      // plaidSecret → {PREFIX}_PLAID_SECRET), so the reverse mapping is
+      // authoritative. Snake/UPPER variants tolerated so payload-shape drift
+      // degrades to "missing field", never to another tenant's data.
       const pick = (...keys: string[]) => {
         for (const k of keys) {
           const v = creds![k];
@@ -67,11 +68,11 @@ export async function buildTenantContext(resolved: ResolvedTenant): Promise<Tena
         }
         return undefined;
       };
-      tenant.accessToken = pick('access_token', 'accessToken', 'ACCESS_TOKEN');
-      tenant.clientId = pick('client_id', 'clientId', 'CLIENT_ID');
-      tenant.secret = pick('secret', 'plaid_secret', 'PLAID_SECRET');
-      tenant.env = (pick('env', 'plaid_env', 'PLAID_ENV') as TenantContext['env']) || undefined;
-      tenant.itemId = pick('item_id', 'itemId', 'ITEM_ID');
+      tenant.accessToken = pick('accessToken', 'access_token', 'ACCESS_TOKEN');
+      tenant.clientId = pick('clientId', 'client_id', 'CLIENT_ID');
+      tenant.secret = pick('plaidSecret', 'plaid_secret', 'secret', 'PLAID_SECRET');
+      tenant.env = (pick('plaidEnv', 'plaid_env', 'env', 'PLAID_ENV') as TenantContext['env']) || undefined;
+      tenant.itemId = pick('itemId', 'item_id', 'ITEM_ID');
     }
   }
 
