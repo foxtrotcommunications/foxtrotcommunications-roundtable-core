@@ -54,11 +54,12 @@ router.get('/.well-known/agent.json', async (_req: Request, res: Response) => {
   try {
     // Pooled: a service-level card — no single workspace to describe, and
     // consult traffic never reads the card (senders POST directly).
-    if (config.pooledDomainType) {
+    if (config.pooled) {
       const { capabilityRegistry } = require('../protocols/capabilityRegistry');
+      const serviceKind = config.pooledDomainType || 'arthur';
       return res.json({
-        name: `${config.pooledDomainType}-service`,
-        description: `Pooled Roundtable domain service (${config.pooledDomainType}); tenant per request`,
+        name: `${serviceKind}-service`,
+        description: `Pooled Roundtable service (${serviceKind}); tenant per request`,
         capabilities: capabilityRegistry.getManifest(),
       });
     }
@@ -92,7 +93,7 @@ async function requireA2aAuth(req: Request, res: Response, next: () => void): Pr
   // semantics — a bare key could not say WHICH workspace is being consulted,
   // so pooled requests must authenticate with contract headers.
   const apiKey = req.headers['x-api-key'] as string | undefined;
-  if (!config.pooledDomainType && apiKey && config.a2aApiKey && apiKey === config.a2aApiKey) {
+  if (!config.pooled && apiKey && config.a2aApiKey && apiKey === config.a2aApiKey) {
     return next();
   }
 
@@ -109,7 +110,7 @@ async function requireA2aAuth(req: Request, res: Response, next: () => void): Pr
       // On fetch failure the list stays empty and auth FAILS CLOSED below —
       // there is no static fallback.
       let contracts: any[] = [];
-      if (!config.pooledDomainType) {
+      if (!config.pooled) {
         // Pooled mode fetches the CLAIMED tenant's manifest instead (below).
         try {
           const { fetchManifest } = require('../utils/fetchManifest');
@@ -125,7 +126,7 @@ async function requireA2aAuth(req: Request, res: Response, next: () => void): Pr
       // master secret is resolved per tenant after the manifest lookup below.
       let masterSecret = process.env.ORG_MASTER_SECRET;
 
-      if (!masterSecret && !config.pooledDomainType) {
+      if (!masterSecret && !config.pooled) {
         res.status(403).json(
           jsonRpcError(req.body?.id || null, -32000, 'Contract auth not available (no master secret configured)')
         );
@@ -142,7 +143,7 @@ async function requireA2aAuth(req: Request, res: Response, next: () => void): Pr
       // then bound into the signature check below.
       let contract: any;
       let resolvedTenant: any = null;
-      if (config.pooledDomainType) {
+      if (config.pooled) {
         try {
           const { resolveTenantFromRequest } = require('../pooled/tenantResolver');
           resolvedTenant = await resolveTenantFromRequest(req, { contractId, action: signedAction });
@@ -378,7 +379,7 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
         }
 
         // Pooled: a task recorded for another tenant reads as not-found.
-        const task = getTask(params.id, config.pooledDomainType
+        const task = getTask(params.id, config.pooled
           ? ((req as any).rtTenant?.workspaceId ?? '') : undefined);
         if (!task) {
           return res.json(
@@ -397,7 +398,7 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
           );
         }
 
-        const task = cancelTask(params.id, config.pooledDomainType
+        const task = cancelTask(params.id, config.pooled
           ? ((req as any).rtTenant?.workspaceId ?? '') : undefined);
         if (!task) {
           return res.json(
@@ -473,7 +474,7 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
         // manifest — the same membership proof the auth middleware ran; the
         // token adds nonce + its own HMAC on top.
         const rtTenant = (req as any).rtTenant as { workspaceId: string; manifest: any } | undefined;
-        if (config.pooledDomainType && !rtTenant) {
+        if (config.pooled && !rtTenant) {
           return res.json(
             jsonRpcError(id, -32000, 'Pooled service requires contract auth with X-Rt-Tenant')
           );

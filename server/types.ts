@@ -199,6 +199,10 @@ export interface AppConfig {
   databaseUrl: string;
   /** Pooled runtime: domain type this service pools (null = dedicated pod). */
   pooledDomainType: string | null;
+  /** Pooled Arthur: the orchestrator as one multi-tenant chat service. */
+  pooledArthur: boolean;
+  /** Either pooled mode — this process serves many logical workspaces. */
+  pooled: boolean;
   workspaceId: string;
   workspaceName: string;
   workspaceUrl: string;
