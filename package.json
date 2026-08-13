@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server/index.js",
     "start:pooled": "node server/pooled/index.js",
+    "start:pooled-arthur": "node server/pooled/arthur.js",
     "dev": "nodemon server/index.js",
     "test": "node -e \"const v=parseInt(process.version.slice(1)); const args = v>=25 ? ['--localstorage-file=/tmp/roundtable-test-ls'] : []; const cp = require('child_process').spawnSync('node', [...args, './node_modules/.bin/jest', '--verbose', '--forceExit'], {stdio:'inherit'}); process.exit(cp.status)\"",
     "test:watch": "node -e \"const v=parseInt(process.version.slice(1)); const args = v>=25 ? ['--localstorage-file=/tmp/roundtable-test-ls'] : []; const cp = require('child_process').spawnSync('node', [...args, './node_modules/.bin/jest', '--watch'], {stdio:'inherit'}); process.exit(cp.status)\"",
