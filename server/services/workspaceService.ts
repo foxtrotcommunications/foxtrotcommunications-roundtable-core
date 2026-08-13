@@ -34,6 +34,30 @@ class WorkspaceService {
 
   async getUserApiKey(userId: number, provider: string): Promise<string> { return getAdapter().getApiKey(userId, provider); }
   async getUserById(userId: number): Promise<User | null> { return getAdapter().getUserById(userId); }
+
+  /**
+   * Pooled runtime: the same method surface bound to a specific tenant.
+   * Dedicated callers keep using the singleton (pinned to config.workspaceId);
+   * multi-tenant paths (chat sockets, a2a, bridge receive) call
+   * workspaceService.scoped(tenantWsId) with the REQUEST's tenant.
+   * No ensureWorkspace here on purpose — the registry owns pooled rows;
+   * a missing row must surface as an error, never be auto-created.
+   */
+  scoped(wsId: string) {
+    if (typeof wsId !== 'string' || !wsId.trim()) {
+      throw new Error('workspaceService.scoped: wsId must be a non-empty string');
+    }
+    return {
+      workspaceId: wsId,
+      getWorkspace: (): Promise<Workspace | null> => getAdapter().getWorkspace(wsId),
+      saveMessage: (userId: number | null, role: string, content: string, toolName?: string | null, toolCallId?: string | null, sourceWorkspaceId?: string | null, guestUsername?: string | null, guestDisplayName?: string | null): Promise<Message> =>
+        getAdapter().saveMessage(wsId, userId, role, content, toolName, toolCallId, sourceWorkspaceId, guestUsername, guestDisplayName),
+      getConversationHistory: (limit: number): Promise<Message[]> =>
+        getAdapter().getConversationHistory(wsId, limit),
+      getMessages: (options?: { limit?: number; before?: number }): Promise<{ messages: Message[]; hasMore: boolean }> =>
+        getAdapter().getMessages(wsId, options),
+    };
+  }
 }
 
 module.exports = new WorkspaceService();
