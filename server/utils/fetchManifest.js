@@ -91,6 +91,10 @@ async function fetchManifest(workspaceId) {
       RT_CONTRACTS: (Array.isArray(data.RT_CONTRACTS) && data.RT_CONTRACTS.length > 0) ? data.RT_CONTRACTS : envFallback.RT_CONTRACTS,
       RT_MCP_SERVERS: (Array.isArray(data.RT_MCP_SERVERS) && data.RT_MCP_SERVERS.length > 0) ? data.RT_MCP_SERVERS : envFallback.RT_MCP_SERVERS,
       RT_A2A_AGENTS: (Array.isArray(data.RT_A2A_AGENTS) && data.RT_A2A_AGENTS.length > 0) ? data.RT_A2A_AGENTS : envFallback.RT_A2A_AGENTS,
+      // Pooled runtime: sanitized connection list (connId + config fields,
+      // no secrets) — how a pooled service learns which connIds a tenant
+      // owns. No env fallback: dedicated pods get connections as CONN_* env.
+      RT_CONNECTIONS: Array.isArray(data.RT_CONNECTIONS) ? data.RT_CONNECTIONS : [],
     };
     entry.lastFetchTime = now;
 
