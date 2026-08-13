@@ -1,7 +1,7 @@
 {
   "name": "roundtable",
   "version": "1.1.0",
-  "description": "Real-time multiplayer AI chat sharing platform \u2014 collaborate on AI conversations together",
+  "description": "Real-time multiplayer AI chat sharing platform — collaborate on AI conversations together",
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
@@ -42,6 +42,7 @@
     "@a2a-js/sdk": "^0.3.13",
     "@databricks/sql": "^1.14.0",
     "@google-cloud/bigquery": "^8.3.1",
+    "@google-cloud/secret-manager": "^6.3.0",
     "@google/genai": "^2.2.0",
     "@grpc/grpc-js": "^1.14.4",
     "@modelcontextprotocol/sdk": "^1.29.0",
