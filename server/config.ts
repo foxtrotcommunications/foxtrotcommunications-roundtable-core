@@ -20,6 +20,14 @@ const config: AppConfig = {
   // arrives per request, never from env. Unset = dedicated pod (all existing
   // behavior). See pendragon/docs/pooled-entrypoint-plan.md.
   pooledDomainType: process.env.POOLED_DOMAIN_TYPE || null,
+  // Pooled Arthur: the orchestrator as ONE multi-tenant chat service.
+  // Distinct from pooledDomainType — Arthur serves chat and registers the
+  // plugin's orchestrator branch, not a domain's capability set.
+  // See pendragon/docs/pooled-arthur-plan.md.
+  pooledArthur: process.env.POOLED_ARTHUR === '1' || process.env.POOLED_ARTHUR === 'true',
+  // Either pooled mode: "this process serves many logical workspaces".
+  pooled: !!(process.env.POOLED_DOMAIN_TYPE
+    || process.env.POOLED_ARTHUR === '1' || process.env.POOLED_ARTHUR === 'true'),
 
   // Workspace identity (provisioner injects WS_ID; WORKSPACE_ID is legacy)
   workspaceId: process.env.WS_ID || process.env.WORKSPACE_ID || 'default',
