@@ -120,9 +120,12 @@ async function requireA2aAuth(req: Request, res: Response, next: () => void): Pr
           contracts = [];
         }
       }
-      const masterSecret = process.env.ORG_MASTER_SECRET;
+      // Dedicated: the org master secret is pod env (org-scoped fleet).
+      // Pooled: tenants SPAN orgs (Pendragon is org-per-household), so the
+      // master secret is resolved per tenant after the manifest lookup below.
+      let masterSecret = process.env.ORG_MASTER_SECRET;
 
-      if (!masterSecret) {
+      if (!masterSecret && !config.pooledDomainType) {
         res.status(403).json(
           jsonRpcError(req.body?.id || null, -32000, 'Contract auth not available (no master secret configured)')
         );
@@ -144,6 +147,18 @@ async function requireA2aAuth(req: Request, res: Response, next: () => void): Pr
           const { resolveTenantFromRequest } = require('../pooled/tenantResolver');
           resolvedTenant = await resolveTenantFromRequest(req, { contractId, action: signedAction });
           contract = resolvedTenant.contract;
+          // Per-tenant master secret: the tenant's ORG owns the HKDF root.
+          const { getOrgMasterSecret } = require('../tenantCredentials');
+          masterSecret = await getOrgMasterSecret(
+            resolvedTenant.workspaceId, resolvedTenant.manifest?.orgId || '',
+          );
+          if (!masterSecret) {
+            res.status(403).json(
+              jsonRpcError(req.body?.id || null, -32000, 'Contract auth not available (no org master secret for tenant)')
+            );
+            return;
+          }
+          resolvedTenant.masterSecret = masterSecret;
         } catch (e: any) {
           res.status(e?.status || 403).json(
             jsonRpcError(req.body?.id || null, -32000, `Tenant resolution failed: ${e?.message}`)
@@ -405,7 +420,10 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
         }
 
         const token: IntentToken = params.token;
-        const masterSecret = process.env.ORG_MASTER_SECRET;
+        // Pooled: the token was minted with the TENANT'S org master secret
+        // (senders live in the household's org); auth already resolved it.
+        const rtTenantEarly = (req as any).rtTenant as { masterSecret?: string } | undefined;
+        const masterSecret = rtTenantEarly?.masterSecret || process.env.ORG_MASTER_SECRET;
 
         if (!masterSecret) {
           return res.json(

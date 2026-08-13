@@ -103,6 +103,23 @@ export async function getConnectionSecret(
   return data;
 }
 
+/**
+ * The tenant's ORG master secret (HKDF root for contract keys). Pooled
+ * tenants span orgs, so this cannot be a process env — it rides the same
+ * per-request fetch + tenant-keyed TTL cache + audit trail as connection
+ * credentials. Secret layout is the control plane's: connection-prefixed,
+ * id `org-<orgId>-master`, payload `{ key }`.
+ */
+export async function getOrgMasterSecret(
+  workspaceId: string,
+  orgId: string,
+): Promise<string | null> {
+  if (!orgId) return null;
+  const payload = await getConnectionSecret(workspaceId, `org-${orgId}-master`);
+  const key = payload?.key;
+  return typeof key === 'string' && key ? key : null;
+}
+
 /** Drop every cached credential for a tenant (e.g. connection removed). */
 export function invalidateTenantCredentials(workspaceId: string): number {
   let dropped = 0;
