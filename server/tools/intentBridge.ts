@@ -393,7 +393,14 @@ const intentBridge: Tool = {
         contract.version || 1,
       );
       const action = intentOpToAction(intent);
-      const contractSignature = signRequest(contractKey, contract.contractId, timestamp, action);
+      // Pooled target: the bridge manifest carries pooledTenant (the target's
+      // logical workspace id). Bind it into the signature and send it as
+      // X-Rt-Tenant — the pooled service resolves and authorizes the tenant
+      // from exactly this pair. Dedicated targets: unchanged signature shape.
+      const pooledTenant = (bridge as any).pooledTenant as string | undefined;
+      const contractSignature = signRequest(
+        contractKey, contract.contractId, timestamp, action, pooledTenant,
+      );
 
       const a2aEndpoint = `${targetUrl.replace(/\/$/, '')}/a2a`;
 
@@ -410,12 +417,13 @@ const intentBridge: Tool = {
         },
       });
 
-      const requestHeaders = {
+      const requestHeaders: Record<string, string> = {
         'Content-Type': 'application/json',
         'X-Contract-Id': contract.contractId,
         'X-Contract-Signature': contractSignature,
         'X-Contract-Timestamp': timestamp,
         'X-Contract-Action': action,
+        ...(pooledTenant ? { 'X-Rt-Tenant': pooledTenant } : {}),
       };
       injectTraceHeaders(requestHeaders, span);
 
@@ -455,17 +463,20 @@ const intentBridge: Tool = {
           while (Date.now() - wakeStart < MAX_WAKE_WAIT_MS) {
             await sleep(WAKE_RETRY_INTERVAL_MS);
 
-            // Re-sign the request (timestamp must be fresh for HMAC)
+            // Re-sign the request (timestamp must be fresh for HMAC).
+            // Pooled targets never sleep, so this loop is dedicated-only in
+            // practice — but keep the tenant binding consistent regardless.
             const retryTimestamp = Date.now().toString();
-            const retrySignature = signRequest(contractKey, contract.contractId, retryTimestamp, action);
+            const retrySignature = signRequest(contractKey, contract.contractId, retryTimestamp, action, pooledTenant);
 
             try {
-              const retryHeaders = {
+              const retryHeaders: Record<string, string> = {
                   'Content-Type': 'application/json',
                   'X-Contract-Id': contract.contractId,
                   'X-Contract-Signature': retrySignature,
                   'X-Contract-Timestamp': retryTimestamp,
                   'X-Contract-Action': action,
+                  ...(pooledTenant ? { 'X-Rt-Tenant': pooledTenant } : {}),
                 };
               injectTraceHeaders(retryHeaders, span);
 

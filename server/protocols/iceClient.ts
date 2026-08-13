@@ -43,6 +43,14 @@ export interface IceCallResult {
  * @param masterSecret - The ORG_MASTER_SECRET for key derivation
  * @param options      - Optional: timeout, encryption, contract version
  * @returns The execution result with optional proof
+ *
+ * POOLED TARGETS: this client sends no contract headers (the token carries
+ * its own HMAC), and a pooled service's auth middleware requires contract
+ * headers + X-Rt-Tenant — so an ICE call to a pooled endpoint fails closed
+ * with 401 today. No caller routes ICE at pooled services; if one ever
+ * needs to, extend this with contract-header signing bound to the tenant
+ * (see tools/intentBridge.ts for the shape) rather than loosening the
+ * receiver.
  */
 export async function iceCall(
   targetUrl: string,
