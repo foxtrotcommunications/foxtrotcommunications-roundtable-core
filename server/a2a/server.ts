@@ -61,6 +61,9 @@ interface A2aTask {
   };
   artifacts?: A2aArtifact[];
   history?: A2aMessage[];
+  /** Pooled runtime: the tenant this task belongs to. Reads must present the
+   *  same tenant or the task is reported not-found (no existence oracle). */
+  tenantWsId?: string;
 }
 
 // ─── In-Memory Task Store ──────────────────────────────────
@@ -466,17 +469,22 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
 
 /**
  * Get a task by ID from the in-memory store.
+ * `expectedTenant` (pooled): a task recorded for another tenant is reported
+ * absent — indistinguishable from a task that never existed.
  */
-function getTask(taskId: string): A2aTask | undefined {
-  return taskStore.get(taskId);
+function getTask(taskId: string, expectedTenant?: string): A2aTask | undefined {
+  const task = taskStore.get(taskId);
+  if (task && expectedTenant !== undefined && task.tenantWsId !== expectedTenant) return undefined;
+  return task;
 }
 
 /**
  * Cancel a task by ID (only if it's still working).
  */
-function cancelTask(taskId: string): A2aTask | null {
+function cancelTask(taskId: string, expectedTenant?: string): A2aTask | null {
   const task = taskStore.get(taskId);
   if (!task) return null;
+  if (expectedTenant !== undefined && task.tenantWsId !== expectedTenant) return null;
 
   if (task.status.state === 'working' || task.status.state === 'submitted') {
     task.status = {
