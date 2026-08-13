@@ -15,6 +15,12 @@ const config: AppConfig = {
   // Database (PostgreSQL required)
   databaseUrl: process.env.DATABASE_URL || '',
 
+  // Pooled runtime: when set (e.g. 'checking'), this process is one service
+  // serving that domain type for MANY logical workspaces — tenant identity
+  // arrives per request, never from env. Unset = dedicated pod (all existing
+  // behavior). See pendragon/docs/pooled-entrypoint-plan.md.
+  pooledDomainType: process.env.POOLED_DOMAIN_TYPE || null,
+
   // Workspace identity (provisioner injects WS_ID; WORKSPACE_ID is legacy)
   workspaceId: process.env.WS_ID || process.env.WORKSPACE_ID || 'default',
   workspaceName: process.env.WS_NAME || process.env.WORKSPACE_NAME || process.env.WS_ID || process.env.WORKSPACE_ID || 'Roundtable',

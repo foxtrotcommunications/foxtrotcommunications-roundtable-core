@@ -39,12 +39,18 @@ async function deriveContractKey(masterSecret, contractId, version = 1) {
  * @param {string} contractId - Contract identifier
  * @param {string} timestamp - ISO timestamp or epoch string
  * @param {string} action - Action being performed (message, delegate, etc.)
+ * @param {string} [tenantWsId] - Pooled runtime only: the receiving logical
+ *   workspace. When present it is appended to the signed string, binding the
+ *   tenant claim into the HMAC so a captured request cannot be replayed
+ *   against a different tenant within the freshness window. Omitted (all
+ *   dedicated-pod traffic) the signed string is byte-identical to before.
  * @returns {string} HMAC-SHA256 hex signature
  */
-function signRequest(contractKey, contractId, timestamp, action) {
+function signRequest(contractKey, contractId, timestamp, action, tenantWsId) {
+  const base = `${contractId}:${timestamp}:${action}`;
   return crypto
     .createHmac('sha256', contractKey)
-    .update(`${contractId}:${timestamp}:${action}`)
+    .update(tenantWsId ? `${base}:${tenantWsId}` : base)
     .digest('hex');
 }
 
@@ -57,9 +63,11 @@ function signRequest(contractKey, contractId, timestamp, action) {
  * @param {string} action - Action from request
  * @param {string} signature - Signature to verify
  * @param {number} maxAgeMs - Maximum signature age in milliseconds (default: 5 min)
+ * @param {string} [tenantWsId] - Pooled runtime only: expected tenant claim;
+ *   the signature must have been produced with the same trailing tenant.
  * @returns {{ valid: boolean, error?: string }}
  */
-function verifyRequest(contractKey, contractId, timestamp, action, signature, maxAgeMs = 5 * 60 * 1000) {
+function verifyRequest(contractKey, contractId, timestamp, action, signature, maxAgeMs = 5 * 60 * 1000, tenantWsId) {
   // Check timestamp freshness
   const ts = typeof timestamp === 'string' && timestamp.includes('T')
     ? new Date(timestamp).getTime()
@@ -74,7 +82,7 @@ function verifyRequest(contractKey, contractId, timestamp, action, signature, ma
   }
 
   // Verify HMAC
-  const expected = signRequest(contractKey, contractId, timestamp, action);
+  const expected = signRequest(contractKey, contractId, timestamp, action, tenantWsId);
 
   try {
     const sigBuf = Buffer.from(signature, 'hex');

@@ -321,6 +321,43 @@ describe('signRequest → verifyRequest round-trip', () => {
   });
 });
 
+// ─── Tenant-bound signatures (pooled runtime) ─────────────────────
+// The X-Rt-Tenant claim is bound into the HMAC: header present → the trailing
+// tenant is part of the signed string. Old-form signatures must stay
+// byte-identical (dedicated fleet), and neither form may verify as the other.
+
+describe('tenant-bound signRequest/verifyRequest', () => {
+  const key = Buffer.alloc(32, 7);
+  const ts = () => Date.now().toString();
+
+  it('old form is byte-identical when tenantWsId is omitted', () => {
+    const t = ts();
+    expect(signRequest(key, 'c1', t, 'message')).toBe(
+      signRequest(key, 'c1', t, 'message', undefined),
+    );
+  });
+
+  it('round-trips with a tenant bound in', () => {
+    const t = ts();
+    const sig = signRequest(key, 'c1', t, 'message', 'ws-tenant-a');
+    expect(verifyRequest(key, 'c1', t, 'message', sig, undefined, 'ws-tenant-a').valid).toBe(true);
+  });
+
+  it('rejects a tenant-bound signature replayed at a different tenant', () => {
+    const t = ts();
+    const sig = signRequest(key, 'c1', t, 'message', 'ws-tenant-a');
+    expect(verifyRequest(key, 'c1', t, 'message', sig, undefined, 'ws-tenant-b').valid).toBe(false);
+  });
+
+  it('rejects cross-form: tenant-bound signature against old-form verify and vice versa', () => {
+    const t = ts();
+    const bound = signRequest(key, 'c1', t, 'message', 'ws-tenant-a');
+    const old = signRequest(key, 'c1', t, 'message');
+    expect(verifyRequest(key, 'c1', t, 'message', bound).valid).toBe(false);
+    expect(verifyRequest(key, 'c1', t, 'message', old, undefined, 'ws-tenant-a').valid).toBe(false);
+  });
+});
+
 // ─── Contract Manifest Validation ─────────────────────────────────
 
 describe('findAndValidateContract', () => {
