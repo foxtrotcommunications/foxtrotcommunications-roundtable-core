@@ -450,7 +450,13 @@ app.post('/api/tools/execute', async (req, res) => {
       .update(`tools/execute:${timestamp}:${tool || ''}`)
       .digest('hex');
 
-    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
+    // try/catch: timingSafeEqual throws on length mismatch — that's a bad
+    // signature (401), not a server error (500)
+    try {
+      if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
+        return res.status(401).json({ error: 'Invalid control-plane signature' });
+      }
+    } catch {
       return res.status(401).json({ error: 'Invalid control-plane signature' });
     }
 
@@ -622,7 +628,13 @@ app.post('/api/webhook/message', express.json(), async (req, res) => {
       .createHmac('sha256', secret)
       .update(`${sourceWorkspaceId}:${timestamp}`)
       .digest('hex');
-    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
+    // try/catch: timingSafeEqual throws on length mismatch — that's a bad
+    // signature (401), not a server error (500)
+    try {
+      if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
+        return res.status(401).json({ error: 'Invalid webhook signature' });
+      }
+    } catch {
       return res.status(401).json({ error: 'Invalid webhook signature' });
     }
     // Check timestamp freshness (5 min window)

@@ -45,7 +45,13 @@ router.post('/receive', async (req, res) => {
       .update(signedString)
       .digest('hex');
 
-    if (!signature || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
+    // try/catch: timingSafeEqual throws RangeError on length mismatch, which
+    // must read as a bad signature (401), not an internal error (500)
+    try {
+      if (!signature || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
+        return res.status(401).json({ error: 'Invalid bridge signature' });
+      }
+    } catch {
       return res.status(401).json({ error: 'Invalid bridge signature' });
     }
 
@@ -91,10 +97,16 @@ router.post('/receive', async (req, res) => {
         .update(`${contractId}:${sortedActions}`)
         .digest('hex');
 
-      if (!contractToken || !crypto.timingSafeEqual(
-        Buffer.from(contractToken, 'hex'),
-        Buffer.from(expectedToken, 'hex'),
-      )) {
+      let tokenValid = false;
+      try {
+        tokenValid = !!contractToken && crypto.timingSafeEqual(
+          Buffer.from(contractToken, 'hex'),
+          Buffer.from(expectedToken, 'hex'),
+        );
+      } catch {
+        tokenValid = false; // length mismatch = forged/malformed token
+      }
+      if (!tokenValid) {
         console.warn(`[Bridge] Rejected: contract token mismatch for ${contractId}`);
         return res.status(403).json({
           error: 'Contract terms could not be verified',
