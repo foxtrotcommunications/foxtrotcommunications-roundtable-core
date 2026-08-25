@@ -170,6 +170,19 @@ describe('Bridge Receive — HMAC Authentication', () => {
     expect(res.body.error).toMatch(/Invalid bridge signature/);
   });
 
+  it('should reject a wrong-length signature with 401, not 500', async () => {
+    // Regression: timingSafeEqual throws RangeError on length mismatch,
+    // which used to surface as a 500 instead of a 401
+    const body = makeValidRequest();
+    body.signature = 'short';
+
+    const res = createMockRes();
+    await handler({ body }, res);
+
+    expect(res.statusCode).toBe(401);
+    expect(res.body.error).toMatch(/Invalid bridge signature/);
+  });
+
   it('should reject an expired timestamp (>5 min old) with 401', async () => {
     const taskId = 'task-expired';
     const timestamp = (Date.now() - 6 * 60 * 1000).toString(); // 6 minutes ago
