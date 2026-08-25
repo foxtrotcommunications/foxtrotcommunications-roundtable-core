@@ -267,23 +267,13 @@ if (hasReactBuild) {
   }));
 }
 
-// Versioned static assets — long cache (CSS/JS have ?vN busters)
-app.use(express.static(path.join(__dirname, '..', 'public'), {
-  maxAge: '1h',
-  setHeaders(res, filePath) {
-    if (filePath.endsWith('.html')) {
-      res.setHeader('Cache-Control', 'no-store');
-    }
-  },
-}));
-
 // React client catch-all (for client-side routing)
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api/') || req.path.startsWith('/socket.io/') ||
       req.path.startsWith('/.well-known/') || req.path === '/a2a') {
     return next();
   }
-  
+
   // NEVER cache index.html
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.setHeader('Pragma', 'no-cache');
@@ -292,7 +282,10 @@ app.get('*', (req, res, next) => {
   if (hasReactBuild) {
     res.sendFile(reactIndexPath);
   } else {
-    res.sendFile(path.join(__dirname, '..', 'public', 'app.html'));
+    // No UI is bundled with the server anymore (the legacy public/ frontend
+    // was removed). In dev the client is served by Vite on :5173; production
+    // images always ship client/dist.
+    res.status(503).send('Client build not found. Run `npm run build` in client/, or use the Vite dev server.');
   }
 });
 
