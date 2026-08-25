@@ -50,7 +50,6 @@ RUN --mount=type=secret,id=gar_token,required=false,uid=0 \
 
 # Copy server source
 COPY server/ ./server/
-COPY public/ ./public/
 
 # ─── Precompile TypeScript → sibling .js (build-time, esbuild) ───
 # The server tree mixes .js and .ts; transpiling each .ts to a sibling .js
