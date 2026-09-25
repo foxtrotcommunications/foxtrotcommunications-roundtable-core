@@ -29,7 +29,7 @@ export interface ResolvedTenant {
     RT_A2A_AGENTS?: any[];
     /** Sanitized connection list (control-plane addition; may be absent on
      *  older control planes — credentials then simply don't resolve). */
-    RT_CONNECTIONS?: Array<{ connId: string; name?: string; type: string; envPrefix?: string; domainType?: string }>;
+    RT_CONNECTIONS?: Array<{ connId: string; name?: string; type: string; envPrefix?: string; domainType?: string; config?: Record<string, unknown> }>;
   };
   /** The manifest contract entry that authorized this request. */
   contract: any;

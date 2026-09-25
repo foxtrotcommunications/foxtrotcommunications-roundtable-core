@@ -54,6 +54,17 @@ export async function buildTenantContext(resolved: ResolvedTenant): Promise<Tena
         `[tenantContext] credential fetch failed for ${resolved.workspaceId}/${plaidConn.connId}: ${err?.message}`,
       );
     }
+    // Non-secret connection config rides the manifest (control plane sends
+    // conn.config verbatim: clientId / plaidEnv / itemId / domainType for
+    // Plaid). The Secret Manager payload carries ONLY the secret fields
+    // (accessToken / plaidSecret), so these must come from here — before this
+    // fallback every pooled Plaid call went out without a client id
+    // (Plaid MISSING_FIELDS) and defaulted to the production environment.
+    const cfg = (plaidConn.config ?? {}) as Record<string, unknown>;
+    const cfgStr = (k: string) => (typeof cfg[k] === 'string' && cfg[k] ? (cfg[k] as string) : undefined);
+    tenant.clientId = cfgStr('clientId');
+    tenant.env = (cfgStr('plaidEnv') as TenantContext['env']) || undefined;
+    tenant.itemId = cfgStr('itemId');
     if (creds) {
       // Field names follow the control plane's stored connection payload,
       // which is camelCase: buildConnectionEnvVars env-ifies these same keys
@@ -69,10 +80,11 @@ export async function buildTenantContext(resolved: ResolvedTenant): Promise<Tena
         return undefined;
       };
       tenant.accessToken = pick('accessToken', 'access_token', 'ACCESS_TOKEN');
-      tenant.clientId = pick('clientId', 'client_id', 'CLIENT_ID');
       tenant.secret = pick('plaidSecret', 'plaid_secret', 'secret', 'PLAID_SECRET');
-      tenant.env = (pick('plaidEnv', 'plaid_env', 'env', 'PLAID_ENV') as TenantContext['env']) || undefined;
-      tenant.itemId = pick('itemId', 'item_id', 'ITEM_ID');
+      // Secret payload wins if it happens to carry these (older payloads may).
+      tenant.clientId = pick('clientId', 'client_id', 'CLIENT_ID') ?? tenant.clientId;
+      tenant.env = (pick('plaidEnv', 'plaid_env', 'env', 'PLAID_ENV') as TenantContext['env']) || tenant.env;
+      tenant.itemId = pick('itemId', 'item_id', 'ITEM_ID') ?? tenant.itemId;
     }
   }
 
