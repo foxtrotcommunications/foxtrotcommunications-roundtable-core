@@ -43,6 +43,8 @@ ARG PLUGINS=""
 RUN --mount=type=secret,id=gar_token,required=false,uid=0 \
     if [ -n "$PLUGINS" ] && [ -s /run/secrets/gar_token ]; then \
       echo "@pendragon:registry=https://us-central1-npm.pkg.dev/roundtable-public/pendragon-npm/" > /tmp/.npmrc-plugins && \
+      echo "@lingua-franca:registry=https://us-central1-npm.pkg.dev/roundtable-public/pendragon-npm/" >> /tmp/.npmrc-plugins && \
+      echo "@concurrence:registry=https://us-central1-npm.pkg.dev/roundtable-public/pendragon-npm/" >> /tmp/.npmrc-plugins && \
       echo "//us-central1-npm.pkg.dev/roundtable-public/pendragon-npm/:_authToken=$(cat /run/secrets/gar_token)" >> /tmp/.npmrc-plugins && \
       npm install --omit=dev --no-save --userconfig /tmp/.npmrc-plugins $PLUGINS && \
       rm -f /tmp/.npmrc-plugins; \
@@ -72,14 +74,16 @@ RUN npm install -g esbuild@0.25.6 && \
     find server -name '*.ts' ! -name '*.d.ts' -print0 | \
       xargs -0 esbuild --outdir=server --outbase=server \
         --format=cjs --platform=neutral --target=es2022 --log-level=error && \
-    if [ -d node_modules/@pendragon/tools-plaid/src ]; then \
-      sed -i -e 's#"main": "src/index.ts"#"main": "src/index.js"#' \
-             -e 's#"type": "module",##' node_modules/@pendragon/tools-plaid/package.json && \
-      find node_modules/@pendragon/tools-plaid/src -name '*.ts' ! -name '*.d.ts' -print0 | \
-        xargs -0 esbuild --outdir=node_modules/@pendragon/tools-plaid/src \
-          --outbase=node_modules/@pendragon/tools-plaid/src \
-          --format=cjs --platform=neutral --target=es2022 --log-level=error; \
-    fi && \
+    for PLUGIN_DIR in node_modules/@pendragon/tools-plaid node_modules/@lingua-franca/tools-world node_modules/@concurrence/tools-gate; do \
+      if [ -d "$PLUGIN_DIR/src" ]; then \
+        sed -i -e 's#"main": "src/index.ts"#"main": "src/index.js"#' \
+               -e 's#"type": "module",##' "$PLUGIN_DIR/package.json" && \
+        find "$PLUGIN_DIR/src" -name '*.ts' ! -name '*.d.ts' -print0 | \
+          xargs -0 esbuild --outdir="$PLUGIN_DIR/src" \
+            --outbase="$PLUGIN_DIR/src" \
+            --format=cjs --platform=neutral --target=es2022 --log-level=error; \
+      fi; \
+    done && \
     npm uninstall -g esbuild
 
 # Copy React client build from stage 1
