@@ -9,7 +9,7 @@ jest.mock('../../server/utils/fetchManifest', () => ({
 }));
 
 import { resolveTenantFromRequest, TenantResolutionError, TENANT_HEADER } from '../../server/pooled/tenantResolver';
-import { buildTenantContext } from '../../server/pooled/tenantContext';
+import { buildTenantContext, resolveTenantConnections } from '../../server/pooled/tenantContext';
 
 const { fetchManifest } = require('../../server/utils/fetchManifest');
 
@@ -127,5 +127,30 @@ describe('buildTenantContext', () => {
     expect(ctx.accessToken).toBeUndefined();
     spy.mockRestore();
     err.mockRestore();
+  });
+
+  it('resolveTenantConnections resolves EVERY plaid connection, config from manifest + secrets from SM', async () => {
+    const credsMod = require('../../server/tenantCredentials');
+    const spy = jest.spyOn(credsMod, 'getConnectionSecret').mockImplementation(async (_ws: string, connId: string) => ({
+      accessToken: `tok-${connId}`, plaidSecret: 'sec',
+    }));
+    const conns = await resolveTenantConnections({
+      RT_CONTRACTS: [], RT_BRIDGES: [],
+      RT_CONNECTIONS: [
+        { connId: 'c1', type: 'plaid', envPrefix: 'CONN_PLAID_0', domainType: 'retirement', config: { clientId: 'cid', plaidEnv: 'production', itemId: 'item-1' } },
+        { connId: 'ghost', type: 'github' },
+        { connId: 'c2', type: 'plaid', envPrefix: 'CONN_PLAID_1', config: { clientId: 'cid', plaidEnv: 'sandbox' } },
+      ],
+    }, 'ws-a');
+    expect(conns.map((c) => c.connId)).toEqual(['c1', 'c2']);
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(conns[0]).toMatchObject({ envPrefix: 'CONN_PLAID_0', domainType: 'retirement', accessToken: 'tok-c1', secret: 'sec', clientId: 'cid', env: 'production', itemId: 'item-1' });
+    expect(conns[1]).toMatchObject({ envPrefix: 'CONN_PLAID_1', accessToken: 'tok-c2', env: 'sandbox' });
+    spy.mockRestore();
+  });
+
+  it('resolveTenantConnections is empty for a manifest without connections', async () => {
+    expect(await resolveTenantConnections({ RT_CONTRACTS: [], RT_BRIDGES: [] }, 'ws-a')).toEqual([]);
+    expect(await resolveTenantConnections(null, 'ws-a')).toEqual([]);
   });
 });

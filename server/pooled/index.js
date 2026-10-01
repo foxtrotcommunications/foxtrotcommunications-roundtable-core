@@ -54,10 +54,35 @@ app.use('/', a2aRoutes);
 
 // ─── S2S plugin routes (tenant REQUIRED on every mount) ─────────────────────
 // Same route exports and mount paths as the dedicated pod, but every request
-// must carry X-Rt-Workspace bound into its HMAC. NOTE: the plugin's route
-// handlers must read req.rtTenant (tools-plaid follow-up) before these routes
-// can serve pooled traffic; until then they'd act on env identity, which is
-// absent here — fail, not leak.
+// must carry X-Rt-Workspace bound into its HMAC. The plugin's route handlers
+// read req.rtTenant (routeIdentity) for identity and, where they need Plaid
+// credentials, req.rtTenant.resolveConnections() — never env, which is
+// absent here: fail, not leak.
+// Lazy tenant connections for the S2S routes. A dedicated pod reads its
+// Plaid connections from RT_CONNECTIONS env; a pooled pod has none, so the
+// tools-plaid routes that need them (sync) call req.rtTenant.resolveConnections()
+// — manifest fetch + per-connection Secret Manager read, both already cached
+// (fetchManifest, tenantCredentials ≤5-min). Lazy so the routes that never
+// touch Plaid (snapshot, goals, memory…) pay nothing.
+function attachTenantConnections(req, _res, next) {
+  if (req.rtTenant && req.rtTenant.workspaceId && !req.rtTenant.resolveConnections) {
+    const wsId = req.rtTenant.workspaceId;
+    let pending = null;
+    req.rtTenant.resolveConnections = () => {
+      if (!pending) {
+        pending = (async () => {
+          const { fetchManifest } = require('../utils/fetchManifest');
+          const { resolveTenantConnections } = require('./tenantContext');
+          const manifest = await fetchManifest(wsId);
+          return resolveTenantConnections(manifest, wsId);
+        })();
+      }
+      return pending;
+    };
+  }
+  next();
+}
+
 const S2S_ROUTES = [
   ['/api/sync', 'sync', 'syncRoute'],
   ['/api/goals', 'goals', 'goalsRoute'],
@@ -75,7 +100,7 @@ try {
   const plugin = require('@pendragon/tools-plaid');
   for (const [mountPath, hmacPath, exportName] of S2S_ROUTES) {
     if (plugin[exportName]) {
-      app.use(mountPath, requireHmac(hmacPath, { tenantRequired: true }), plugin[exportName]);
+      app.use(mountPath, requireHmac(hmacPath, { tenantRequired: true }), attachTenantConnections, plugin[exportName]);
     }
   }
   // Demographics seeding only exists on the demographics service.
