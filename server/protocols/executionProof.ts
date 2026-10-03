@@ -29,6 +29,21 @@ export interface PolicyCheck {
  */
 export type ProofGrade = 'audit' | 'trace';
 
+/**
+ * What actually ran, collected by the executor as it goes (upgrade plan
+ * 1.4). `sql` holds every SQL string handed to a tool, in execution order,
+ * AFTER the fusion compiler and LIMIT injection — the compiled text, not the
+ * requested text, which `inputHash` already covers.
+ */
+export interface ExecutionTrace {
+  sql: string[];
+}
+
+/** SHA-256 over the canonical JSON array of executed SQL strings. */
+export function hashExecutedSql(sql: string[]): string {
+  return crypto.createHash('sha256').update(JSON.stringify(sql)).digest('hex');
+}
+
 /** Cryptographic proof of execution */
 export interface ExecutionProof {
   /** Evidentiary grade: 'audit' (capability) or 'trace' (raw tool) */
@@ -47,6 +62,14 @@ export interface ExecutionProof {
   policyChecks: PolicyCheck[];
   /** ISO 8601 timestamp of execution */
   timestamp: string;
+  /**
+   * SHA-256 of the SQL strings actually executed (compiled form, in order) —
+   * present only when at least one SQL step ran. Additive: proofs without
+   * SQL, and proofs minted before this field existed, verify unchanged.
+   */
+  executedSqlHash?: string;
+  /** Number of SQL statements behind executedSqlHash. */
+  executedSqlCount?: number;
   /** HMAC signature of the proof itself (tamper detection) */
   proofSignature: string;
 }
@@ -73,6 +96,7 @@ function hashValue(value: unknown): string {
  * @param contractId   - The contract that authorized execution
  * @param contractKey  - The contract key for signing the proof
  * @param policyChecks - All policy checks applied during execution
+ * @param trace        - Optional: what actually ran (executed SQL)
  */
 export function buildProof(
   intent: IntentOperation,
@@ -82,6 +106,7 @@ export function buildProof(
   contractId: string,
   contractKey: Buffer,
   policyChecks: PolicyCheck[],
+  trace?: ExecutionTrace,
 ): ExecutionProof {
   const inputHash = hashValue(intent);
   const outputHash = hashValue(result ?? { empty: true });
@@ -91,8 +116,10 @@ export function buildProof(
   // Raw tool access (query/tool_call) produces informational traces.
   const proofGrade: ProofGrade = intent.op === 'capability' ? 'audit' : 'trace';
 
-  // Build the proof body (everything except proofSignature)
-  const proofBody = {
+  // Build the proof body (everything except proofSignature). The executed-SQL
+  // fields are added only when SQL ran, so the signed body of a no-SQL proof
+  // is byte-identical to before.
+  const proofBody: Omit<ExecutionProof, 'proofSignature'> = {
     proofGrade,
     inputHash,
     outputHash,
@@ -101,6 +128,9 @@ export function buildProof(
     contractId,
     policyChecks,
     timestamp,
+    ...(trace && trace.sql.length > 0
+      ? { executedSqlHash: hashExecutedSql(trace.sql), executedSqlCount: trace.sql.length }
+      : {}),
   };
 
   // Sign the proof for tamper detection
@@ -129,12 +159,14 @@ export function buildProof(
  * @param contractKey - The contract key used to sign
  * @param intent      - Optional: verify input hash matches this intent
  * @param result      - Optional: verify output hash matches this result
+ * @param executedSql - Optional: verify executedSqlHash matches these statements
  */
 export function verifyProof(
   proof: ExecutionProof,
   contractKey: Buffer,
   intent?: IntentOperation,
   result?: unknown,
+  executedSql?: string[],
 ): { valid: boolean; error?: string } {
   // 1. Verify proof signature
   const { proofSignature, ...body } = proof;
@@ -163,6 +195,16 @@ export function verifyProof(
     const expectedOutputHash = hashValue(result);
     if (proof.outputHash !== expectedOutputHash) {
       return { valid: false, error: 'Output hash does not match provided result' };
+    }
+  }
+
+  // 4. Optionally verify the executed-SQL hash
+  if (executedSql !== undefined) {
+    if (!proof.executedSqlHash) {
+      return { valid: false, error: 'Proof carries no executedSqlHash' };
+    }
+    if (proof.executedSqlHash !== hashExecutedSql(executedSql)) {
+      return { valid: false, error: 'Executed SQL hash does not match provided statements' };
     }
   }
 

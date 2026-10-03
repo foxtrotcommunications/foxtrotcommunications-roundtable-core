@@ -20,7 +20,7 @@ import { validateIntent, intentOpToAction } from './intentToken';
 import { signIntentResult } from './intentTokenCodec';
 import { executeTool, resolveTools, getAvailableTools } from '../tools/index';
 import { intentMetrics } from './intentMetrics';
-import { buildProof, type PolicyCheck } from './executionProof';
+import { buildProof, type PolicyCheck, type ExecutionTrace } from './executionProof';
 import { intentCache } from './intentCache';
 import { compileIntents } from './intentCompiler';
 
@@ -63,7 +63,35 @@ function isActionAuthorized(action: string, allowedActions: string[]): boolean {
   if (ALWAYS_ALLOWED_ACTIONS.includes(action)) {
     return true;
   }
-  return allowedActions.includes(action);
+  return allowedActions.includes('*') || allowedActions.includes(action);
+}
+
+/**
+ * Per-step authorization for aggregates (upgrade plan 1.4). 'aggregate' in a
+ * contract's allowedActions authorizes the envelope, not its contents: each
+ * step's tool must itself be allowed, exactly as if it had arrived as a
+ * top-level query/tool_call (`query:<tool>` / `tool:<tool>`). Every step is
+ * checked and recorded BEFORE any step runs, so a denied step three never
+ * leaves steps one and two executed. Transport actions never apply here —
+ * a step is always a concrete tool.
+ */
+function authorizeSteps(
+  steps: Array<QueryIntent | ToolCallIntent>,
+  ctx: ExecutionContext,
+  policyChecks: PolicyCheck[],
+): string | undefined {
+  let denied: string | undefined;
+  steps.forEach((step, i) => {
+    const action = intentOpToAction(step);
+    const ok = ctx.contract.allowedActions.includes('*') || ctx.contract.allowedActions.includes(action);
+    policyChecks.push({
+      type: 'action_auth',
+      passed: ok,
+      detail: `Step ${i} action '${action}' ${ok ? 'authorized' : 'denied'} by contract '${ctx.contract.contractId}'`,
+    });
+    if (!ok && !denied) denied = `Aggregate step ${i} action '${action}' is not authorized by contract '${ctx.contract.contractId}'`;
+  });
+  return denied;
 }
 
 // ─── SQL Validation ─────────────────────────────────────────────────────────
@@ -109,6 +137,7 @@ async function executeQuery(
   intent: QueryIntent,
   ctx: ExecutionContext,
   policyChecks: PolicyCheck[],
+  trace: ExecutionTrace,
 ): Promise<{ data?: unknown; error?: string }> {
   // Validate SQL safety if a raw SQL string is provided
   if (intent.params.sql) {
@@ -118,6 +147,9 @@ async function executeQuery(
       return { error: sqlError };
     }
     policyChecks.push({ type: 'sql_safety', passed: true });
+    // Record the SQL string the tool is about to receive — after fusion /
+    // LIMIT injection, i.e. what actually runs — so the proof can hash it.
+    trace.sql.push(intent.params.sql);
   }
 
   // Allowlist enforced at execution (tool profiles, 0.1): a query step names
@@ -158,10 +190,25 @@ async function executeAggregate(
   intent: AggregateIntent,
   ctx: ExecutionContext,
   policyChecks: PolicyCheck[],
-): Promise<{ data?: unknown; error?: string; compilation?: IntentResult['compilation'] }> {
+  trace: ExecutionTrace,
+): Promise<{ data?: unknown; error?: string; denied?: boolean; compilation?: IntentResult['compilation'] }> {
+  // ── Per-step authorization (before compile, before any execution) ──
+  const stepDenial = authorizeSteps(intent.steps as Array<QueryIntent | ToolCallIntent>, ctx, policyChecks);
+  if (stepDenial) {
+    return { error: stepDenial, denied: true };
+  }
+
   // ── SQL Fusion Compiler Pass ──────────────────────────────────
   const compiled = compileIntents(intent.steps);
   const steps = compiled.optimized;
+
+  // Fusion never introduces a tool the original steps did not name, but the
+  // proof must be about what RUNS: assert it on the optimized list too.
+  const compiledDenial = authorizeSteps(steps as Array<QueryIntent | ToolCallIntent>, ctx, []);
+  if (compiledDenial) {
+    policyChecks.push({ type: 'action_auth', passed: false, detail: `compiled: ${compiledDenial}` });
+    return { error: compiledDenial, denied: true };
+  }
 
   const compilation = compiled.wasOptimized ? {
     fusionCount: compiled.fusionCount,
@@ -183,7 +230,7 @@ async function executeAggregate(
     let stepResult: { data?: unknown; error?: string };
 
     if (step.op === 'query') {
-      stepResult = await executeQuery(step, ctx, policyChecks);
+      stepResult = await executeQuery(step, ctx, policyChecks, trace);
     } else {
       stepResult = await executeToolCall(step as ToolCallIntent, ctx, policyChecks);
     }
@@ -282,6 +329,7 @@ export async function executeIntentToken(
 ): Promise<IntentResult> {
   const startTime = Date.now();
   const policyChecks: PolicyCheck[] = [];
+  const trace: ExecutionTrace = { sql: [] };
 
   try {
     // 1. Validate the intent is well-formed
@@ -358,14 +406,14 @@ export async function executeIntentToken(
     }
 
     // 4. Dispatch to the appropriate operation executor
-    let result: { data?: unknown; error?: string; compilation?: IntentResult['compilation'] };
+    let result: { data?: unknown; error?: string; denied?: boolean; compilation?: IntentResult['compilation'] };
     let toolExecuted: string | undefined;
 
     switch (token.intent.op) {
       case 'query': {
         const intent = token.intent as QueryIntent;
         toolExecuted = intent.tool;
-        result = await executeQuery(intent, ctx, policyChecks);
+        result = await executeQuery(intent, ctx, policyChecks, trace);
         break;
       }
       case 'tool_call': {
@@ -377,7 +425,7 @@ export async function executeIntentToken(
       case 'aggregate': {
         const intent = token.intent as AggregateIntent;
         toolExecuted = 'aggregate';
-        result = await executeAggregate(intent, ctx, policyChecks);
+        result = await executeAggregate(intent, ctx, policyChecks, trace);
         break;
       }
       case 'discover': {
@@ -399,10 +447,11 @@ export async function executeIntentToken(
         });
     }
 
-    // 5. Handle execution errors from the tool
+    // 5. Handle execution errors from the tool (and per-step denials, which
+    //    are 'denied' like a top-level authorization failure — nothing ran).
     if (result.error) {
       return buildResult(token, ctx, startTime, policyChecks, {
-        status: 'error',
+        status: result.denied ? 'denied' : 'error',
         error: result.error,
         toolExecuted,
       });
@@ -414,7 +463,7 @@ export async function executeIntentToken(
       data: result.data,
       toolExecuted,
       compilation: result.compilation,
-    });
+    }, trace);
 
     // 7. Cache the successful result
     intentCache.set(token.intent, intentResult, undefined, cacheScope);
@@ -450,6 +499,7 @@ function buildResult(
   startTime: number,
   policyChecks: PolicyCheck[],
   fields: ResultFields,
+  trace?: ExecutionTrace,
 ): IntentResult {
   const executionMs = Date.now() - startTime;
 
@@ -469,6 +519,7 @@ function buildResult(
       ctx.contract.contractId,
       ctx.contractKey,
       policyChecks,
+      trace,
     );
   }
 
