@@ -44,7 +44,7 @@ NAMESPACE=$(jq -r '.clusterNamespace' "$CONFIG_DIR/org.json")
 DB_HOST="${DB_HOST:-127.0.0.1}"
 DB_PORT="${DB_PORT:-5432}"
 DB_USER="${DB_USER:-roundtable}"
-DB_PASS="${DB_PASS:-***REMOVED***}"
+DB_PASS="${DB_PASS:?set DB_PASS (demo Cloud SQL password) in the environment — no default is shipped}"
 
 # kubectl port-forward local port (random high port to avoid conflicts)
 PF_PORT="${PF_PORT:-5435}"

@@ -33,7 +33,7 @@ ORG_ID=$(jq -r '.orgId' "$CONFIG_DIR/org.json")
 DB_HOST="${DB_HOST:-127.0.0.1}"
 DB_PORT="${DB_PORT:-5432}"
 DB_USER="${DB_USER:-roundtable}"
-DB_PASS="${DB_PASS:-***REMOVED***}"
+DB_PASS="${DB_PASS:?set DB_PASS (demo Cloud SQL password) in the environment — no default is shipped}"
 PF_PORT="${PF_PORT:-5435}"
 
 # Track active port-forward PID for cleanup

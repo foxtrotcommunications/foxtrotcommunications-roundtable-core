@@ -20,7 +20,10 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
-PATTERN='PASSWORD="[^$"]|SECRET="[0-9a-fA-F]{16,}"|_KEY="[0-9a-fA-F]{32,}"|ya29\.|AIza[0-9A-Za-z_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY|_authToken=[^$]'
+# `PASS(WORD)?="${VAR:-literal}"` — a shipped default IS a literal (the demo
+# scripts defaulted DB_PASS to the live Cloud SQL password this way until
+# 2026-10-03), so the `:-` fallback form is matched too.
+PATTERN='PASS(WORD)?="[^$"]|PASS(WORD)?="\$\{[A-Z_]+:-[^}]|SECRET="[0-9a-fA-F]{16,}"|_KEY="[0-9a-fA-F]{32,}"|ya29\.|AIza[0-9A-Za-z_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY|_authToken=[^$]'
 ALLOW_FILE="scripts/check-no-secrets.allow"
 
 # The allowlist and this script mention the patterns by name, so they are
