@@ -5,6 +5,7 @@
 // send-message handler, so the caller awaits this and returns.
 import type { Server } from 'socket.io';
 import type { RoundtableSocket, WorkspaceConfig, AppConfig } from '../../types';
+import { ACTION } from '../../vocab/actions';
 
 const config = require('../../config') as AppConfig;
 const { describeActivity } = require('../../a2a/appHooks') as typeof import('../../a2a/appHooks');
@@ -102,7 +103,7 @@ export async function handleBridgeDelegation(
   }
 
   const allowedActions: string[] = outboundContract.allowedActions || [];
-  const bridgeAction: string = allowedActions.includes('delegate') ? 'delegate' : allowedActions.includes('message') ? 'message' : allowedActions[0] || 'message';
+  const bridgeAction: string = allowedActions.includes(ACTION.delegate) ? ACTION.delegate : allowedActions.includes(ACTION.message) ? ACTION.message : allowedActions[0] || ACTION.message;
 
   io.to(wsChannel).emit('ai-start', { userId: socket.userId, username: socket.username });
   io.to(wsChannel).emit('tool-call', {

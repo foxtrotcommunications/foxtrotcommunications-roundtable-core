@@ -378,7 +378,7 @@ export interface BridgeRequest {
   contractId?: string;
   /** HMAC("contractId:sortedAllowedActions"). Workspace verifies against local manifest. */
   contractToken?: string;
-  action: 'message' | 'delegate' | 'result';
+  action: Exclude<import('./vocab/actions').MessageAction, 'message_send'> | 'result';
   content: string;
   sourceWorkspace: { id: string; name: string; orgId?: string };
   timestamp: string;

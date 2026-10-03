@@ -12,6 +12,7 @@ import crypto from 'crypto';
 import {  fetchManifest  } from '../utils/fetchManifest';
 
 import type { Tool } from '../types';
+import { ACTION } from '../vocab/actions';
 // @ts-ignore
 const { startSpan, endSpan, injectTraceHeaders, preview } = require('../tracing') as typeof import('../tracing');
 const { recordSpan } = require('../tracing/collector') as typeof import('../tracing/collector');
@@ -33,7 +34,7 @@ const bridgeWorkspace: Tool = {
       },
       action: {
         type: 'string',
-        enum: ['delegate'],
+        enum: [ACTION.delegate],
         description:
           'delegate: ask the target workspace\'s AI to perform a reasoning task and return the result. ' +
           'Use only when you need subjective analysis, creative synthesis, or judgment that no capability or query can provide.',

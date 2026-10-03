@@ -13,6 +13,7 @@ import fs from 'fs';
 import {  fetchManifest  } from '../utils/fetchManifest';
 
 import type { Tool } from '../types';
+import { ACTION } from '../vocab/actions';
 // @ts-ignore
 
 
@@ -142,7 +143,7 @@ const tool: Tool = {
             targetName: b.targetName,
             targetWsId: b.targetWsId,
             permissions: b.permissions,
-            summary: `${(b.permissions || []).includes('delegate') ? 'Full' : 'Message-only'} bridge to ${b.targetName}. Permitted actions: ${permList}.`,
+            summary: `${(b.permissions || []).includes(ACTION.delegate) ? 'Full' : 'Message-only'} bridge to ${b.targetName}. Permitted actions: ${permList}.`,
           });
         }
       }

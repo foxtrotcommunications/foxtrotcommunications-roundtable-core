@@ -72,6 +72,12 @@ jobs:
       - name: Lint server (report only)
         run: npm run lint:server || true
 
+      # One action vocabulary (server/vocab/actions.ts, byte-identical to the
+      # control plane's api/services/actions.ts): fail if a second list of
+      # action names appears in source. Allowlist = follow-ups, not exemptions.
+      - name: Check for stray action literals
+        run: bash scripts/check-action-literals.sh
+
   # ── Build & Deploy (main branch only) ──────────────────────
   build:
     needs: test
