@@ -126,8 +126,11 @@ async function requireA2aAuth(req: Request, res: Response, next: () => void): Pr
       const { deriveContractKey, verifyContractRequest, findAndValidateContract } = require('../utils/contractAuth');
 
       // Load contracts from the live manifest (Firestore, 5s TTL cache).
-      // On fetch failure the list stays empty and auth FAILS CLOSED below —
-      // there is no static fallback.
+      // fetchManifest fails closed (1.1): a 200 is the truth, env
+      // RT_CONTRACTS is consulted only before the FIRST successful fetch and
+      // only for this pod's own workspace, a last-known-good manifest is
+      // served for at most RT_MANIFEST_STALE_MAX_MS, then the list is empty
+      // and auth FAILS CLOSED below.
       let contracts: any[] = [];
       if (!config.pooled) {
         // Pooled mode fetches the CLAIMED tenant's manifest instead (below).

@@ -5,7 +5,7 @@
 Multiple users collaborate on AI conversations in real-time — with built-in tools for querying data warehouses, executing code, and managing files. Each workspace is an isolated container with its own AI, tools, and persistent storage.
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-414%20passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-669%20passing-brightgreen.svg)](#testing)
 [![Node](https://img.shields.io/badge/node-18%2B-blue.svg)](#prerequisites)
 [![CI](https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable-core/actions/workflows/ci.yml/badge.svg)](https://github.com/foxtrotcommunications/foxtrotcommunications-roundtable-core/actions/workflows/ci.yml)
 
@@ -406,14 +406,13 @@ See [`.env.example`](.env.example) for the full list.
 ## Testing
 
 ```bash
-npm test                  # Unit + ICE tests (315 tests, 18 suites)
-npm run test:unit         # Unit tests only
-npm run test:integration  # Integration tests (99 tests, 4 suites)
+npm test                  # Unit + ICE + pooled tests (552 tests, 40 suites; +1 suite skipped without DATABASE_URL)
+npm run test:integration  # Integration tests (117 tests, 5 suites; set DATABASE_URL for the Postgres suites)
 npm run typecheck         # TypeScript strict mode
 npm run lint:server       # ESLint
 ```
 
-### Unit Tests — 315 tests / 18 suites
+### Unit Tests — 552 tests / 40 suites
 
 | Suite | Tests | Coverage |
 |-------|-------|----------|
@@ -433,15 +432,17 @@ npm run lint:server       # ESLint
 | Execution proofs | 8 | Build, verify, tamper detection, hash matching |
 | Intent cache | 11 | Hit/miss, TTL, LRU eviction, stats |
 | Intent compiler | 14 | SQL fusion, dedup, LIMIT injection |
+| Pooled runtime (`tests/pooled/`) | 176 | Tenant auth/resolution, S2S HMAC v1+v2 (spec vectors), tool profiles, registry exclusion, manifest fail-closed, contract expiry, per-step auth, message/send gate, contract consistency, read-only cache |
 
-### Integration Tests — 99 tests / 4 suites
+### Integration Tests — 117 tests / 5 suites
 
 | Suite | Tests | Coverage |
 |-------|-------|----------|
-| Contract crypto | 38 | HKDF key derivation, AES-256-GCM, HMAC signing |
-| Bridge communication | 11 | HMAC auth, contract enforcement, timestamps |
+| Contract crypto | 43 | HKDF key derivation, AES-256-GCM, HMAC signing, transport vs granted actions |
+| Bridge communication | 13 | HMAC auth, contract enforcement, liveness, timestamps |
 | MCP protocol | 19 | JSON-RPC 2.0, initialize/tools/list/call |
-| Tool registry | 31 | All tools validated, resolveTools, multi-format output |
+| Tool registry | 32 | All tools validated, resolveTools profiles, multi-format output |
+| Core RLS (Postgres) | 10 | Two-policy RLS on core tables: dedicated role, pooled pinned role, api-key scoping, non-owner boot |
 
 ---
 
