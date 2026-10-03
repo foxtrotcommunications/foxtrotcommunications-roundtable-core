@@ -220,7 +220,7 @@ own contracts.
 
 ## Governance Contracts
 
-Auto-provisioned agreements between workspaces that define and enforce allowed actions at runtime.
+Auto-provisioned agreements between workspaces that define allowed actions. Contracts are enforced in code, and — for per-party contract signatures and Ed25519 execution proofs — verifiable by anyone holding the manifest; revocation is still a cached status check (≤ 5 min) and bridge-path payloads are signed by the control plane, not the originating party.
 
 ### Contract Structure
 
