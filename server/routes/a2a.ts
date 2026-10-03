@@ -738,6 +738,16 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
             console.warn('[A2A:ICE] proof signing key lookup failed:', (e as Error).message);
           }
 
+          // 5.3: consent-grant verifier for `grant_required` prerequisites —
+          // pooled only (the plugin's assertGrant peeked inside a rolled-back
+          // tenant transaction). Dedicated pods wire none, so such a
+          // prerequisite denies there.
+          let grantVerifier: import('../protocols/prerequisites').GrantVerifier | undefined;
+          if (tenantCtx) {
+            const { buildGrantVerifier } = require('../pooled/grantVerifier');
+            grantVerifier = buildGrantVerifier(tenantCtx);
+          }
+
           const result = await executeIntentToken(executableToken, {
             contractKey: verification.contractKey!,
             contract,
@@ -745,6 +755,7 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
             enabledToolNames,
             ...(tenantCtx ? { tenant: tenantCtx } : {}),
             ...(signer ? { signer } : {}),
+            ...(grantVerifier ? { grantVerifier } : {}),
           });
 
           // Track metrics

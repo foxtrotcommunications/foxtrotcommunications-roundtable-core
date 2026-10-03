@@ -24,6 +24,7 @@ import { intentMetrics } from './intentMetrics';
 import { buildProof, intentHashOf, type PolicyCheck, type ExecutionTrace, type ProofSigner } from './executionProof';
 import { intentCache } from './intentCache';
 import { compileIntents } from './intentCompiler';
+import { evaluatePrerequisites, intentParams, type GrantVerifier } from './prerequisites';
 
 // ─── SQL Safety ─────────────────────────────────────────────────────────────
 
@@ -78,7 +79,8 @@ export function isIntentCacheable(intent: IntentOperation): boolean {
 /** Context required for executing an intent token against a workspace */
 export interface ExecutionContext {
   contractKey: Buffer;
-  contract: { contractId: string; allowedActions: string[]; status: string };
+  /** The manifest entry; `prerequisites` (5.3) are evaluated before cache lookup. */
+  contract: { contractId: string; allowedActions: string[]; status: string; prerequisites?: unknown };
   workspaceConfig: Record<string, unknown>;
   enabledToolNames: string[] | null;
   /** Pooled runtime: per-request tenant, copied onto CapabilityContext so
@@ -87,6 +89,9 @@ export interface ExecutionContext {
   /** The executing party's Ed25519 key for this contract (5.2); absent →
    *  proofs carry the HMAC signature only. */
   signer?: ProofSigner;
+  /** Verifies a consent grant for a `grant_required` prerequisite (5.3)
+   *  WITHOUT consuming it. Absent → every grant_required prerequisite denies. */
+  grantVerifier?: GrantVerifier;
 }
 
 // ─── Authorization ──────────────────────────────────────────────────────────
@@ -368,6 +373,7 @@ async function executeCapability(
  * Flow:
  *   1. Validate intent structure
  *   2. Authorize action against contract
+ *   2b. Evaluate contract prerequisites against the intent params (5.3)
  *   3. Check intent cache → return cached result if hit
  *   4. Dispatch to operation executor (with SQL fusion for aggregates)
  *   5. Build execution proof (verifiable trace)
@@ -437,6 +443,23 @@ export async function executeIntentToken(
           error: 'Pooled execution requires a tenant workspace id',
         });
       }
+    }
+
+    // 2b. Executable prerequisites (5.3): amount limits, freshness, attested
+    //     consent — evaluated against the intent's parameters AFTER the
+    //     action is authorized and BEFORE the cache, so a cached result is
+    //     never handed to a caller whose request fails the contract's
+    //     predicates. Fail closed: missing field, unknown kind, or no grant
+    //     verifier all deny. Nothing has executed at this point.
+    const prereq = await evaluatePrerequisites(ctx.contract.prerequisites, intentParams(token.intent), {
+      grantVerifier: ctx.grantVerifier,
+    });
+    policyChecks.push(...prereq.checks);
+    if (prereq.denied) {
+      return buildResult(token, ctx, startTime, policyChecks, {
+        status: 'denied',
+        error: `Prerequisite not met for contract '${ctx.contract.contractId}': ${prereq.denied}`,
+      });
     }
 
     // 3. Check intent cache (only reached once the action is authorized, and

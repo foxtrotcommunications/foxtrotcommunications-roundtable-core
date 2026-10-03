@@ -21,9 +21,11 @@ import type { IntentOperation } from './intentToken';
 
 /** A policy check that was applied during execution */
 export interface PolicyCheck {
-  type: 'sql_safety' | 'action_auth' | 'tool_exists' | 'capability_exists' | 'rate_limit' | 'data_scope' | 'pooled_op_restriction';
+  type: 'sql_safety' | 'action_auth' | 'tool_exists' | 'capability_exists' | 'rate_limit' | 'data_scope' | 'pooled_op_restriction' | 'prerequisite';
   passed: boolean;
   detail?: string;
+  /** For type 'prerequisite' (5.3): amount_max | freshness_hours | grant_required | invalid | <unknown kind>. */
+  kind?: string;
 }
 
 /**
