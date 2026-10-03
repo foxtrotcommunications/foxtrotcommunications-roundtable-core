@@ -286,8 +286,8 @@ row (NULL) gets every tool *except* `run_code`, `shell_exec`, `write_file`,
 them explicitly in `enabled_tools`. The allowlist is enforced at execution
 (`executeTool` throws `ToolNotEnabled`), not just at advertisement —
 `RT_TOOL_PROFILE_ENFORCE=warn|deny` picks log-and-run vs refuse on dedicated
-pods (default `warn`); pooled services always deny and never register the
-dangerous set at all. Delegated turns (A2A `message/send` from another
+pods (default `deny`; `warn` is an explicit per-fleet soak switch); pooled
+services always deny and never register the dangerous set at all. Delegated turns (A2A `message/send` from another
 workspace's agent) run under the `delegated` profile: read-only tools +
 `intent_bridge`. Toggle tools per workspace via the Settings panel.
 
@@ -394,7 +394,7 @@ These events power the routing DAG visualization in Pendragon's chat UI.
 | `RT_HMAC_EMIT_V2` | `true` | Core's outbound signers (intent_bridge, bridge_workspace, manifest fetch, bridge relay, usage report, task complete, peer wake) emit v2. `false` is the off-switch for a fleet whose receivers lack the dual-accept verifier. |
 | `RT_LEGACY_INPOD_WAKE` | `false` | `true` restores the pre-3.1 in-pod Kubernetes `PATCH` that scaled a sleeping bridge target directly (needs a mounted SA token with `patch deployments`). Default: peer wake goes through the control plane's `/api/internal/workspaces/:id/wake`. Removed next release. |
 | `RT_WS_BRIDGE_KEY` | — | Per-workspace S2S key delivered by the control plane (HKDF of the org master, `bridge:{wsId}`). `requireHmac` accepts it for requests tenant-bound to this workspace (tried before `BRIDGE_HMAC_SECRET`); the fleet secret stays accepted until every signer has moved, then it can stop being injected. Not used on pooled services. |
-| `RT_TOOL_PROFILE_ENFORCE` | `warn` | `warn` logs a tool call outside the workspace allowlist and runs it; `deny` refuses it (`ToolNotEnabled`). Pooled services are always `deny`. |
+| `RT_TOOL_PROFILE_ENFORCE` | `deny` | `deny` refuses a tool call outside the workspace allowlist (`ToolNotEnabled`); `warn` logs it and runs it — an explicit soak switch, never the default. Pooled services are always `deny`. |
 
 ### AI Providers
 

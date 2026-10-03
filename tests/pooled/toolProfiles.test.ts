@@ -136,14 +136,25 @@ describe('resolveTools — delegated profile', () => {
 });
 
 describe('executeTool — allowlist enforced at execution', () => {
-  it('RT_TOOL_PROFILE_ENFORCE defaults to warn on dedicated and is always deny pooled', () => {
+  it('RT_TOOL_PROFILE_ENFORCE defaults to deny everywhere; warn is opt-in on dedicated only', () => {
+    // Independent review 2026-10-03 R1: a warn default left run_code (and the
+    // vm escape to BRIDGE_HMAC_SECRET) reachable from any NULL-row dedicated
+    // pod. The shipped default must fail closed.
     delete process.env.RT_TOOL_PROFILE_ENFORCE;
-    expect(enforcementMode()).toBe('warn');
-    process.env.RT_TOOL_PROFILE_ENFORCE = 'deny';
+    expect(enforcementMode()).toBe('deny');
+    process.env.RT_TOOL_PROFILE_ENFORCE = 'garbage';
     expect(enforcementMode()).toBe('deny');
     process.env.RT_TOOL_PROFILE_ENFORCE = 'warn';
+    expect(enforcementMode()).toBe('warn');
     mockConfig.pooled = true;
     expect(enforcementMode()).toBe('deny');
+  });
+
+  it('with no flag set, a NULL-row dedicated workspace cannot execute run_code', async () => {
+    delete process.env.RT_TOOL_PROFILE_ENFORCE;
+    mockConfig.pooled = false;
+    await expect(executeTool('run_code', { code: '1+1' }, { enabledToolNames: null, workspaceId: 'ws-null' }))
+      .rejects.toMatchObject({ code: 'TOOL_NOT_ENABLED' });
   });
 
   it('deny: a tool outside the explicit list throws ToolNotEnabled before running', async () => {

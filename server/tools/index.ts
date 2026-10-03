@@ -200,19 +200,26 @@ class ToolNotEnabled extends Error {
 
 /**
  * Enforcement mode for executeTool's allowlist check.
- *   RT_TOOL_PROFILE_ENFORCE=deny  → throw ToolNotEnabled
- *   RT_TOOL_PROFILE_ENFORCE=warn  → log and execute (dedicated default while
- *                                   fleets confirm no workspace relied on the
- *                                   old "NULL = everything" semantics)
- * Pooled services ALWAYS deny: one replica serves many tenants, and a warn
- * there would let one tenant's hallucinated tool call run with another
- * tenant's credentials in scope. Read per call so a flag flip needs no
- * restart in tests and no code change in prod.
+ *   RT_TOOL_PROFILE_ENFORCE=deny  → throw ToolNotEnabled (DEFAULT everywhere)
+ *   RT_TOOL_PROFILE_ENFORCE=warn  → log and execute — the documented soak
+ *                                   switch for a dedicated fleet that wants
+ *                                   24 h of "would-deny" logs before the flip.
+ *                                   Independent review 2026-10-03 (R1): with
+ *                                   warn as the default, a NULL-row dedicated
+ *                                   pod still reached run_code and, through
+ *                                   the vm escape, the fleet BRIDGE_HMAC_SECRET
+ *                                   — a tenant-agnostic trust root. Deny is
+ *                                   the only default that fails closed; warn
+ *                                   must be chosen on purpose, per fleet.
+ * Pooled services ALWAYS deny regardless of the flag: one replica serves many
+ * tenants, and a warn there would let one tenant's hallucinated tool call run
+ * with another tenant's credentials in scope. Read per call so a flag flip
+ * needs no restart in tests and no code change in prod.
  */
 function enforcementMode(): 'warn' | 'deny' {
   if (config.pooled) return 'deny';
-  const raw = String(process.env.RT_TOOL_PROFILE_ENFORCE || 'warn').toLowerCase();
-  return raw === 'deny' ? 'deny' : 'warn';
+  const raw = String(process.env.RT_TOOL_PROFILE_ENFORCE || 'deny').toLowerCase();
+  return raw === 'warn' ? 'warn' : 'deny';
 }
 
 /**

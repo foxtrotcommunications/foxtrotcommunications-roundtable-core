@@ -8,25 +8,48 @@ const crypto = require('crypto');
 // ── Tenant-bound S2S handshake auth (pooled + dedicated) ──
 // Replaces the bare A2A_API_KEY bypass for pooled deployments: the bare key
 // has no tenant semantics, so in a pooled process it would be a listener into
-// EVERY room. The signed string binds the workspace into the signature:
-//   signature = HMAC(bridgeHmacSecret, `socket:${timestamp}:${workspaceId}`)
-// 5-minute freshness window, timing-safe comparison.
-function verifySocketS2s(auth) {
-  const { hmacSignature, hmacTimestamp, workspaceId } = auth || {};
+// EVERY room. The signed string binds the workspace into the signature.
+//
+//   v2 (SIGNING_SPEC, Pendragon createSocketHmacAuth since 1.3):
+//     HMAC(bridgeHmacSecret, `v2:socket:${ts}:${nonce}:${EMPTY_SHA256}:${workspaceId}`)
+//     auth = { hmacSignature, hmacTimestamp, hmacNonce, hmacSigV: '2', workspaceId }
+//     nonce single-use (shared s2s nonce namespace, 10-min TTL).
+//   v1 (legacy): HMAC(bridgeHmacSecret, `socket:${ts}:${workspaceId}`)
+//     accepted only while RT_HMAC_ACCEPT_V1 !== 'false'.
+// 5-minute freshness window, timing-safe comparison. Signature is checked
+// before the nonce is consumed so a forged handshake never burns a nonce a
+// legitimate one might still present.
+const s2s = require('../utils/s2sSig');
+async function verifySocketS2s(auth) {
+  const { hmacSignature, hmacTimestamp, hmacNonce, hmacSigV, workspaceId } = auth || {};
   if (typeof hmacSignature !== 'string' || !hmacSignature) return false;
   if (typeof workspaceId !== 'string' || !workspaceId.trim()) return false;
   const ts = parseInt(hmacTimestamp, 10);
   if (!Number.isFinite(ts)) return false;
   if (Math.abs(Date.now() - ts) > 5 * 60 * 1000) return false;
+
+  if (hmacSigV === '2') {
+    if (!s2s.isNonce(hmacNonce)) return false;
+    const expected = s2s.hmacHex(config.bridgeHmacSecret, s2s.v2SignedString({
+      routePath: 'socket', timestamp: String(hmacTimestamp), nonce: hmacNonce,
+      bodyHash: s2s.EMPTY_SHA256, tenantWsId: workspaceId,
+    }));
+    if (!s2s.safeEqualHex(hmacSignature, expected)) return false;
+    return s2s.consumeNonce(hmacNonce);
+  }
+  if (hmacSigV !== undefined && hmacSigV !== null && hmacSigV !== '1') return false;
+  if (!s2s.acceptV1()) return false;
   const expected = crypto
     .createHmac('sha256', config.bridgeHmacSecret)
     .update(`socket:${hmacTimestamp}:${workspaceId}`)
     .digest('hex');
   try {
-    return crypto.timingSafeEqual(Buffer.from(hmacSignature), Buffer.from(expected));
+    if (!crypto.timingSafeEqual(Buffer.from(hmacSignature), Buffer.from(expected))) return false;
   } catch {
     return false;
   }
+  s2s.logV1Accepted('socket');
+  return true;
 }
 
 // Handshake middleware — sets socket.rtWorkspaceId in EVERY accepted branch so
@@ -54,14 +77,14 @@ function createAuthMiddleware() {
 
     // Tenant-bound S2S HMAC handshake (e.g. Pendragon API step-log listener)
     if (handshakeAuth.hmacSignature || handshakeAuth.hmacTimestamp) {
-      if (verifySocketS2s(handshakeAuth)) {
+      return verifySocketS2s(handshakeAuth).then((ok) => {
+        if (!ok) return next(new Error('Authentication required'));
         socket.rtWorkspaceId = handshakeAuth.workspaceId;
         socket.userId = null;
         socket.username = `s2s-listener-${crypto.randomBytes(2).toString('hex')}`;
         socket.rtS2S = true;
         return next();
-      }
-      return next(new Error('Authentication required'));
+      }).catch(() => next(new Error('Authentication required')));
     }
 
     // Bare A2A API key bypass — dedicated pods only. NOT accepted pooled:

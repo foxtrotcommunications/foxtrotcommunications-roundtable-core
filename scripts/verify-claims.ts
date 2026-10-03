@@ -28,9 +28,9 @@ const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
 
 // Deterministic env for the in-process claims (dedicated mode).
 process.env.BRIDGE_HMAC_SECRET = process.env.BRIDGE_HMAC_SECRET || 'verify-claims-bridge-secret';
-// Dedicated pods default to RT_TOOL_PROFILE_ENFORCE=warn during rollout; the
-// allowlist claim below is about the enforcing mode (always on in pooled).
-process.env.RT_TOOL_PROFILE_ENFORCE = 'deny';
+// Deliberately NOT setting RT_TOOL_PROFILE_ENFORCE: the allowlist claim must
+// hold under the shipped default (deny), not under a flag this script chose.
+delete process.env.RT_TOOL_PROFILE_ENFORCE;
 delete process.env.POOLED_DOMAIN_TYPE;
 delete process.env.POOLED_ARTHUR;
 
