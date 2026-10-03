@@ -183,7 +183,10 @@ for S2S routes, `v2:{contractId}:{ts}:{action}:{nonce}:{bodyHash}[:{tenantWsId}]
 for contract-keyed calls. Verifiers accept the legacy v1 shape (no body, no
 nonce) while `RT_HMAC_ACCEPT_V1 !== 'false'` and log it as deprecated; core's
 outbound signers emit v2 unless `RT_HMAC_EMIT_V2=false`. Every `express.json()`
-mount captures `req.rawBody` for the hash.
+mount captures `req.rawBody` for the hash. The routePath strings both sides of
+the wire use are pinned in `tests/pooled/s2sRoutePaths.json` (an identical copy
+lives in the control plane); `tests/pooled/s2sRoutePaths.test.ts` fails if a
+signer or verifier drifts from it.
 
 > **Domain isolation guard** — Domain workspaces reject `message/send` over contract auth; only `intent/execute` is accepted.
 
@@ -359,6 +362,7 @@ These events power the routing DAG visualization in Pendragon's chat UI.
 | `RT_MANIFEST_STALE_MAX_MS` | `900000` | How long a last-known-good manifest is served while the control plane is unreachable; after that the workspace degrades to zero contracts/bridges and `/api/health` reports `manifest.degraded: true`. |
 | `RT_HMAC_ACCEPT_V1` | `true` | Accept legacy v1 S2S/contract signatures (no body hash, no nonce). Set `false` once every signer emits v2 → 401 `HMAC v1 no longer accepted`. |
 | `RT_HMAC_EMIT_V2` | `true` | Core's outbound signers (intent_bridge, bridge_workspace, manifest fetch, bridge relay, usage report, task complete) emit v2. `false` is the off-switch for a fleet whose receivers lack the dual-accept verifier. |
+| `RT_WS_BRIDGE_KEY` | — | Per-workspace S2S key delivered by the control plane (HKDF of the org master, `bridge:{wsId}`). `requireHmac` accepts it for requests tenant-bound to this workspace (tried before `BRIDGE_HMAC_SECRET`); the fleet secret stays accepted until every signer has moved, then it can stop being injected. Not used on pooled services. |
 | `RT_TOOL_PROFILE_ENFORCE` | `warn` | `warn` logs a tool call outside the workspace allowlist and runs it; `deny` refuses it (`ToolNotEnabled`). Pooled services are always `deny`. |
 
 ### AI Providers

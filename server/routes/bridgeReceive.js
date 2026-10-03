@@ -209,7 +209,7 @@ router.post('/receive', async (req, res) => {
       }
       await reportTaskComplete(taskId, timestamp, secret, {
         result: `Message delivered to ${deliveredName}`,
-      });
+      }, tenantWsId);
       return res.json({ success: true, action: 'message_delivered' });
     }
 
@@ -217,7 +217,7 @@ router.post('/receive', async (req, res) => {
       res.json({ success: true, action: 'delegation_started' });
       processDelegation(taskId, timestamp, secret, content, sourceWorkspace, tenantWsId).catch(err => {
         console.error('[Bridge] Delegation error:', err);
-        reportTaskComplete(taskId, timestamp, secret, { error: err.message });
+        reportTaskComplete(taskId, timestamp, secret, { error: err.message }, tenantWsId);
       });
       return;
     }
@@ -365,14 +365,20 @@ async function processDelegation(taskId, timestamp, secret, content, sourceWorks
   }
 
   // Report completion to control plane
-  await reportTaskComplete(taskId, timestamp, secret, { result: fullText });
+  await reportTaskComplete(taskId, timestamp, secret, { result: fullText }, tenantWsId);
   console.log(`[Bridge] Delegation complete for task ${taskId}: ${fullText.slice(0, 100)}...`);
 }
 
 /**
  * Report task completion back to the control plane.
+ *
+ * `tenantWsId` (pooled runtime): the tenant that completed the task. The v2
+ * headers are tenant-bound to the COMPLETING WORKSPACE — the control plane
+ * requires X-Rt-Workspace to equal the task's targetWsId (2.6) — so on a
+ * pooled service this must be the tenant, never config.workspaceId (the
+ * service's own id, which no task targets). Dedicated: this pod's id.
  */
-async function reportTaskComplete(taskId, timestamp, secret, data) {
+async function reportTaskComplete(taskId, timestamp, secret, data, tenantWsId = null) {
   const controlPlaneUrl = process.env.CONTROL_PLANE_URL || 'https://roundtable.foxtrotcommunications.net';
   const signature = crypto
     .createHmac('sha256', secret)
@@ -381,8 +387,8 @@ async function reportTaskComplete(taskId, timestamp, secret, data) {
 
   try {
     // Body-level v1 fields stay for a v1-only control plane; v2 headers
-    // (routePath 'bridges/tasks/complete', tenant-bound to this workspace,
-    // body hash + nonce) ride alongside. SIGNING_SPEC.md.
+    // (routePath 'bridges/tasks/complete', tenant-bound to the completing
+    // workspace, body hash + nonce) ride alongside. SIGNING_SPEC.md.
     const completeBody = JSON.stringify({
       ...data,
       signature,
@@ -393,7 +399,7 @@ async function reportTaskComplete(taskId, timestamp, secret, data) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(emitV2() ? signPathV2({ secret, routePath: 'bridges/tasks/complete', body: completeBody, tenantWsId: config.workspaceId }).headers : {}),
+        ...(emitV2() ? signPathV2({ secret, routePath: 'bridges/tasks/complete', body: completeBody, tenantWsId: tenantWsId || config.workspaceId }).headers : {}),
       },
       body: completeBody,
       signal: AbortSignal.timeout(10000),

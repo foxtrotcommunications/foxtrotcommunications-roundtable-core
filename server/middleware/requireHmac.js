@@ -17,6 +17,19 @@
 //
 //   Any other X-Rt-Sig-V → 401.
 //
+// Which secret (upgrade plan 5.0): a tenant-bound request addressed to THIS
+// workspace (X-Rt-Workspace === config.workspaceId) may be signed with the
+// per-workspace key the control plane delivers as RT_WS_BRIDGE_KEY
+// (HKDF(orgMaster, "bridge:{wsId}"), 3.2) OR with the fleet-wide
+// BRIDGE_HMAC_SECRET. The per-workspace key is tried first; the fleet secret
+// stays accepted so Pendragon and peer pods keep working until every signer
+// has moved, after which BRIDGE_HMAC_SECRET can stop being injected. A
+// request bound to a DIFFERENT tenant, or not tenant-bound at all, is only
+// ever checked against the fleet secret — the per-workspace key says "I am
+// talking to workspace W", nothing else. Trying a key that does not match
+// never consumes the v2 nonce (verifyPathV2 checks the signature first), so
+// the second attempt is not rejected as a replay.
+//
 // On success with a tenant header: req.rtTenant = { workspaceId }.
 // `tenantRequired: true` (every pooled mount) rejects headerless requests —
 // a pooled S2S route without a tenant has nowhere to write.
@@ -31,11 +44,40 @@ const s2s = require('../utils/s2sSig');
 const TENANT_WS_HEADER = s2s.TENANT_WS_HEADER;
 
 /**
+ * The secrets a request may legitimately be signed with, most specific
+ * first. `override` (tests, embedded verifiers) replaces the whole list.
+ */
+function candidateSecrets(tenantWsId, override) {
+  if (override !== undefined) return [override];
+  const out = [];
+  const perWs = process.env.RT_WS_BRIDGE_KEY;
+  if (perWs && tenantWsId && !config.pooled && tenantWsId === config.workspaceId) {
+    out.push(perWs);
+  }
+  if (config.bridgeHmacSecret) out.push(config.bridgeHmacSecret);
+  return out;
+}
+
+/**
+ * Run `verify(secret)` over the candidates; the first success wins, the
+ * LAST failure is reported (so a bad signature says "Invalid HMAC
+ * signature", not whatever the per-workspace attempt said).
+ */
+async function withCandidates(secrets, verify) {
+  let last = { ok: false, status: 401, error: 'No HMAC secret configured' };
+  for (const secret of secrets) {
+    last = await verify(secret);
+    if (last.ok) return last;
+  }
+  return last;
+}
+
+/**
  * Verify a path-based S2S request (either version) without sending a
  * response — for handlers that embed the check (tools/execute, bridge
  * receive). Resolves { ok, status, error, version, tenantWsId }.
  */
-async function verifyS2sRequest(req, routePath, { tenantRequired = false, secret = config.bridgeHmacSecret } = {}) {
+async function verifyS2sRequest(req, routePath, { tenantRequired = false, secret } = {}) {
   const headers = req.headers || {};
   const sigV = headers[s2s.SIGV_HEADER];
   const rawTenant = headers[TENANT_WS_HEADER];
@@ -45,12 +87,13 @@ async function verifyS2sRequest(req, routePath, { tenantRequired = false, secret
     return { ok: false, status: 401, error: 'Missing X-Rt-Workspace header' };
   }
 
+  const secrets = candidateSecrets(tenantWsId, secret);
   if (sigV === undefined) {
-    const r = verifyV1Sync(headers, routePath, tenantWsId, secret);
+    const r = await withCandidates(secrets, (sec) => verifyV1Sync(headers, routePath, tenantWsId, sec));
     return { ...r, version: 1, tenantWsId };
   }
   if (sigV === '2') {
-    const r = await s2s.verifyPathV2({ headers, rawBody: req.rawBody, routePath, tenantWsId, secret });
+    const r = await withCandidates(secrets, (sec) => s2s.verifyPathV2({ headers, rawBody: req.rawBody, routePath, tenantWsId, secret: sec }));
     return { ...r, version: 2, tenantWsId };
   }
   return { ok: false, status: 401, error: `Unsupported X-Rt-Sig-V '${String(sigV)}'` };
@@ -104,18 +147,25 @@ function requireHmac(routePath, { tenantRequired = false } = {}) {
       return res.status(401).json({ error: 'Missing X-Rt-Workspace header' });
     }
 
+    const secrets = candidateSecrets(tenantWsId);
+
     // v1 stays synchronous (no nonce store round-trip) so legacy callers and
     // their tests see no change in timing; v2 awaits the nonce store.
     if (sigV === undefined) {
-      return finish(verifyV1Sync(headers, routePath, tenantWsId, config.bridgeHmacSecret));
+      let r = { ok: false, status: 401, error: 'No HMAC secret configured' };
+      for (const sec of secrets) {
+        r = verifyV1Sync(headers, routePath, tenantWsId, sec);
+        if (r.ok) break;
+      }
+      return finish(r);
     }
     if (sigV !== '2') {
       return res.status(401).json({ error: `Unsupported X-Rt-Sig-V '${String(sigV)}'` });
     }
-    s2s.verifyPathV2({ headers, rawBody: req.rawBody, routePath, tenantWsId, secret: config.bridgeHmacSecret })
+    withCandidates(secrets, (sec) => s2s.verifyPathV2({ headers, rawBody: req.rawBody, routePath, tenantWsId, secret: sec }))
       .then(finish)
       .catch((err) => res.status(500).json({ error: `HMAC verification error: ${err.message}` }));
   };
 }
 
-module.exports = { requireHmac, verifyS2sRequest, TENANT_WS_HEADER };
+module.exports = { requireHmac, verifyS2sRequest, candidateSecrets, TENANT_WS_HEADER };
