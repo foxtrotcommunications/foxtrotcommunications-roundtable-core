@@ -341,6 +341,8 @@ These events power the routing DAG visualization in Pendragon's chat UI.
 | `DEMO_MODE` | `false` | Enable auto-login guest accounts |
 | `A2A_SERVER_ENABLED` | `false` | Enable A2A protocol server |
 | `SHELL_EXEC_ENABLED` | `false` | Allow shell_exec tool |
+| `RT_MANIFEST_FAIL_CLOSED` | `true` | A 200 from the control plane is the truth (empty = empty); env `RT_CONTRACTS`/`RT_BRIDGES` only before the first successful fetch, own workspace only. `false` restores the legacy per-array env merge and unbounded last-known-good. |
+| `RT_MANIFEST_STALE_MAX_MS` | `900000` | How long a last-known-good manifest is served while the control plane is unreachable; after that the workspace degrades to zero contracts/bridges and `/api/health` reports `manifest.degraded: true`. |
 | `RT_TOOL_PROFILE_ENFORCE` | `warn` | `warn` logs a tool call outside the workspace allowlist and runs it; `deny` refuses it (`ToolNotEnabled`). Pooled services are always `deny`. |
 
 ### AI Providers

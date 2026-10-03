@@ -7,17 +7,82 @@ const { validateAndLogContracts } = require('./validateContracts');
 // cache would hand tenant B the first tenant's bridges and governance
 // contracts — an authorization bug, not a staleness bug. Dedicated pods have
 // exactly one key (config.workspaceId), preserving old behavior.
-// Each entry: { manifest, lastFetchTime, hasEverFetched }
+// Each entry: { manifest, lastFetchTime, hasEverFetched, lastError,
+//               lastErrorAt, degraded }
 const manifestCacheByWs = new Map();
 const CACHE_TTL_MS = 5000; // 5 seconds
+
+/** An empty manifest — what a tenant gets when nothing trustworthy is known. */
+function emptyManifest() {
+  return {
+    RT_BRIDGES: [],
+    RT_CONTRACTS: [],
+    RT_MCP_SERVERS: [],
+    RT_A2A_AGENTS: [],
+    RT_CONNECTIONS: [],
+    orgId: null,
+  };
+}
+
+/**
+ * Fail-closed switch (upgrade plan 1.1). Default ON everywhere:
+ *   - a 200 from the control plane is the truth, empty arrays included;
+ *   - env vars (RT_BRIDGES/RT_CONTRACTS/…) are consulted ONLY before the
+ *     first successful fetch, ONLY for the process's own workspace;
+ *   - a last-known-good manifest is served for at most RT_MANIFEST_STALE_MAX_MS
+ *     (default 15 min) after the last success, then the tenant degrades to
+ *     ZERO contracts/bridges and the health flag flips.
+ * RT_MANIFEST_FAIL_CLOSED=false restores the pre-1.1 behavior (per-array env
+ * resurrection on a 200, unbounded last-known-good) as a documented
+ * off-switch for a fleet that cannot yet tolerate the stricter mode.
+ */
+function failClosed() {
+  return String(process.env.RT_MANIFEST_FAIL_CLOSED ?? 'true').toLowerCase() !== 'false';
+}
+
+function staleMaxMs() {
+  const n = parseInt(process.env.RT_MANIFEST_STALE_MAX_MS || '', 10);
+  return Number.isFinite(n) && n > 0 ? n : 15 * 60 * 1000;
+}
 
 function cacheEntry(wsId) {
   let entry = manifestCacheByWs.get(wsId);
   if (!entry) {
-    entry = { manifest: null, lastFetchTime: 0, hasEverFetched: false };
+    entry = {
+      manifest: null,
+      lastFetchTime: 0,
+      hasEverFetched: false,
+      lastError: null,
+      lastErrorAt: 0,
+      degraded: false,
+    };
     manifestCacheByWs.set(wsId, entry);
   }
   return entry;
+}
+
+/**
+ * Serve the last-known-good manifest while it is young enough, otherwise
+ * degrade to an empty manifest and flag the tenant. The degraded value is
+ * NOT cached as `manifest`, so recovery is immediate on the next good fetch.
+ */
+function serveLastKnownGood(entry, wsId, now, reason) {
+  entry.lastError = reason;
+  entry.lastErrorAt = now;
+  const age = now - entry.lastFetchTime;
+  if (!failClosed() || age <= staleMaxMs()) {
+    if (entry.degraded) {
+      // Already past the bound once; stay degraded until a real success.
+      return emptyManifest();
+    }
+    console.warn(`[manifest] Returning last known good manifest for ${wsId} (age ${Math.round(age / 1000)}s): ${reason}`);
+    return entry.manifest;
+  }
+  if (!entry.degraded) {
+    console.error(`[manifest] DEGRADED: last known good for ${wsId} is ${Math.round(age / 1000)}s old (> RT_MANIFEST_STALE_MAX_MS ${staleMaxMs()}ms) — serving ZERO contracts/bridges until the control plane answers`);
+  }
+  entry.degraded = true;
+  return emptyManifest();
 }
 
 /**
@@ -27,14 +92,15 @@ function cacheEntry(wsId) {
  * `workspaceId` — the tenant to fetch for. Omitted → the process's own
  * workspace (dedicated pods). Pooled services MUST pass it per request.
  *
- * Fallback strategy:
- *   - If we've NEVER successfully fetched, fall back to process.env (first boot).
- *     Env fallback only applies to the process's own workspace — for any other
+ * Fallback strategy (fail closed, see failClosed()):
+ *   - A 200 is the answer. An empty RT_CONTRACTS on a 200 means NO contracts
+ *     — env vars never resurrect an array the control plane returned empty.
+ *   - If we've NEVER successfully fetched, fall back to process.env (first
+ *     boot), loudly, and only for the process's own workspace — for any other
  *     tenant the env vars are someone else's config, so the fallback is empty.
- *   - If we HAVE fetched before but the control plane is temporarily down,
- *     return the last known good manifest (stale cache) instead of env vars.
- *   - This prevents stale env vars from overriding a control plane that
- *     deleted a bridge (the exact scenario that caused ghost connections).
+ *   - If we HAVE fetched before but the control plane is down, return the
+ *     last known good manifest for at most RT_MANIFEST_STALE_MAX_MS, then
+ *     degrade to an empty manifest + health flag (manifestHealth()).
  */
 async function fetchManifest(workspaceId) {
   const wsId = workspaceId || config.workspaceId;
@@ -42,6 +108,11 @@ async function fetchManifest(workspaceId) {
   const now = Date.now();
   if (entry.manifest && (now - entry.lastFetchTime) < CACHE_TTL_MS) {
     return entry.manifest;
+  }
+  // Degraded tenants are re-tried at the same cadence, not on every call —
+  // a down control plane must not also cost every request a 5s timeout.
+  if (entry.degraded && (now - entry.lastErrorAt) < CACHE_TTL_MS) {
+    return emptyManifest();
   }
 
   const controlPlaneUrl = process.env.CONTROL_PLANE_URL || 'https://roundtable.foxtrotcommunications.net';
@@ -57,10 +128,19 @@ async function fetchManifest(workspaceId) {
   // empty manifest rather than someone else's bridges.
   const isOwnWorkspace = wsId === config.workspaceId;
   const envFallback = {
+    ...emptyManifest(),
     RT_BRIDGES: isOwnWorkspace ? parseEnvJson('RT_BRIDGES', []) : [],
     RT_CONTRACTS: isOwnWorkspace ? parseEnvJson('RT_CONTRACTS', []) : [],
     RT_MCP_SERVERS: isOwnWorkspace ? parseEnvJson('RT_MCP_SERVERS', []) : [],
     RT_A2A_AGENTS: isOwnWorkspace ? parseEnvJson('RT_A2A_AGENTS', []) : [],
+  };
+  const firstBootFallback = (reason) => {
+    const usingEnv = isOwnWorkspace && Object.values(envFallback).some((v) => Array.isArray(v) && v.length > 0);
+    console.error(`[manifest] First fetch for ${wsId} failed (${reason}) — ${usingEnv ? 'FALLING BACK TO ENV VARS (first boot only; the control plane has never answered)' : 'serving an EMPTY manifest'}`);
+    entry.lastError = reason;
+    entry.lastErrorAt = Date.now();
+    if (usingEnv) validateAndLogContracts(envFallback.RT_CONTRACTS, 'RT_CONTRACTS env');
+    return envFallback;
   };
 
   try {
@@ -77,29 +157,40 @@ async function fetchManifest(workspaceId) {
     });
 
     if (!response.ok) {
-      console.warn(`[manifest] Failed to fetch dynamic manifest (${wsId}): ${response.status} ${response.statusText}`);
-      // If we've fetched before, return last known good; otherwise env fallback
-      return entry.hasEverFetched ? entry.manifest : envFallback;
+      const reason = `HTTP ${response.status} ${response.statusText}`;
+      console.warn(`[manifest] Failed to fetch dynamic manifest (${wsId}): ${reason}`);
+      return entry.hasEverFetched ? serveLastKnownGood(entry, wsId, now, reason) : firstBootFallback(reason);
     }
 
     const data = await response.json();
 
-    // Only cache on success — merge env-based config for any arrays
-    // the control plane returns as empty (not yet migrated to Firestore)
-    entry.manifest = {
-      RT_BRIDGES: (Array.isArray(data.RT_BRIDGES) && data.RT_BRIDGES.length > 0) ? data.RT_BRIDGES : envFallback.RT_BRIDGES,
-      RT_CONTRACTS: (Array.isArray(data.RT_CONTRACTS) && data.RT_CONTRACTS.length > 0) ? data.RT_CONTRACTS : envFallback.RT_CONTRACTS,
-      RT_MCP_SERVERS: (Array.isArray(data.RT_MCP_SERVERS) && data.RT_MCP_SERVERS.length > 0) ? data.RT_MCP_SERVERS : envFallback.RT_MCP_SERVERS,
-      RT_A2A_AGENTS: (Array.isArray(data.RT_A2A_AGENTS) && data.RT_A2A_AGENTS.length > 0) ? data.RT_A2A_AGENTS : envFallback.RT_A2A_AGENTS,
-      // Pooled runtime: sanitized connection list (connId + config fields,
-      // no secrets) — how a pooled service learns which connIds a tenant
-      // owns. No env fallback: dedicated pods get connections as CONN_* env.
-      RT_CONNECTIONS: Array.isArray(data.RT_CONNECTIONS) ? data.RT_CONNECTIONS : [],
-      // Pooled runtime: the tenant's org — contract keys derive from the
-      // ORG master secret, and pooled tenants span orgs.
-      orgId: typeof data.orgId === 'string' ? data.orgId : null,
-    };
+    const arr = (v) => (Array.isArray(v) ? v : []);
+    if (failClosed()) {
+      // A 200 is the truth. Empty means empty — no env resurrection.
+      entry.manifest = {
+        RT_BRIDGES: arr(data.RT_BRIDGES),
+        RT_CONTRACTS: arr(data.RT_CONTRACTS),
+        RT_MCP_SERVERS: arr(data.RT_MCP_SERVERS),
+        RT_A2A_AGENTS: arr(data.RT_A2A_AGENTS),
+        RT_CONNECTIONS: arr(data.RT_CONNECTIONS),
+        orgId: typeof data.orgId === 'string' ? data.orgId : null,
+      };
+    } else {
+      // Legacy (RT_MANIFEST_FAIL_CLOSED=false): merge env-based config for
+      // any arrays the control plane returns as empty.
+      entry.manifest = {
+        RT_BRIDGES: arr(data.RT_BRIDGES).length > 0 ? data.RT_BRIDGES : envFallback.RT_BRIDGES,
+        RT_CONTRACTS: arr(data.RT_CONTRACTS).length > 0 ? data.RT_CONTRACTS : envFallback.RT_CONTRACTS,
+        RT_MCP_SERVERS: arr(data.RT_MCP_SERVERS).length > 0 ? data.RT_MCP_SERVERS : envFallback.RT_MCP_SERVERS,
+        RT_A2A_AGENTS: arr(data.RT_A2A_AGENTS).length > 0 ? data.RT_A2A_AGENTS : envFallback.RT_A2A_AGENTS,
+        RT_CONNECTIONS: arr(data.RT_CONNECTIONS),
+        orgId: typeof data.orgId === 'string' ? data.orgId : null,
+      };
+    }
     entry.lastFetchTime = now;
+    if (entry.degraded) console.warn(`[manifest] RECOVERED: control plane answered for ${wsId}`);
+    entry.degraded = false;
+    entry.lastError = null;
 
     // Validate contracts on first successful fetch
     if (!entry.hasEverFetched) {
@@ -110,15 +201,48 @@ async function fetchManifest(workspaceId) {
     return entry.manifest;
   } catch (err) {
     console.warn(`[manifest] Dynamic manifest fetch error (${wsId}): ${err.message}`);
-    // If we've fetched before, return last known good (not stale env vars)
     if (entry.hasEverFetched && entry.manifest) {
-      console.warn('[manifest] Returning last known good manifest (not env fallback)');
-      return entry.manifest;
+      return serveLastKnownGood(entry, wsId, now, err.message);
     }
-    console.warn(`[manifest] First fetch for ${wsId} failed — falling back to ${isOwnWorkspace ? 'env vars' : 'empty manifest'}`);
-    validateAndLogContracts(envFallback.RT_CONTRACTS, 'RT_CONTRACTS env');
-    return envFallback;
+    return firstBootFallback(err.message);
   }
+}
+
+/**
+ * Health flag for /api/health: per-workspace manifest freshness. `degraded`
+ * is true when some tenant is being served an empty manifest because the
+ * control plane has been unreachable longer than RT_MANIFEST_STALE_MAX_MS.
+ */
+function manifestHealth() {
+  const now = Date.now();
+  const workspaces = {};
+  let degraded = false;
+  let stale = false;
+  for (const [wsId, entry] of manifestCacheByWs.entries()) {
+    const ageMs = entry.hasEverFetched ? now - entry.lastFetchTime : null;
+    const isStale = !!(entry.hasEverFetched && entry.lastErrorAt > entry.lastFetchTime);
+    if (entry.degraded) degraded = true;
+    if (isStale) stale = true;
+    workspaces[wsId] = {
+      hasEverFetched: entry.hasEverFetched,
+      ageMs,
+      servingStale: isStale && !entry.degraded,
+      degraded: entry.degraded,
+      lastError: entry.lastError,
+    };
+  }
+  return {
+    failClosed: failClosed(),
+    staleMaxMs: staleMaxMs(),
+    degraded,
+    stale,
+    workspaces,
+  };
+}
+
+/** Test/ops hook: forget everything cached (does not touch env). */
+function resetManifestCache() {
+  manifestCacheByWs.clear();
 }
 
 function parseEnvJson(envName, defaultValue) {
@@ -131,4 +255,4 @@ function parseEnvJson(envName, defaultValue) {
   }
 }
 
-module.exports = { fetchManifest };
+module.exports = { fetchManifest, manifestHealth, resetManifestCache };

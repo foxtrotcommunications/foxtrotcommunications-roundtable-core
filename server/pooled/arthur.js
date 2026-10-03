@@ -111,6 +111,7 @@ app.get('/api/health', (_req, res) => {
     uptimeSec: Math.round((Date.now() - bootedAt) / 1000),
     credentialCache: credentialCacheStats(),
     lastActivityAt: getLastActivityAt() || null,
+    manifest: require('../utils/fetchManifest').manifestHealth(),
   });
 });
 

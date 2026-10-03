@@ -59,7 +59,9 @@ router.post('/receive', async (req, res) => {
     // independently using the live manifest (fetched from Firestore with 5s TTL
     // cache) and the shared BRIDGE_HMAC_SECRET.
     if (contractId) {
-      // Load contracts: prefer live manifest, fall back to env var.
+      // Load contracts from the live manifest (fetchManifest fails closed:
+      // env only before the first successful fetch, bounded last-known-good,
+      // then an empty list — which rejects below).
       // Pooled: the TENANT's manifest — the contract gate must check the
       // receiving household's contracts, not this process's.
       let rtContracts = [];

@@ -216,6 +216,10 @@ app.get('/api/health', async (req, res) => {
       uptime: Math.floor(process.uptime()),
       connectedUsers,
       lastActivityAt: getLastActivityAt(),
+      // Manifest freshness (1.1): degraded=true means this pod is serving
+      // ZERO contracts/bridges because the control plane has been
+      // unreachable longer than RT_MANIFEST_STALE_MAX_MS.
+      manifest: require('./utils/fetchManifest').manifestHealth(),
     });
   } catch (err) {
     res.status(503).json({ status: 'error', error: err.message });

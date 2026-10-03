@@ -43,6 +43,10 @@ app.get('/api/health', (_req, res) => {
     domainType: config.pooledDomainType,
     uptimeSec: Math.round((Date.now() - bootedAt) / 1000),
     credentialCache: credentialCacheStats(),
+    // Manifest freshness (1.1): degraded=true means some tenant is being
+    // served ZERO contracts because the control plane has been unreachable
+    // longer than RT_MANIFEST_STALE_MAX_MS.
+    manifest: require('../utils/fetchManifest').manifestHealth(),
   });
 });
 
