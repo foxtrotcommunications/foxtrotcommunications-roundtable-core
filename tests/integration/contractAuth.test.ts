@@ -382,10 +382,25 @@ describe('findAndValidateContract', () => {
   });
 
   it('should allow transport actions for active contracts', () => {
-    // 'message' is a transport action — always allowed
-    const { contract, error } = findAndValidateContract(contracts, 'contract-active', 'message');
-    expect(error).toBeUndefined();
-    expect(contract).toBeDefined();
+    // intent_execute/discover/tasks_* are transport — always allowed. The
+    // message actions left this list in 1.5 (tested below).
+    for (const action of ['intent_execute', 'discover', 'tasks_get', 'tasks_cancel']) {
+      const { contract, error } = findAndValidateContract(contracts, 'contract-active', action);
+      expect(error).toBeUndefined();
+      expect(contract).toBeDefined();
+    }
+  });
+
+  it('message/delegate are NOT transport: they must be granted (1.5)', () => {
+    const narrow = [{ contractId: 'contract-narrow', status: 'active', allowedActions: ['capability:plaid.getBalances'] }];
+    for (const action of ['message', 'delegate', 'message_send']) {
+      const { contract, error } = findAndValidateContract(narrow, 'contract-narrow', action);
+      expect(contract).toBeUndefined();
+      expect(error).toMatch(/not permitted/);
+    }
+    // granted explicitly → allowed; message_send is satisfied by 'message'
+    expect(findAndValidateContract(contracts, 'contract-active', 'delegate').error).toBeUndefined();
+    expect(findAndValidateContract(contracts, 'contract-active', 'message_send').error).toBeUndefined();
   });
 
   it('should allow domain-specific actions in allowedActions', () => {

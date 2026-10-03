@@ -276,15 +276,39 @@ function findAndValidateContract(contracts, contractId, action) {
   }
 
   // Check allowedActions — only transport/protocol actions are auto-allowed.
-  // All other actions (including intent ops) must be explicitly listed in the contract.
-  const transportActions = ['message', 'delegate', 'message_send', 'tasks_get', 'tasks_cancel', 'intent_execute', 'discover'];
-  if (!transportActions.includes(action)) {
-    if (!contract.allowedActions.includes('*') && !contract.allowedActions.includes(action)) {
+  // Everything else — intent ops AND message/send (`message`, `delegate`,
+  // `message_send`; upgrade plan 1.5) — must be explicitly listed. A free-form
+  // turn on another agent is at least as powerful as any single capability,
+  // so it is no longer a transport freebie.
+  if (!TRANSPORT_ACTIONS.includes(action)) {
+    if (!isActionAllowed(contract.allowedActions, action)) {
       return { error: `Action "${action}" not permitted by contract ${contractId}. Allowed: ${contract.allowedActions.join(', ')}` };
     }
   }
 
   return { contract };
+}
+
+/**
+ * Transport/protocol actions auto-allowed for every active contract. The
+ * message actions (`message`, `delegate`, `message_send`) were here until
+ * 1.5; they now require an explicit grant.
+ */
+const TRANSPORT_ACTIONS = Object.freeze(['tasks_get', 'tasks_cancel', 'intent_execute', 'discover']);
+
+/** Actions that invoke message/send (an LLM turn on the receiving side). */
+const MESSAGE_ACTIONS = Object.freeze(['message', 'delegate', 'message_send']);
+
+/**
+ * allowedActions membership with the one alias we keep: `message_send` (the
+ * header-less default a legacy sender implies) is satisfied by `message`,
+ * the vocabulary contracts actually carry. `*` grants everything.
+ */
+function isActionAllowed(allowedActions, action) {
+  const list = Array.isArray(allowedActions) ? allowedActions : [];
+  if (list.includes('*') || list.includes(action)) return true;
+  if (action === 'message_send' && list.includes('message')) return true;
+  return false;
 }
 
 // ─── End-to-End Encryption ─────────────────────────────────
@@ -371,6 +395,9 @@ module.exports = {
   signRequestV2,
   verifyContractRequest,
   findAndValidateContract,
+  isActionAllowed,
+  TRANSPORT_ACTIONS,
+  MESSAGE_ACTIONS,
   encryptPayload,
   decryptPayload,
 };

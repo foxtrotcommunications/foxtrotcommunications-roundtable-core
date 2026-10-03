@@ -74,9 +74,11 @@ describe('resolveTenantFromRequest', () => {
       RT_CONTRACTS: [{ ...CONTRACT, direction: 'outbound' }],
       RT_BRIDGES: [],
     });
+    // (1.5: 'message' is no longer a transport freebie, so this uses the
+    // action the fixture contract actually grants.)
     const resolved = await resolveTenantFromRequest(reqWithTenant('ws-a'), {
       contractId: 'contract-1',
-      action: 'message',
+      action: 'capability:plaid.getBalances',
     });
     expect(resolved.workspaceId).toBe('ws-a');
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('log-only'));

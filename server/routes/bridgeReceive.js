@@ -262,7 +262,9 @@ async function processDelegation(taskId, timestamp, secret, content, sourceWorks
   // Build workspace config for tools. Pooled: the full sender contract
   // (pooled-arthur-plan Q3) — tools resolve the tenant's manifest and org
   // master secret from these fields instead of process env.
-  const workspaceConfig = {};
+  // A relayed delegation is a turn another agent asked for: 'delegated'
+  // tool profile (read-only tools + intent_bridge), never the full set.
+  const workspaceConfig = { toolProfile: 'delegated' };
   if (tenantWsId) {
     workspaceConfig.workspaceId = tenantWsId;
     workspaceConfig.workspaceName = wsName;

@@ -196,7 +196,8 @@ Auto-provisioned agreements between workspaces that define and enforce allowed a
 ### Contract Structure
 
 - **`allowedActions`** — explicit action whitelist (e.g. `capability:plaid.getBalances`, `tool:query_bigquery`)
-- **Transport actions** (`intent_execute`, `discover`) — auto-allowed for active contracts
+- **Transport actions** (`intent_execute`, `discover`, `tasks_get`, `tasks_cancel`) — auto-allowed for active contracts
+- **`message/send` is not transport** — a contract-authenticated `message/send` must be signed with `message` or `delegate` (`message_send` is satisfied by `message`) and that action must be in `allowedActions`; the turn then runs under the `delegated` tool profile (read-only tools + `intent_bridge`)
 - **Aggregates** — `aggregate` authorizes the envelope only; every step's tool must itself be allowed (`query:<tool>` / `tool:<tool>`). One unauthorized step denies the whole intent before any step runs, and each step's check appears in the proof's `policyChecks`
 - **Proof of what ran** — `proof.executedSqlHash` / `executedSqlCount` hash the compiled SQL actually handed to the tool (after fusion and LIMIT injection); absent when no SQL ran
 - **Storage** — Firestore manifest with 5 s TTL cache, fallback to `RT_CONTRACTS` env

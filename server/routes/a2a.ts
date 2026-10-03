@@ -286,6 +286,31 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
           );
         }
 
+        // ── message/send through allowedActions (upgrade plan 1.5) ────
+        // A contract-authenticated message/send is a delegated LLM turn on
+        // this workspace. The action the caller signed must be a message
+        // action AND be granted by the contract — the auth middleware proved
+        // the signature and that the signed action is allowed, not that
+        // `capability:x` entitles anyone to a chat. No warn mode: the
+        // message actions left the transport allowlist in contractAuth.js,
+        // so a contract that does not grant them already fails at auth.
+        const isDelegatedTurn = !!(req as any).contract;
+        if (isDelegatedTurn) {
+          const { isActionAllowed, MESSAGE_ACTIONS } = require('../utils/contractAuth');
+          const signedAction = (req.headers['x-contract-action'] as string) || 'message_send';
+          const contract = (req as any).contract;
+          let denial: string | null = null;
+          if (!MESSAGE_ACTIONS.includes(signedAction)) {
+            denial = `message/send requires a message action (${MESSAGE_ACTIONS.join('|')}); signed action was '${signedAction}'`;
+          } else if (!isActionAllowed(contract.allowedActions, signedAction)) {
+            denial = `Action '${signedAction}' is not granted by contract ${contract.contractId} (allowed: ${(contract.allowedActions || []).join(', ')})`;
+          }
+          if (denial) {
+            console.warn(`[A2A] message/send DENIED: ${denial}`);
+            return res.status(403).json(jsonRpcError(id, -32000, `Contract rejected: ${denial}`));
+          }
+        }
+
         // ── Tenant resolution (pooled) ─────────────────────
         // Contract auth attached rtTenant WITH masterSecret; the S2S HMAC
         // method attached rtTenant WITHOUT one — resolve it here the same way
@@ -397,6 +422,11 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
         const workspaceConfig: Record<string, unknown> = {
           workspaceId: sendWsId,
           workspaceName: workspace.name,
+          // Delegated turns run under the 'delegated' tool profile: read-only
+          // tools + intent_bridge (tools/index.ts resolveTools). The trusted
+          // app's own chat ingress (S2S HMAC, no contract) keeps the
+          // workspace's normal profile.
+          ...(isDelegatedTurn ? { toolProfile: 'delegated' } : {}),
         };
         if (rtTenant) {
           workspaceConfig.tenant = {
