@@ -178,55 +178,56 @@ const bridgeWorkspace: Tool = {
 
       if (contract && bridgeMasterSecret) {
         // Contract-based HKDF auth — cryptographic proof of valid contract
-        const { deriveContractKey, signRequest, encryptPayload   } = require('../utils/contractAuth');
-        const timestamp = Date.now().toString();
+        const { deriveContractKey, signRequest, signRequestV2, encryptPayload } = require('../utils/contractAuth');
+        const { emitV2 } = require('../utils/s2sSig');
         const contractKey = await deriveContractKey(
           bridgeMasterSecret,
           contract.contractId,
           contract.version || 1
         );
-        const signature = signRequest(contractKey, contract.contractId, timestamp, action);
 
         headers['X-Contract-Id'] = contract.contractId;
-        headers['X-Contract-Signature'] = signature;
-        headers['X-Contract-Timestamp'] = timestamp;
         headers['X-Contract-Action'] = action;
 
         // E2E encrypt the message payload — only the target workspace can decrypt
         const encrypted = encryptPayload(contractKey, { text: content });
         headers['X-Contract-Encrypted'] = 'aes-256-gcm';
 
-        const doFetch = () => {
-          const ts = Date.now().toString();
-          return fetch(a2aEndpoint, {
-          method: 'POST',
-          headers: {
-            ...headers,
-            'X-Contract-Timestamp': ts,
-            'X-Contract-Signature': signRequest(contractKey, contract.contractId, ts, action),
-          },
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: taskId,
-            method: 'message/send',
-            params: {
-              message: {
-                role: 'user',
-                parts: [{
-                  type: 'text',
-                  text: '__ENCRYPTED__',
-                  encrypted: {
-                    iv: encrypted.iv,
-                    ciphertext: encrypted.ciphertext,
-                    authTag: encrypted.authTag,
-                  },
-                }],
-              },
+        // The body is fixed once; every (re)send signs it fresh. v2 (default;
+        // SIGNING_SPEC.md) binds body hash + nonce; v1 (RT_HMAC_EMIT_V2=false)
+        // is the legacy shape for receivers without the dual-accept verifier.
+        const requestBody = JSON.stringify({
+          jsonrpc: '2.0',
+          id: taskId,
+          method: 'message/send',
+          params: {
+            message: {
+              role: 'user',
+              parts: [{
+                type: 'text',
+                text: '__ENCRYPTED__',
+                encrypted: {
+                  iv: encrypted.iv,
+                  ciphertext: encrypted.ciphertext,
+                  authTag: encrypted.authTag,
+                },
+              }],
             },
-          }),
+          },
+        });
+        const signatureHeaders = (): Record<string, string> => {
+          const ts = Date.now().toString();
+          return emitV2()
+            ? signRequestV2(contractKey, { contractId: contract.contractId, action, body: requestBody, timestamp: ts }).headers
+            : { 'X-Contract-Timestamp': ts, 'X-Contract-Signature': signRequest(contractKey, contract.contractId, ts, action) };
+        };
+
+        const doFetch = () => fetch(a2aEndpoint, {
+          method: 'POST',
+          headers: { ...headers, ...signatureHeaders() },
+          body: requestBody,
           signal: AbortSignal.timeout(action === 'delegate' ? 120000 : 30000),
         });
-        };
 
         const response = await doFetch();
         return await this._handleA2aResponse(response, bridge, action, content, taskId, doFetch, span, startTime);
@@ -463,23 +464,30 @@ const bridgeWorkspace: Tool = {
     const signature = crypto.createHmac('sha256', secret).update(`${wsId}:${timestamp}`).digest('hex');
 
     try {
+      const relayBody = JSON.stringify({
+        bridgeId: bridge.bridgeId,
+        action,
+        content,
+        sourceWsId: wsId,
+        orgId: bridge.orgId || '',
+      });
+      // Legacy X-Bridge-* headers stay (a v1-only control plane verifies
+      // them); the v2 headers ride alongside (routePath 'relay', tenant-bound
+      // to this workspace, body hash + nonce) for a control plane that
+      // verifies v2. SIGNING_SPEC.md.
+      const { signPathV2, emitV2 } = require('../utils/s2sSig');
       const legacyHeaders: Record<string, string> = {
           'Content-Type': 'application/json',
           'X-Bridge-Signature': signature,
           'X-Bridge-Timestamp': timestamp,
           'X-Bridge-WsId': wsId,
+          ...(emitV2() ? signPathV2({ secret, routePath: 'relay', body: relayBody, tenantWsId: wsId, timestamp }).headers : {}),
         };
 
       const response = await fetch(`${controlPlaneUrl}/api/bridges/relay`, {
         method: 'POST',
         headers: legacyHeaders,
-        body: JSON.stringify({
-          bridgeId: bridge.bridgeId,
-          action,
-          content,
-          sourceWsId: wsId,
-          orgId: bridge.orgId || '',
-        }),
+        body: relayBody,
         signal: AbortSignal.timeout(30000),
       });
 

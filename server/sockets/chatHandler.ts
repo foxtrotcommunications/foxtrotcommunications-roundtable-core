@@ -957,20 +957,28 @@ Rules:
             const sig: string = crypto.createHmac('sha256', config.bridgeHmacSecret)
               .update(`${wsId}:${ts}`)
               .digest('hex');
+            // Body-level v1 fields stay for a v1-only control plane; v2
+            // headers (routePath 'usage-report', tenant-bound to this
+            // workspace, body hash + nonce) ride alongside. SIGNING_SPEC.md.
+            const usageBody = JSON.stringify({
+              workspaceId: wsId,
+              workspaceName: wsName || wsId,
+              userId: socket.userId?.toString() || 'unknown',
+              userName: socket.username || 'unknown',
+              model: aiModel,
+              tokens: usageData.totalTokens,
+              isOverage,
+              timestamp: ts,
+              signature: sig,
+            });
+            const { signPathV2, emitV2 } = require('../utils/s2sSig') as typeof import('../utils/s2sSig');
             fetch(`${dashboardUrl}/api/usage-report/report`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                workspaceId: wsId,
-                workspaceName: wsName || wsId,
-                userId: socket.userId?.toString() || 'unknown',
-                userName: socket.username || 'unknown',
-                model: aiModel,
-                tokens: usageData.totalTokens,
-                isOverage,
-                timestamp: ts,
-                signature: sig,
-              }),
+              headers: {
+                'Content-Type': 'application/json',
+                ...(emitV2() ? signPathV2({ secret: config.bridgeHmacSecret, routePath: 'usage-report', body: usageBody, tenantWsId: wsId, timestamp: ts }).headers : {}),
+              },
+              body: usageBody,
             }).catch((err: Error) => console.warn('[Usage] Dashboard report failed:', err.message));
           }
         } catch { /* intentionally empty */ }

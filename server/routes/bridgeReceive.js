@@ -2,6 +2,8 @@
 //
 // POST /api/bridge/receive
 // Auth: HMAC signature verification using BRIDGE_HMAC_SECRET (falls back to SESSION_SECRET)
+//   v1 (no X-Rt-Sig-V): body.signature over taskId:timestamp:contractId:action[:tenant]
+//   v2 (X-Rt-Sig-V: 2): header signature, routePath 'bridge/receive' (SIGNING_SPEC.md)
 //
 // When a bridged message arrives:
 // 1. Verify HMAC signature
@@ -37,21 +39,44 @@ router.post('/receive', async (req, res) => {
       // A pooled delivery without a tenant has nowhere to write. Fail closed.
       return res.status(401).json({ error: 'Missing X-Rt-Workspace header' });
     }
-    const signedString = tenantWsId
-      ? `${taskId}:${timestamp}:${contractId ?? ''}:${action}:${tenantWsId}`
-      : `${taskId}:${timestamp}:${contractId ?? ''}:${action}`;
-    const expectedSig = crypto
-      .createHmac('sha256', secret)
-      .update(signedString)
-      .digest('hex');
+    const sigV = req.headers ? req.headers['x-rt-sig-v'] : undefined;
+    if (sigV !== undefined) {
+      // v2 (SIGNING_SPEC.md): header-based, routePath 'bridge/receive', the
+      // whole body (taskId, contractId, action, content…) under the hash,
+      // single-use nonce, tenant bound via X-Rt-Workspace.
+      const { verifyS2sRequest } = require('../middleware/requireHmac');
+      const v = await verifyS2sRequest(req, 'bridge/receive');
+      if (!v.ok) {
+        return res.status(v.status || 401).json({ error: v.error });
+      }
+    } else {
+      // v1 (legacy, RT_HMAC_ACCEPT_V1): body-level signature over
+      // taskId:timestamp:contractId:action[:tenant] — content is NOT signed.
+      const { acceptV1, logV1Accepted } = require('../utils/s2sSig');
+      if (!acceptV1()) {
+        return res.status(401).json({ error: 'HMAC v1 no longer accepted' });
+      }
+      const signedString = tenantWsId
+        ? `${taskId}:${timestamp}:${contractId ?? ''}:${action}:${tenantWsId}`
+        : `${taskId}:${timestamp}:${contractId ?? ''}:${action}`;
+      const expectedSig = crypto
+        .createHmac('sha256', secret)
+        .update(signedString)
+        .digest('hex');
 
-    if (!signature || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
-      return res.status(401).json({ error: 'Invalid bridge signature' });
-    }
+      let sigOk = false;
+      try {
+        sigOk = !!signature && crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig));
+      } catch { sigOk = false; }
+      if (!sigOk) {
+        return res.status(401).json({ error: 'Invalid bridge signature' });
+      }
 
-    // Check timestamp freshness (5 min window)
-    if (Math.abs(Date.now() - parseInt(timestamp)) > 5 * 60 * 1000) {
-      return res.status(401).json({ error: 'Bridge timestamp expired' });
+      // Check timestamp freshness (5 min window)
+      if (Math.abs(Date.now() - parseInt(timestamp)) > 5 * 60 * 1000) {
+        return res.status(401).json({ error: 'Bridge timestamp expired' });
+      }
+      logV1Accepted('bridge/receive');
     }
 
     // ── Contract enforcement gate ─────────────────────────────────────────────
@@ -353,14 +378,22 @@ async function reportTaskComplete(taskId, timestamp, secret, data) {
     .digest('hex');
 
   try {
+    // Body-level v1 fields stay for a v1-only control plane; v2 headers
+    // (routePath 'bridges/tasks/complete', tenant-bound to this workspace,
+    // body hash + nonce) ride alongside. SIGNING_SPEC.md.
+    const completeBody = JSON.stringify({
+      ...data,
+      signature,
+      timestamp,
+    });
+    const { signPathV2, emitV2 } = require('../utils/s2sSig');
     await fetch(`${controlPlaneUrl}/api/bridges/tasks/${taskId}/complete`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...data,
-        signature,
-        timestamp,
-      }),
+      headers: {
+        'Content-Type': 'application/json',
+        ...(emitV2() ? signPathV2({ secret, routePath: 'bridges/tasks/complete', body: completeBody, tenantWsId: config.workspaceId }).headers : {}),
+      },
+      body: completeBody,
       signal: AbortSignal.timeout(10000),
     });
   } catch (err) {

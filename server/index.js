@@ -66,8 +66,13 @@ app.use(helmet({
 }));
 
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Raw body capture (SIGNING_SPEC.md): v2 S2S signatures hash the request
+// body exactly as sent, so the parser keeps the bytes on req.rawBody. The
+// urlencoded parser captures too — otherwise a non-JSON body would verify
+// against the empty-body hash.
+const captureRawBody = (req, _res, buf) => { req.rawBody = buf; };
+app.use(express.json({ verify: captureRawBody }));
+app.use(express.urlencoded({ extended: true, verify: captureRawBody }));
 
 // Enforce secrets in production
 const isProd = process.env.NODE_ENV === 'production';
@@ -98,41 +103,12 @@ if (isProd && !config.demoMode && config.ssoJwtSecret === config.sessionSecret) 
 }
 
 // ─── HMAC Verification Middleware for Server-to-Server Endpoints ─────────────
-// Protects /api/sync, /api/demographics/seed, and other S2S routes.
-// Callers must include:
-//   x-control-plane-signature: HMAC-SHA256(secret, "<path>:<timestamp>")
-//   x-control-plane-timestamp: <unix_ms>
+// Protects /api/sync, /api/demographics/seed, and other S2S routes. Shared
+// with the pooled entrypoints (server/middleware/requireHmac.js): v1
+// `<path>:<timestamp>` while RT_HMAC_ACCEPT_V1 !== 'false', v2
+// `v2:<path>:<ts>:<nonce>:<sha256(body)>` with X-Rt-Sig-V: 2 (SIGNING_SPEC.md).
 const crypto = require('crypto');
-function requireHmac(routePath) {
-  return (req, res, next) => {
-    const signature = req.headers['x-control-plane-signature'];
-    const timestamp = req.headers['x-control-plane-timestamp'];
-
-    if (!signature || !timestamp) {
-      return res.status(401).json({ error: 'Missing HMAC signature' });
-    }
-
-    // Reject stale requests (5 min window)
-    if (Math.abs(Date.now() - parseInt(timestamp)) > 5 * 60 * 1000) {
-      return res.status(401).json({ error: 'HMAC timestamp expired' });
-    }
-
-    const expectedSig = crypto
-      .createHmac('sha256', config.bridgeHmacSecret)
-      .update(`${routePath}:${timestamp}`)
-      .digest('hex');
-
-    try {
-      if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
-        return res.status(401).json({ error: 'Invalid HMAC signature' });
-      }
-    } catch {
-      return res.status(401).json({ error: 'Invalid HMAC signature' });
-    }
-
-    next();
-  };
-}
+const { requireHmac, verifyS2sRequest } = require('./middleware/requireHmac');
 
 // Session store: PostgreSQL when DATABASE_URL is set, in-memory for local dev
 let sessionStore;
@@ -441,21 +417,38 @@ app.post('/api/tools/execute', async (req, res) => {
       return res.status(401).json({ error: 'Missing control-plane signature' });
     }
 
-    // Reject stale requests (5 min window)
-    if (Math.abs(Date.now() - parseInt(timestamp)) > 5 * 60 * 1000) {
-      return res.status(401).json({ error: 'Control-plane timestamp expired' });
-    }
-
-    const crypto = require('crypto');
-    const secret = config.bridgeHmacSecret;
     const { tool, args } = req.body;
-    const expectedSig = crypto
-      .createHmac('sha256', secret)
-      .update(`tools/execute:${timestamp}:${tool || ''}`)
-      .digest('hex');
+    const sigV = req.headers['x-rt-sig-v'];
+    if (sigV !== undefined) {
+      // v2 (SIGNING_SPEC.md): routePath 'tools/execute'; the body hash covers
+      // tool AND args, which v1 never signed.
+      const v = await verifyS2sRequest(req, 'tools/execute');
+      if (!v.ok) return res.status(v.status || 401).json({ error: v.error });
+    } else {
+      // v1 (legacy, RT_HMAC_ACCEPT_V1): `tools/execute:<ts>:<tool>` — the
+      // tool name is bound but the args are not.
+      const { acceptV1, logV1Accepted } = require('./utils/s2sSig');
+      if (!acceptV1()) return res.status(401).json({ error: 'HMAC v1 no longer accepted' });
 
-    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
-      return res.status(401).json({ error: 'Invalid control-plane signature' });
+      // Reject stale requests (5 min window)
+      if (Math.abs(Date.now() - parseInt(timestamp)) > 5 * 60 * 1000) {
+        return res.status(401).json({ error: 'Control-plane timestamp expired' });
+      }
+
+      const secret = config.bridgeHmacSecret;
+      const expectedSig = crypto
+        .createHmac('sha256', secret)
+        .update(`tools/execute:${timestamp}:${tool || ''}`)
+        .digest('hex');
+
+      try {
+        if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
+          return res.status(401).json({ error: 'Invalid control-plane signature' });
+        }
+      } catch {
+        return res.status(401).json({ error: 'Invalid control-plane signature' });
+      }
+      logV1Accepted('tools/execute');
     }
 
     // ── Execute the tool ──
@@ -620,7 +613,7 @@ app.get('/api/workspaces', requireAuth, async (req, res) => {
 
 // Cross-workspace: receive a message from another workspace (webhook)
 // Requires HMAC signature verification (same pattern as bridge receive)
-app.post('/api/webhook/message', express.json(), async (req, res) => {
+app.post('/api/webhook/message', express.json({ verify: captureRawBody }), async (req, res) => {
   try {
     const { sourceWorkspaceId, content, timestamp, signature } = req.body;
     if (!sourceWorkspaceId || !content) return res.status(400).json({ error: 'sourceWorkspaceId and content required' });

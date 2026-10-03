@@ -393,7 +393,8 @@ const intentBridge: Tool = {
 
     // ── 6. Build signed intent token ─────────────────────────────
     try {
-      const { deriveContractKey, signRequest } = require('../utils/contractAuth');
+      const { deriveContractKey, signRequest, signRequestV2 } = require('../utils/contractAuth');
+      const { emitV2 } = require('../utils/s2sSig');
 
       const signedToken = await buildIntentToken(
         intent,
@@ -415,9 +416,6 @@ const intentBridge: Tool = {
       // X-Rt-Tenant — the pooled service resolves and authorizes the tenant
       // from exactly this pair. Dedicated targets: unchanged signature shape.
       const pooledTenant = (bridge as any).pooledTenant as string | undefined;
-      const contractSignature = signRequest(
-        contractKey, contract.contractId, timestamp, action, pooledTenant,
-      );
 
       const a2aEndpoint = `${targetUrl.replace(/\/$/, '')}/a2a`;
 
@@ -434,11 +432,23 @@ const intentBridge: Tool = {
         },
       });
 
+      // Contract signature headers. v2 (default; SIGNING_SPEC.md) binds the
+      // exact request body and a single-use nonce; v1 (RT_HMAC_EMIT_V2=false)
+      // is the legacy `contractId:ts:action[:tenant]` for receivers that have
+      // not shipped the dual-accept verifier yet. Each (re)send signs fresh.
+      const signatureHeaders = (ts: string): Record<string, string> => emitV2()
+        ? signRequestV2(contractKey, {
+            contractId: contract.contractId, action, body: requestBody, tenantWsId: pooledTenant, timestamp: ts,
+          }).headers
+        : {
+            'X-Contract-Signature': signRequest(contractKey, contract.contractId, ts, action, pooledTenant),
+            'X-Contract-Timestamp': ts,
+          };
+
       const requestHeaders: Record<string, string> = {
         'Content-Type': 'application/json',
         'X-Contract-Id': contract.contractId,
-        'X-Contract-Signature': contractSignature,
-        'X-Contract-Timestamp': timestamp,
+        ...signatureHeaders(timestamp),
         'X-Contract-Action': action,
         ...(pooledTenant ? { 'X-Rt-Tenant': pooledTenant } : {}),
       };
@@ -484,14 +494,12 @@ const intentBridge: Tool = {
             // Pooled targets never sleep, so this loop is dedicated-only in
             // practice — but keep the tenant binding consistent regardless.
             const retryTimestamp = Date.now().toString();
-            const retrySignature = signRequest(contractKey, contract.contractId, retryTimestamp, action, pooledTenant);
 
             try {
               const retryHeaders: Record<string, string> = {
                   'Content-Type': 'application/json',
                   'X-Contract-Id': contract.contractId,
-                  'X-Contract-Signature': retrySignature,
-                  'X-Contract-Timestamp': retryTimestamp,
+                  ...signatureHeaders(retryTimestamp),
                   'X-Contract-Action': action,
                   ...(pooledTenant ? { 'X-Rt-Tenant': pooledTenant } : {}),
                 };

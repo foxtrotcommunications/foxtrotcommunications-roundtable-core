@@ -6,6 +6,7 @@
 // No per-contract secrets. No Secret Manager calls. Just math.
 
 const crypto = require('crypto');
+const s2s = require('./s2sSig');
 
 /**
  * Derive a contract-specific key from the org master secret.
@@ -145,6 +146,110 @@ function contractLivenessError(contract, now = Date.now()) {
   return undefined;
 }
 
+// ─── v2 contract-keyed signatures (SIGNING_SPEC.md) ────────────────────────
+//
+//   v2:{contractId}:{timestamp}:{action}:{nonce}:{bodyHash}[:{tenantWsId}]
+//
+// Carried in the SAME X-Contract-Signature / X-Contract-Timestamp headers as
+// v1, plus X-Rt-Nonce and X-Rt-Sig-V: 2. v1 signed neither the body nor a
+// nonce, so a captured intent/execute or message/send could be replayed with
+// a different payload for 5 minutes; v2 closes both.
+
+/**
+ * Sign a contract request, v2. Returns the signature and the headers to send
+ * (alongside X-Contract-Id / X-Contract-Action, which the caller owns).
+ *
+ * @param {Buffer} contractKey
+ * @param {object} p
+ * @param {string} p.contractId
+ * @param {string} p.action
+ * @param {string|Buffer} p.body     exact request body as it will be sent
+ * @param {string} [p.tenantWsId]    pooled target tenant (X-Rt-Tenant)
+ * @param {string} [p.timestamp]     defaults to Date.now()
+ * @param {string} [p.nonce]         defaults to a fresh 32-hex nonce
+ */
+function signRequestV2(contractKey, { contractId, action, body, tenantWsId, timestamp = Date.now().toString(), nonce = s2s.newNonce() }) {
+  const bodyHash = s2s.bodyHashOf(body);
+  const signature = s2s.hmacHex(contractKey, s2s.v2ContractSignedString({
+    contractId, timestamp, action, nonce, bodyHash, tenantWsId,
+  }));
+  return {
+    signature,
+    timestamp,
+    nonce,
+    bodyHash,
+    headers: {
+      'X-Contract-Signature': signature,
+      'X-Contract-Timestamp': timestamp,
+      'X-Rt-Nonce': nonce,
+      'X-Rt-Sig-V': '2',
+    },
+  };
+}
+
+/**
+ * Verify a contract request of EITHER version from its headers.
+ *
+ *   X-Rt-Sig-V absent → v1 (`verifyRequest`), accepted while
+ *     RT_HMAC_ACCEPT_V1 !== 'false'; logged as deprecated.
+ *   X-Rt-Sig-V: 2     → nonce required (single use, 10 min), timestamp
+ *     ±5 min, body hash of req.rawBody, timingSafeEqual.
+ *   anything else     → invalid.
+ *
+ * @param {Buffer} contractKey
+ * @param {object} p
+ * @param {object} p.headers       lower-cased header map
+ * @param {Buffer|string} [p.rawBody]
+ * @param {string} p.contractId
+ * @param {string} p.action
+ * @param {string} [p.tenantWsId]
+ * @param {number} [p.maxAgeMs]
+ * @returns {Promise<{ valid: boolean, error?: string, version?: 1|2 }>}
+ */
+async function verifyContractRequest(contractKey, { headers, rawBody, contractId, action, tenantWsId, maxAgeMs = 5 * 60 * 1000 }) {
+  const signature = headers['x-contract-signature'];
+  const timestamp = headers['x-contract-timestamp'];
+  const sigV = headers['x-rt-sig-v'];
+  if (typeof signature !== 'string' || typeof timestamp !== 'string') {
+    return { valid: false, error: 'Missing contract signature' };
+  }
+
+  if (sigV === undefined) {
+    if (!s2s.acceptV1()) {
+      return { valid: false, error: 'HMAC v1 no longer accepted', version: 1 };
+    }
+    const r = verifyRequest(contractKey, contractId, timestamp, action, signature, maxAgeMs, tenantWsId);
+    if (r.valid) s2s.logV1Accepted(`contract:${action}`);
+    return { ...r, version: 1 };
+  }
+  if (sigV !== '2') {
+    return { valid: false, error: `Unsupported X-Rt-Sig-V '${String(sigV)}'` };
+  }
+
+  const nonce = headers['x-rt-nonce'];
+  if (!s2s.isNonce(nonce)) {
+    return { valid: false, error: 'Missing or malformed X-Rt-Nonce', version: 2 };
+  }
+  const ts = parseInt(timestamp, 10);
+  if (!Number.isFinite(ts)) {
+    return { valid: false, error: 'Invalid timestamp', version: 2 };
+  }
+  if (Math.abs(Date.now() - ts) > maxAgeMs) {
+    return { valid: false, error: 'Contract signature expired', version: 2 };
+  }
+  const expected = s2s.hmacHex(contractKey, s2s.v2ContractSignedString({
+    contractId, timestamp, action, nonce, bodyHash: s2s.bodyHashOf(rawBody ?? Buffer.alloc(0)), tenantWsId,
+  }));
+  if (!s2s.safeEqualHex(signature, expected)) {
+    return { valid: false, error: 'Invalid signature', version: 2 };
+  }
+  // Nonce consumed only after the signature checks out.
+  if (!(await s2s.consumeNonce(nonce))) {
+    return { valid: false, error: 'Replay detected: nonce already used', version: 2 };
+  }
+  return { valid: true, version: 2 };
+}
+
 /**
  * Find the matching contract for an inbound request.
  *
@@ -263,6 +368,8 @@ module.exports = {
   contractLivenessError,
   signRequest,
   verifyRequest,
+  signRequestV2,
+  verifyContractRequest,
   findAndValidateContract,
   encryptPayload,
   decryptPayload,

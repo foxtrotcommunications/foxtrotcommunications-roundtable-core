@@ -62,8 +62,10 @@ app.use(helmet({
   hsts: false,
   crossOriginEmbedderPolicy: false, // Socket.IO
 }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Raw body capture (SIGNING_SPEC.md): v2 signatures hash the bytes as sent.
+const captureRawBody = (req, _res, buf) => { req.rawBody = buf; };
+app.use(express.json({ verify: captureRawBody }));
+app.use(express.urlencoded({ extended: true, verify: captureRawBody }));
 
 // ─── Sessions (global table; tenant lives INSIDE the session record) ────────
 let sessionStore;

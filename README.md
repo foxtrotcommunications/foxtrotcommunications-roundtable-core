@@ -173,7 +173,17 @@ JSON-RPC 2.0 over HTTP. Plug in external agents built in any language.
 | Method | Headers | Use Case |
 |--------|---------|----------|
 | **API Key** | `Authorization: Bearer <key>` | Simple integrations |
-| **Contract HKDF** | `X-Contract-Id`, `X-Contract-Signature`, `X-Contract-Timestamp` | Workspace-to-workspace |
+| **Contract HKDF** | `X-Contract-Id`, `X-Contract-Signature`, `X-Contract-Timestamp` (+ `X-Rt-Nonce`, `X-Rt-Sig-V: 2`) | Workspace-to-workspace |
+| **Control-plane S2S HMAC** | `X-Control-Plane-Signature`, `X-Control-Plane-Timestamp` (+ `X-Rt-Nonce`, `X-Rt-Sig-V: 2`; `X-Rt-Workspace` when tenant-bound) | Control plane / trusted app → workspace |
+
+**Signature v2** (`SIGNING_SPEC.md`, `server/utils/s2sSig.js`): the signed string
+binds a single-use nonce (10-min window, shared nonce store) and the SHA-256 of
+the raw request body — `v2:{routePath}:{ts}:{nonce}:{bodyHash}[:{tenantWsId}]`
+for S2S routes, `v2:{contractId}:{ts}:{action}:{nonce}:{bodyHash}[:{tenantWsId}]`
+for contract-keyed calls. Verifiers accept the legacy v1 shape (no body, no
+nonce) while `RT_HMAC_ACCEPT_V1 !== 'false'` and log it as deprecated; core's
+outbound signers emit v2 unless `RT_HMAC_EMIT_V2=false`. Every `express.json()`
+mount captures `req.rawBody` for the hash.
 
 > **Domain isolation guard** — Domain workspaces reject `message/send` over contract auth; only `intent/execute` is accepted.
 
@@ -208,8 +218,8 @@ Auto-provisioned agreements between workspaces that define and enforce allowed a
 |-------|-----------|
 | Key derivation | HKDF from `ORG_MASTER_SECRET`, per-contract keys |
 | Payload encryption | AES-256-GCM end-to-end |
-| Request signing | HMAC-SHA256 with `timingSafeEqual` |
-| Replay prevention | Nonce store, 10-min window |
+| Request signing | HMAC-SHA256 with `timingSafeEqual`; v2 binds body hash + nonce |
+| Replay prevention | Nonce store, 10-min window (intent tokens and v2 S2S requests, namespaced) |
 | Execution proofs | SHA-256 input/output hashes, HMAC-signed |
 
 ### Application Security
@@ -343,6 +353,8 @@ These events power the routing DAG visualization in Pendragon's chat UI.
 | `SHELL_EXEC_ENABLED` | `false` | Allow shell_exec tool |
 | `RT_MANIFEST_FAIL_CLOSED` | `true` | A 200 from the control plane is the truth (empty = empty); env `RT_CONTRACTS`/`RT_BRIDGES` only before the first successful fetch, own workspace only. `false` restores the legacy per-array env merge and unbounded last-known-good. |
 | `RT_MANIFEST_STALE_MAX_MS` | `900000` | How long a last-known-good manifest is served while the control plane is unreachable; after that the workspace degrades to zero contracts/bridges and `/api/health` reports `manifest.degraded: true`. |
+| `RT_HMAC_ACCEPT_V1` | `true` | Accept legacy v1 S2S/contract signatures (no body hash, no nonce). Set `false` once every signer emits v2 → 401 `HMAC v1 no longer accepted`. |
+| `RT_HMAC_EMIT_V2` | `true` | Core's outbound signers (intent_bridge, bridge_workspace, manifest fetch, bridge relay, usage report, task complete) emit v2. `false` is the off-switch for a fleet whose receivers lack the dual-accept verifier. |
 | `RT_TOOL_PROFILE_ENFORCE` | `warn` | `warn` logs a tool call outside the workspace allowlist and runs it; `deny` refuses it (`ToolNotEnabled`). Pooled services are always `deny`. |
 
 ### AI Providers

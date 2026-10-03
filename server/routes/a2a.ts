@@ -89,8 +89,9 @@ router.get('/.well-known/agent.json', async (_req: Request, res: Response) => {
  * 3. Pooled Arthur only: tenant-bound S2S HMAC (X-Control-Plane-Signature +
  *    X-Control-Plane-Timestamp + X-Rt-Workspace) — the trusted-app chat
  *    ingress (Pendragon's roundtable.ts → message/send), replacing the
- *    guessable per-workspace `a2a-${wsId}` keys. Signed string:
- *    `a2a:${timestamp}:${workspaceId}` (requireHmac('a2a') semantics).
+ *    guessable per-workspace `a2a-${wsId}` keys. Signed string (v1):
+ *    `a2a:${timestamp}:${workspaceId}`; v2 adds nonce + body hash
+ *    (requireHmac('a2a') semantics, SIGNING_SPEC.md).
  */
 async function requireA2aAuth(req: Request, res: Response, next: () => void): Promise<void> {
   // Option 1: API key auth (existing behavior).
@@ -122,7 +123,7 @@ async function requireA2aAuth(req: Request, res: Response, next: () => void): Pr
 
   if (contractId && contractSig && contractTs) {
     try {
-      const { deriveContractKey, verifyRequest, findAndValidateContract } = require('../utils/contractAuth');
+      const { deriveContractKey, verifyContractRequest, findAndValidateContract } = require('../utils/contractAuth');
 
       // Load contracts from the live manifest (Firestore, 5s TTL cache).
       // On fetch failure the list stays empty and auth FAILS CLOSED below —
@@ -195,15 +196,19 @@ async function requireA2aAuth(req: Request, res: Response, next: () => void): Pr
         contract = found;
       }
 
-      // Derive key and verify signature. Pooled: the claimed tenant is part
-      // of the signed string — a signature minted for tenant A cannot be
-      // replayed with tenant B in the header.
+      // Derive key and verify signature (v1 while RT_HMAC_ACCEPT_V1, v2 with
+      // X-Rt-Sig-V: 2 — nonce + body hash; SIGNING_SPEC.md). Pooled: the
+      // claimed tenant is part of the signed string — a signature minted for
+      // tenant A cannot be replayed with tenant B in the header.
       deriveContractKey(masterSecret, contractId, contract.version || 1)
-        .then((contractKey: Buffer) => {
-          const { valid, error: sigError } = verifyRequest(
-            contractKey, contractId, contractTs, signedAction, contractSig,
-            undefined, resolvedTenant ? resolvedTenant.workspaceId : undefined
-          );
+        .then(async (contractKey: Buffer) => {
+          const { valid, error: sigError } = await verifyContractRequest(contractKey, {
+            headers: req.headers,
+            rawBody: (req as any).rawBody,
+            contractId,
+            action: signedAction,
+            tenantWsId: resolvedTenant ? resolvedTenant.workspaceId : undefined,
+          });
 
           if (!valid) {
             res.status(401).json(

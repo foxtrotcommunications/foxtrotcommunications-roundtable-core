@@ -145,6 +145,10 @@ async function fetchManifest(workspaceId) {
 
   try {
     const url = `${controlPlaneUrl}/api/internal/workspaces/${wsId}/manifest`;
+    // Legacy X-Bridge-* headers stay (a v1-only control plane verifies
+    // them); v2 headers (routePath 'manifest', tenant-bound to wsId, empty
+    // body hash + nonce) ride alongside. SIGNING_SPEC.md.
+    const { signPathV2, emitV2 } = require('./s2sSig');
     const response = await fetch(url, {
       method: 'GET',
       headers: {
@@ -152,6 +156,7 @@ async function fetchManifest(workspaceId) {
         'X-Bridge-Signature': signature,
         'X-Bridge-Timestamp': timestamp,
         'X-Bridge-WsId': wsId,
+        ...(emitV2() ? signPathV2({ secret, routePath: 'manifest', body: '', tenantWsId: wsId, timestamp }).headers : {}),
       },
       signal: AbortSignal.timeout(5000), // Fast timeout so tools don't hang
     });

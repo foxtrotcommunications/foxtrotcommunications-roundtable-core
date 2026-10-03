@@ -132,6 +132,19 @@ export class NonceStore {
     }
   }
 
+  /**
+   * Generic namespace for other single-use values (S2S v2 request nonces
+   * are stored as `s2s:<nonce>` — SIGNING_SPEC.md). Namespacing keeps them
+   * from colliding with intent-token nonces in the same table while reusing
+   * the same atomic INSERT ON CONFLICT and the same degraded-to-memory path.
+   */
+  async addScoped(namespace: string, nonce: string, ttlMs: number = 600_000): Promise<boolean> {
+    if (!namespace || /[:\s]/.test(namespace)) {
+      throw new Error(`nonceStore.addScoped: invalid namespace '${namespace}'`);
+    }
+    return this.add(`${namespace}:${nonce}`, ttlMs);
+  }
+
   cleanup(): void {
     this.memory.cleanup();
     this.getPool().then((pool) => {

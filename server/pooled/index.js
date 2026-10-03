@@ -32,7 +32,8 @@ if (!config.databaseUrl) {
 
 const app = express();
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(express.json({ limit: '10mb' }));
+// Raw body capture (SIGNING_SPEC.md): v2 signatures hash the bytes as sent.
+app.use(express.json({ limit: '10mb', verify: (req, _res, buf) => { req.rawBody = buf; } }));
 
 // ─── Health ─────────────────────────────────────────────────────────────────
 const bootedAt = Date.now();
