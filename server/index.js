@@ -355,6 +355,16 @@ try {
   if (memoryRoute) app.use('/api/memory', requireHmac('memory'), memoryRoute);
 } catch { /* plugin absent or pre-memory version — no route */ }
 
+// Consent-grant ledger (Pendragon 4.2) — the API mints a grant on the user's
+// tap and records it here so the capability layer's assertGrant can consume
+// it. Mounted at /api/consent on dedicated pods to match the pooled service
+// (server/pooled/index.js); the plugin's legacy /api/memory/consent-grants
+// path keeps working through memoryRoute above.
+try {
+  const { consentRoute } = require('@pendragon/tools-plaid');
+  if (typeof consentRoute === 'function') app.use('/api/consent', requireHmac('consent'), consentRoute);
+} catch { /* plugin absent or pre-consent version — no route */ }
+
 // Merchant knowledge — read-only window for the Memory page's merchant tab.
 try {
   const { correctionsRoute } = require('@pendragon/tools-plaid');

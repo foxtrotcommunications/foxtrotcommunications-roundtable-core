@@ -8,7 +8,6 @@
     { "route": "wake",                   "tenantBound": true,       "direction": "core->cp",  "note": "POST /api/internal/workspaces/:target/wake; tenant = REQUESTING workspace (CP reads the requester from the signature, the target from the URL); legacy X-Bridge-* alongside; in-pod k8s PATCH only under RT_LEGACY_INPOD_WAKE=true" },
     { "route": "bridge/receive",         "tenantBound": "optional", "direction": "cp->core",  "note": "tenant bound only when the target workspace is pooled" },
     { "route": "tools/execute",          "tenantBound": false,      "direction": "cp->core",  "note": "dedicated pods only; v2 hashes tool+args" },
-    { "route": "initialize",             "tenantBound": false,      "direction": "cp->core",  "note": "CP signer exists; no core route serves /api/initialize today (plugin-owned or dead)" },
     { "route": "a2a",                    "tenantBound": true,       "direction": "pd->core",  "note": "pooled Arthur chat ingress; tenant required" },
     { "route": "sync",                   "tenantBound": "optional", "direction": "pd->core" },
     { "route": "demographics/seed",      "tenantBound": "optional", "direction": "pd->core" },
