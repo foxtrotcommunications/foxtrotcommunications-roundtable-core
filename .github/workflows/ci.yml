@@ -126,7 +126,7 @@ jobs:
           # BuildKit secret so it never enters an image layer.
           gcloud auth print-access-token > /tmp/gar_token
           docker build --no-cache \
-            --build-arg PLUGINS="@pendragon/tools-plaid@1.66.1" \
+            --build-arg PLUGINS="@pendragon/tools-plaid@1.67.0" \
             --secret id=gar_token,src=/tmp/gar_token \
             -t $IMAGE -t ${{ env.ARTIFACT_REGISTRY }}/roundtable-core:latest .
           rm -f /tmp/gar_token
