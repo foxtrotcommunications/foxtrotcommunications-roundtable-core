@@ -51,6 +51,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Tripwire for literal credentials in tracked files (same script as
+      # the control plane's scripts/check-no-secrets.sh; allowlist format in
+      # its header). Runs before anything that needs the database so a leak
+      # fails fast.
+      - name: Check for committed secrets
+        run: npm run check:secrets
+
       - name: Run migrations
         run: npm run migrate:up
         env:
@@ -82,7 +89,7 @@ jobs:
       # control plane's api/services/actions.ts): fail if a second list of
       # action names appears in source. Allowlist = follow-ups, not exemptions.
       - name: Check for stray action literals
-        run: bash scripts/check-action-literals.sh
+        run: npm run check:actions
 
   # ── Build & Deploy (main branch only) ──────────────────────
   build:
@@ -119,7 +126,7 @@ jobs:
           # BuildKit secret so it never enters an image layer.
           gcloud auth print-access-token > /tmp/gar_token
           docker build --no-cache \
-            --build-arg PLUGINS="@pendragon/tools-plaid@^1.2.1" \
+            --build-arg PLUGINS="@pendragon/tools-plaid@1.66.0" \
             --secret id=gar_token,src=/tmp/gar_token \
             -t $IMAGE -t ${{ env.ARTIFACT_REGISTRY }}/roundtable-core:latest .
           rm -f /tmp/gar_token
