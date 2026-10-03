@@ -100,12 +100,12 @@ Roundtable uses a **shared-database, shared-schema** model with per-workspace is
 | Component | Purpose |
 |-----------|--------|
 | **Shared database** | Single `roundtable` PostgreSQL database for all workspaces |
-| **Per-workspace roles** | Each workspace connects as its own DB role (e.g., `rt_checking`, `rt_debt`) |
-| **Row-Level Security** | Every table has `workspace_id` column with RLS policy: `USING (workspace_id = current_user)` |
+| **Per-workspace roles** | Each dedicated workspace pod connects as its own `NOBYPASSRLS` DB role (e.g., `rt_checking`, `rt_debt`) from its own k8s secret `rt-<id>-db`; the admin credentials are never mounted on a workspace pod |
+| **Row-Level Security** | Core tables `workspaces`, `messages`, `user_api_keys`, `workspace_usage`, `audit_log` (and `intent_nonces`) carry two permissive policies under `FORCE ROW LEVEL SECURITY`: `workspace_isolation` (`<tenant col> = current_user`, dedicated pods) and `tenant_context` (`<tenant col> = current_setting('app.workspace_id')`, pooled services pin it per transaction). `migrations/005_core-rls-two-policy.js`; pattern in `server/db/rls.js` |
 | **PgBouncer** | Centralized connection pooler (transaction mode) — sits between all workspace pods and the database |
-| **Superuser access** | The `roundtable` admin role has `BYPASSRLS` for cross-workspace visibility |
+| **Admin access** | The `roundtable` admin role has `BYPASSRLS` and owns the schema: migrations (`npm run migrate:up`), PgBouncer and operator access only |
 
-This architecture provides strong tenant isolation while maintaining a single schema and simplifying migrations.
+Tables outside that list (`users`, `user_sessions`, `workspace_insights`, plugin tables) are either global by design or carry their own policies in the plugin. A role that is not the schema owner boots without running the owner-only DDL — the schema must already be migrated.
 
 ---
 

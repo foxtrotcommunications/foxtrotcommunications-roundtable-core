@@ -26,6 +26,7 @@ const workspaceService = require('../services/workspaceService') as {
     saveMessage(userId: number | null, role: string, content: string, toolName?: string | null, toolCallId?: string | null, sourceWorkspaceId?: string | null, guestUsername?: string | null, guestDisplayName?: string | null): Promise<import('../types').Message>;
     getConversationHistory(limit: number): Promise<import('../types').Message[]>;
     getMessages(options?: { limit?: number; before?: number }): Promise<{ messages: import('../types').Message[]; hasMore: boolean }>;
+    getUserApiKey(userId: number, provider: string): Promise<string>;
   };
 };
 const { streamCompletion } = require('../services/aiProvider') as {
@@ -474,7 +475,7 @@ const { touchActivity } = require('./workspaceHandler') as { touchActivity: (wsI
         // No API key needed — pass per-workspace host into workspaceConfig
         workspaceConfig.ollamaHost = workspace?.ollama_host || config.ollama?.host || 'http://localhost:11434';
       } else {
-        const userKey: string = await workspaceService.getUserApiKey(socket.userId, aiProvider);
+        const userKey: string = await svc.getUserApiKey(socket.userId, aiProvider);
         const serverKey: string = config.ai[aiProvider as keyof typeof config.ai] || '';
         apiKey = userKey || serverKey;
 

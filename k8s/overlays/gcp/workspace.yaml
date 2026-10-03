@@ -9,6 +9,17 @@
 #
 # Prerequisites:
 #   Deploy PgBouncer first: envsubst < k8s/overlays/gcp/pgbouncer.yaml | kubectl apply -f -
+#   Per-workspace DB secret rt-${WORKSPACE_ID}-db (deploy-gke.sh creates it):
+#     DATABASE_URL — connects as the workspace's OWN role rt_<id>
+#                    (NOBYPASSRLS, DML only; RLS scopes every core table)
+#     WS_ID        — the role name, which is also the workspace row id
+#
+# Secrets contract (3.4): the pod gets roundtable-shared-secrets (fleet-wide
+# values such as SESSION_SECRET) plus its own rt-<id>-db. It never mounts
+# roundtable-secrets — that secret holds the admin BYPASSRLS DATABASE_URL and
+# the PgBouncer credentials, and a pod that can read it can read every
+# tenant. Explicit `env` entries win over `envFrom`, so even if an older
+# shared secret still carries a DATABASE_URL, the per-workspace one applies.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -53,8 +64,19 @@ spec:
             - configMapRef:
                 name: roundtable-config
             - secretRef:
-                name: roundtable-secrets
+                name: roundtable-shared-secrets
           env:
+            # Per-workspace DB identity — NOT the admin role.
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: rt-${WORKSPACE_ID}-db
+                  key: DATABASE_URL
+            - name: WS_ID
+              valueFrom:
+                secretKeyRef:
+                  name: rt-${WORKSPACE_ID}-db
+                  key: WS_ID
             - name: WORKSPACE_ID
               value: "${WORKSPACE_ID}"
             - name: WORKSPACE_NAME

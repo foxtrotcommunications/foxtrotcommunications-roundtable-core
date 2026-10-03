@@ -231,18 +231,19 @@ app.get('/api/messages', requireTenantSession, async (req, res) => {
   }
 });
 
-// API keys are per-user (global table) — session auth only.
-app.get('/api/keys', requireAuth, async (req, res) => {
-  res.json(await getAdapter().getApiKeys(req.session.userId));
+// API keys are per-user AND per-tenant (user_api_keys.workspace_id under
+// RLS, 3.4): the session's workspace binding scopes every statement.
+app.get('/api/keys', requireTenantSession, async (req, res) => {
+  res.json(await getAdapter().getApiKeys(req.session.userId, req.rtSessionWsId));
 });
-app.post('/api/keys', requireAuth, async (req, res) => {
+app.post('/api/keys', requireTenantSession, async (req, res) => {
   const { provider, apiKey } = req.body;
   if (!provider || !apiKey) return res.status(400).json({ error: 'Provider and API key are required' });
-  await getAdapter().saveApiKey(req.session.userId, provider, apiKey);
+  await getAdapter().saveApiKey(req.session.userId, provider, apiKey, req.rtSessionWsId);
   res.json({ success: true });
 });
-app.delete('/api/keys/:id', requireAuth, async (req, res) => {
-  await getAdapter().deleteApiKey(parseInt(req.params.id), req.session.userId);
+app.delete('/api/keys/:id', requireTenantSession, async (req, res) => {
+  await getAdapter().deleteApiKey(parseInt(req.params.id), req.session.userId, req.rtSessionWsId);
   res.json({ success: true });
 });
 

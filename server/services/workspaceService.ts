@@ -56,6 +56,9 @@ class WorkspaceService {
         getAdapter().getConversationHistory(wsId, limit),
       getMessages: (options?: { limit?: number; before?: number }): Promise<{ messages: Message[]; hasMore: boolean }> =>
         getAdapter().getMessages(wsId, options),
+      // Per-tenant API keys (3.4): the pinned transaction scopes the read.
+      getUserApiKey: (userId: number, provider: string): Promise<string> =>
+        getAdapter().getApiKey(userId, provider, wsId),
     };
   }
 }

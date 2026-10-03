@@ -166,7 +166,17 @@ EOF
     exit 1
   fi
 
-  SESSION_SECRET=$(openssl rand -hex 32)
+  # Keep an existing SESSION_SECRET across re-runs (rotating it logs every
+  # user out); mint one only on first setup.
+  SESSION_SECRET=$(kubectl get secret roundtable-shared-secrets -o jsonpath='{.data.SESSION_SECRET}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  [[ -n "${SESSION_SECRET}" ]] || SESSION_SECRET=$(openssl rand -hex 32)
+  # Two secrets, two audiences (3.4):
+  #   roundtable-secrets        — ADMIN: BYPASSRLS DATABASE_URL + PgBouncer
+  #                               creds. Mounted by PgBouncer and the db-setup
+  #                               pods only. Never by a workspace pod.
+  #   roundtable-shared-secrets — fleet-wide values a workspace pod may hold
+  #                               (SESSION_SECRET). Workspace pods mount this
+  #                               plus their own rt-<id>-db.
   # DATABASE_URL points to pgbouncer ClusterIP service (not localhost).
   # PgBouncer handles Cloud SQL proxy connectivity centrally.
   kubectl create secret generic roundtable-secrets \
@@ -175,7 +185,10 @@ EOF
     --from-literal=PGBOUNCER_DB_USER="roundtable" \
     --from-literal=PGBOUNCER_DB_PASSWORD="${DB_PASSWORD}" \
     --dry-run=client -o yaml | kubectl apply -f -
-  echo "  ✓ Secrets created (DB via PgBouncer service)"
+  kubectl create secret generic roundtable-shared-secrets \
+    --from-literal=SESSION_SECRET="${SESSION_SECRET}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  echo "  ✓ Secrets created (admin DB via PgBouncer service; workspace pods get roundtable-shared-secrets only)"
 
   # 5. Deploy PgBouncer (connection pooler with Cloud SQL proxy sidecar)
   echo ""
@@ -185,6 +198,21 @@ EOF
   echo "  ⏳ Waiting for PgBouncer to be ready..."
   kubectl rollout status deployment/pgbouncer --timeout=120s 2>/dev/null || true
   echo "  ✓ PgBouncer deployed (transaction-mode pooling, 20 real connections)"
+
+  # 5b. Schema migrations as the ADMIN role (owner, BYPASSRLS). Workspace
+  # pods connect as NOBYPASSRLS rt_<id> roles that cannot run DDL, so the
+  # schema — including the core-table RLS policies (migrations/005) — must
+  # already be in place before the first workspace deploys.
+  echo ""
+  echo "→ Step 5b: Running schema migrations (admin role)..."
+  MIGRATE_IMAGE="us-central1-docker.pkg.dev/${GCP_PROJECT}/roundtable/roundtable:$(git rev-parse --short HEAD)"
+  kubectl run db-migrate-$(date +%s) \
+    --image="${MIGRATE_IMAGE}" \
+    --restart=Never --rm -i --quiet \
+    --env="DATABASE_URL=postgresql://roundtable:${DB_PASSWORD}@pgbouncer:5432/roundtable" \
+    --command -- npm run migrate:up \
+    || { echo "  ✗ Migrations failed — fix before deploying workspaces (workspace roles cannot create the schema themselves)"; exit 1; }
+  echo "  ✓ Schema migrated (core tables under two-policy RLS)"
 
   # 6. Install nginx-ingress
   echo ""
@@ -244,7 +272,11 @@ fi
 WS_DB_PASSWORD=$(openssl rand -hex 16)
 
 # Create the workspace role via Cloud SQL proxy (using admin credentials)
-# The roundtable admin role has BYPASSRLS and owns all tables
+# The roundtable admin role has BYPASSRLS and owns all tables. The workspace
+# role gets DML only and NO BYPASSRLS: migrations/005 puts the core tables
+# under FORCE ROW LEVEL SECURITY with workspace_isolation ON current_user,
+# so connecting as rt_<id> IS the tenant boundary — the pod sees only rows
+# whose workspace id equals its own role name.
 ADMIN_DB_URL="postgresql://roundtable:${DB_PASSWORD}@pgbouncer:5432/roundtable"
 
 # Use a temporary pod to run the role creation SQL
@@ -266,7 +298,8 @@ kubectl run db-setup-${WORKSPACE_ID} \
       END IF;
     END \$\$;
 
-    -- Grant DML permissions (no DDL, no BYPASSRLS)
+    -- Grant DML permissions (no DDL, no BYPASSRLS — RLS is the boundary)
+    ALTER ROLE ${DB_ROLE} NOBYPASSRLS;
     GRANT USAGE ON SCHEMA public TO ${DB_ROLE};
     GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${DB_ROLE};
     GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${DB_ROLE};
@@ -278,7 +311,10 @@ echo "  ✓ DB role ${DB_ROLE} ready"
 
 # ─── Create per-workspace K8s secret ────────────────────────
 echo "→ Creating workspace secret: rt-${WORKSPACE_ID}-db..."
-# DATABASE_URL uses the workspace-specific role (not the admin roundtable role)
+# DATABASE_URL uses the workspace-specific role (not the admin roundtable
+# role). k8s/overlays/gcp/workspace.yaml mounts exactly this secret's
+# DATABASE_URL and WS_ID as explicit env (secretKeyRef) — the pod never sees
+# roundtable-secrets.
 kubectl create secret generic "rt-${WORKSPACE_ID}-db" \
   --from-literal=DATABASE_URL="postgresql://${DB_ROLE}:${WS_DB_PASSWORD}@pgbouncer:5432/roundtable" \
   --from-literal=WS_ID="${DB_ROLE}" \
@@ -311,9 +347,9 @@ echo ""
 echo "╔═══════════════════════════════════════════════════╗"
 echo "║  ✅ Workspace deployed: ${WORKSPACE_ID}"
 echo "║"
-echo "║  DB role:  ${DB_ROLE} (RLS-enforced, DML only)"
-echo "║  Admin:    roundtable (BYPASSRLS, full access)"
-echo "║  Secret:   rt-${WORKSPACE_ID}-db"
+echo "║  DB role:  ${DB_ROLE} (RLS-enforced, DML only, NOBYPASSRLS)"
+echo "║  Admin:    roundtable (BYPASSRLS; migrations + PgBouncer only — not mounted on this pod)"
+echo "║  Secret:   rt-${WORKSPACE_ID}-db (DATABASE_URL + WS_ID) + roundtable-shared-secrets"
 echo "║"
 echo "║  Internal: http://rt-${WORKSPACE_ID}.${NAMESPACE}.svc.cluster.local:3000"
 echo "║  External: http://${EXTERNAL_IP} (via ingress)"

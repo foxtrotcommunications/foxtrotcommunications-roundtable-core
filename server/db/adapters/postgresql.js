@@ -198,11 +198,35 @@ class PostgreSQLAdapter {
     await this._tenantQuery(workspaceId, sql, params);
   }
 
+  /**
+   * Run one bootstrap DDL statement, tolerating "not the owner". Workspace
+   * pods now connect as their own rt_<ws> role (deploy-gke.sh mounts the
+   * per-workspace secret, 3.4), which may not ALTER or CREATE in a schema
+   * the admin role owns. The schema is managed by node-pg-migrate; the boot
+   * DDL is a convenience for fresh single-tenant installs, so an
+   * insufficient_privilege (42501) here is logged once and skipped, never
+   * fatal. Any other error still fails boot.
+   */
+  async _bootDdl(sql) {
+    try {
+      await this.pool.query(sql);
+    } catch (err) {
+      if (err && (err.code === '42501' || /must be owner/i.test(err.message || ''))) {
+        if (!this._bootDdlSkipLogged) {
+          this._bootDdlSkipLogged = true;
+          console.log('[DB] Boot DDL skipped — this role is not the schema owner (schema is managed by migrations; run `npm run migrate:up` as the admin role)');
+        }
+        return;
+      }
+      throw err;
+    }
+  }
+
   async _runMigrations() {
     // NOTE: Schema is now managed by node-pg-migrate (see /migrations/).
     // These CREATE TABLE IF NOT EXISTS statements are kept for backward
     // compatibility and will run safely even after migrations.
-    await this.pool.query(`
+    await this._bootDdl(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
         username TEXT UNIQUE NOT NULL,
@@ -254,18 +278,18 @@ class PostgreSQLAdapter {
       CREATE INDEX IF NOT EXISTS idx_workspaces_status ON workspaces(status);
     `);
     // Idempotent column additions for existing deployments
-    await this.pool.query(`
+    await this._bootDdl(`
       ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS enabled_tools TEXT DEFAULT NULL;
     `);
-    await this.pool.query(`
+    await this._bootDdl(`
       ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS data_sources JSONB DEFAULT NULL;
     `);
-    await this.pool.query(`
+    await this._bootDdl(`
       ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS ollama_host TEXT DEFAULT NULL;
     `);
 
     // Usage tracking table
-    await this.pool.query(`
+    await this._bootDdl(`
       CREATE TABLE IF NOT EXISTS workspace_usage (
         id SERIAL PRIMARY KEY,
         workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -286,19 +310,19 @@ class PostgreSQLAdapter {
     console.log('[DB] Migrations complete');
 
     // SSO columns — idempotent additions for existing deployments
-    await this.pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT DEFAULT NULL;`);
-    await this.pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS sso_id TEXT DEFAULT NULL;`);
-    await this.pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_sso_id ON users(sso_id) WHERE sso_id IS NOT NULL;`);
-    await this.pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email IS NOT NULL;`);
+    await this._bootDdl(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT DEFAULT NULL;`);
+    await this._bootDdl(`ALTER TABLE users ADD COLUMN IF NOT EXISTS sso_id TEXT DEFAULT NULL;`);
+    await this._bootDdl(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_sso_id ON users(sso_id) WHERE sso_id IS NOT NULL;`);
+    await this._bootDdl(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email IS NOT NULL;`);
 
     console.log('[DB] Migrations complete');
 
     // Guest username columns on messages — for embed/demo users without a user_id
-    await this.pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS guest_username TEXT DEFAULT NULL;`);
-    await this.pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS guest_display_name TEXT DEFAULT NULL;`);
+    await this._bootDdl(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS guest_username TEXT DEFAULT NULL;`);
+    await this._bootDdl(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS guest_display_name TEXT DEFAULT NULL;`);
 
     // Audit log table
-    await this.pool.query(`
+    await this._bootDdl(`
       CREATE TABLE IF NOT EXISTS audit_log (
         id SERIAL PRIMARY KEY,
         workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -315,7 +339,13 @@ class PostgreSQLAdapter {
     `);
 
     // Provider restriction column
-    await this.pool.query(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS allowed_providers TEXT DEFAULT NULL;`);
+    await this._bootDdl(`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS allowed_providers TEXT DEFAULT NULL;`);
+
+    // Row-Level Security on core tables (3.4) — the same two-policy pattern
+    // migrations/005 applies, idempotent, owner-only statements skipped for
+    // non-owner roles. See server/db/rls.js for the pattern and why.
+    const { applyCoreRls } = require('../rls');
+    await applyCoreRls(this.pool);
   }
 
   // ─── Users ──────────────────────────────────────
@@ -379,8 +409,11 @@ class PostgreSQLAdapter {
   }
 
   // ─── Workspaces ─────────────────────────────────
+  // Workspace rows are tenant rows: the tenant column is `id`, so every
+  // by-id statement pins app.workspace_id = id (pooled) — under RLS an
+  // unpinned read of another tenant's row returns nothing, by design.
   async registerWorkspace(id, name, url, createdBy) {
-    await this._exec(`
+    await this._tExec(id, `
       INSERT INTO workspaces (id, name, url, created_by)
       VALUES ($1, $2, $3, $4)
       ON CONFLICT (id) DO UPDATE SET
@@ -392,7 +425,8 @@ class PostgreSQLAdapter {
   }
 
   async getWorkspace(id) {
-    return this._queryOne('SELECT * FROM workspaces WHERE id = $1', [id]);
+    if (this.tenantPinned && (typeof id !== 'string' || !id.trim())) return null;
+    return this._tQueryOne(id, 'SELECT * FROM workspaces WHERE id = $1', [id]);
   }
 
   async getAllWorkspaces() {
@@ -404,11 +438,11 @@ class PostgreSQLAdapter {
   }
 
   async updateWorkspaceHeartbeat(id) {
-    await this._exec('UPDATE workspaces SET last_active = CURRENT_TIMESTAMP WHERE id = $1', [id]);
+    await this._tExec(id, 'UPDATE workspaces SET last_active = CURRENT_TIMESTAMP WHERE id = $1', [id]);
   }
 
   async updateWorkspaceStatus(id, status) {
-    await this._exec('UPDATE workspaces SET status = $1 WHERE id = $2', [status, id]);
+    await this._tExec(id, 'UPDATE workspaces SET status = $1 WHERE id = $2', [status, id]);
   }
 
   async updateWorkspace(id, fields) {
@@ -439,7 +473,7 @@ class PostgreSQLAdapter {
     }
     if (updates.length === 0) return this.getWorkspace(id);
     values.push(id);
-    await this._exec(`UPDATE workspaces SET ${updates.join(', ')} WHERE id = $${idx}`, values);
+    await this._tExec(id, `UPDATE workspaces SET ${updates.join(', ')} WHERE id = $${idx}`, values);
     return this.getWorkspace(id);
   }
 
@@ -482,19 +516,24 @@ class PostgreSQLAdapter {
   }
 
   // ─── API Keys ───────────────────────────────────
-  async saveApiKey(userId, provider, apiKey) {
+  // API keys are per user AND per workspace (user_api_keys.workspace_id,
+  // 3.4). Dedicated pods: the row's workspace_id defaults to current_user
+  // and RLS scopes it — no workspaceId argument needed. Pooled: the caller
+  // passes the session's tenant; the pinned transaction both fills the
+  // default on INSERT and scopes every read.
+  async saveApiKey(userId, provider, apiKey, workspaceId = null) {
     const encrypted = encryptApiKey(apiKey);
-    await this._exec('DELETE FROM user_api_keys WHERE user_id = $1 AND provider = $2', [userId, provider]);
-    await this._exec('INSERT INTO user_api_keys (user_id, provider, api_key) VALUES ($1,$2,$3)', [userId, provider, encrypted]);
+    await this._tExec(workspaceId, 'DELETE FROM user_api_keys WHERE user_id = $1 AND provider = $2', [userId, provider]);
+    await this._tExec(workspaceId, 'INSERT INTO user_api_keys (user_id, provider, api_key) VALUES ($1,$2,$3)', [userId, provider, encrypted]);
   }
 
-  async getApiKey(userId, provider) {
-    const row = await this._queryOne('SELECT api_key FROM user_api_keys WHERE user_id = $1 AND provider = $2', [userId, provider]);
+  async getApiKey(userId, provider, workspaceId = null) {
+    const row = await this._tQueryOne(workspaceId, 'SELECT api_key FROM user_api_keys WHERE user_id = $1 AND provider = $2', [userId, provider]);
     return row ? decryptApiKey(row.api_key) : null;
   }
 
-  async getApiKeys(userId) {
-    const rows = await this._queryAll(
+  async getApiKeys(userId, workspaceId = null) {
+    const rows = await this._tQueryAll(workspaceId,
       'SELECT id, provider, api_key, created_at FROM user_api_keys WHERE user_id = $1',
       [userId]
     );
@@ -509,8 +548,8 @@ class PostgreSQLAdapter {
     }));
   }
 
-  async deleteApiKey(id, userId) {
-    await this._exec('DELETE FROM user_api_keys WHERE id = $1 AND user_id = $2', [id, userId]);
+  async deleteApiKey(id, userId, workspaceId = null) {
+    await this._tExec(workspaceId, 'DELETE FROM user_api_keys WHERE id = $1 AND user_id = $2', [id, userId]);
   }
 
   // ─── Usage Tracking ─────────────────────────────
