@@ -149,7 +149,7 @@ Two bridge tools serve different purposes:
 
 ### Wake-on-Request
 
-When `intent_bridge` detects a sleeping workspace (502/503), it automatically scales the K8s deployment from 0 → 1 and retries every 5 seconds for up to **250 seconds**.
+When `intent_bridge` or `bridge_workspace` detects a sleeping workspace (502/503), it asks the control plane to scale the target from 0 → 1 (`POST /api/internal/workspaces/:id/wake`, v2-signed with routePath `wake`, tenant-bound to the requesting workspace; the control plane checks that the two workspaces share an active bridge or contract) and retries every 5 seconds for up to **250 seconds**. Tenant pods no longer hold a Kubernetes credential that can scale anything; the pre-3.1 in-pod `PATCH` survives for one release behind `RT_LEGACY_INPOD_WAKE=true`.
 
 | Timeout | Value |
 |---------|-------|
@@ -391,7 +391,8 @@ These events power the routing DAG visualization in Pendragon's chat UI.
 | `RT_MANIFEST_FAIL_CLOSED` | `true` | A 200 from the control plane is the truth (empty = empty); env `RT_CONTRACTS`/`RT_BRIDGES` only before the first successful fetch, own workspace only. `false` restores the legacy per-array env merge and unbounded last-known-good. |
 | `RT_MANIFEST_STALE_MAX_MS` | `900000` | How long a last-known-good manifest is served while the control plane is unreachable; after that the workspace degrades to zero contracts/bridges and `/api/health` reports `manifest.degraded: true`. |
 | `RT_HMAC_ACCEPT_V1` | `true` | Accept legacy v1 S2S/contract signatures (no body hash, no nonce). Set `false` once every signer emits v2 → 401 `HMAC v1 no longer accepted`. |
-| `RT_HMAC_EMIT_V2` | `true` | Core's outbound signers (intent_bridge, bridge_workspace, manifest fetch, bridge relay, usage report, task complete) emit v2. `false` is the off-switch for a fleet whose receivers lack the dual-accept verifier. |
+| `RT_HMAC_EMIT_V2` | `true` | Core's outbound signers (intent_bridge, bridge_workspace, manifest fetch, bridge relay, usage report, task complete, peer wake) emit v2. `false` is the off-switch for a fleet whose receivers lack the dual-accept verifier. |
+| `RT_LEGACY_INPOD_WAKE` | `false` | `true` restores the pre-3.1 in-pod Kubernetes `PATCH` that scaled a sleeping bridge target directly (needs a mounted SA token with `patch deployments`). Default: peer wake goes through the control plane's `/api/internal/workspaces/:id/wake`. Removed next release. |
 | `RT_WS_BRIDGE_KEY` | — | Per-workspace S2S key delivered by the control plane (HKDF of the org master, `bridge:{wsId}`). `requireHmac` accepts it for requests tenant-bound to this workspace (tried before `BRIDGE_HMAC_SECRET`); the fleet secret stays accepted until every signer has moved, then it can stop being injected. Not used on pooled services. |
 | `RT_TOOL_PROFILE_ENFORCE` | `warn` | `warn` logs a tool call outside the workspace allowlist and runs it; `deny` refuses it (`ToolNotEnabled`). Pooled services are always `deny`. |
 

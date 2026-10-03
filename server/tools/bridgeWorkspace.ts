@@ -13,6 +13,7 @@ import {  fetchManifest  } from '../utils/fetchManifest';
 
 import type { Tool } from '../types';
 import { ACTION } from '../vocab/actions';
+import { wakeWorkspace } from '../utils/wakeWorkspace';
 // @ts-ignore
 const { startSpan, endSpan, injectTraceHeaders, preview } = require('../tracing') as typeof import('../tracing');
 const { recordSpan } = require('../tracing/collector') as typeof import('../tracing/collector');
@@ -249,7 +250,7 @@ const bridgeWorkspace: Tool = {
         });
 
         const response = await doFetch();
-        return await this._handleA2aResponse(response, bridge, action, content, taskId, doFetch, span, startTime);
+        return await this._handleA2aResponse(response, bridge, action, content, taskId, doFetch, span, startTime, selfWsId);
       }
 
       if (bridge.a2aApiKey) {
@@ -276,7 +277,7 @@ const bridgeWorkspace: Tool = {
 
       const response = await doFetch();
 
-      return await this._handleA2aResponse(response, bridge, action, content, taskId, doFetch, span, startTime);
+      return await this._handleA2aResponse(response, bridge, action, content, taskId, doFetch, span, startTime, selfWsId);
     } catch (err: any) {
       if (err.name === 'AbortError') {
         endSpan(span, 'timeout', { outputPreview: `Timed out after ${action === 'delegate' ? '120' : '30'}s` });
@@ -292,7 +293,7 @@ const bridgeWorkspace: Tool = {
   /**
    * Handle A2A response — shared by encrypted and unencrypted paths.
    */
-  async _handleA2aResponse(response, bridge, action, content, taskId, fetchFn?: () => Promise<Response>, span?: any, startTime?: number) {
+  async _handleA2aResponse(response, bridge, action, content, taskId, fetchFn?: () => Promise<Response>, span?: any, startTime?: number, requesterWsId?: string) {
     // ── Wake-on-request: retry if workspace is sleeping ──────
     if ((response.status === 502 || response.status === 503) && fetchFn) {
       const isSleeping = await this._detectSleepingWorkspace(response);
@@ -301,47 +302,14 @@ const bridgeWorkspace: Tool = {
         console.log(`[bridge_workspace] ${bridge.targetName} is sleeping — waking and retrying (up to 120s)`);
         if (span) span.metadata = { ...span.metadata, wokeFromSleep: true };
 
-        // Scale the target deployment from 0 → 1 via K8s API
-        try {
-          const fs = require('fs');
-          const https = require('https');
-          const token = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/token', 'utf8').trim();
-          const ca = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/ca.crt');
-          const namespace = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/namespace', 'utf8').trim();
-          const depName = `rt-ws-${bridge.targetWsId.slice(0, 12).toLowerCase()}`;
-          const payload = JSON.stringify({ spec: { replicas: 1 } });
-          const apiHost = process.env.KUBERNETES_SERVICE_HOST || 'kubernetes.default.svc';
-          const apiPort = process.env.KUBERNETES_SERVICE_PORT || '443';
-
-          await new Promise<void>((resolve) => {
-            const req = https.request({
-              hostname: apiHost, port: Number(apiPort),
-              path: `/apis/apps/v1/namespaces/${namespace}/deployments/${depName}`,
-              method: 'PATCH', ca, rejectUnauthorized: true,
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/strategic-merge-patch+json',
-                'Content-Length': Buffer.byteLength(payload),
-              },
-            }, (res) => {
-              let data = '';
-              res.on('data', (c) => data += c);
-              res.on('end', () => {
-                if (res.statusCode >= 200 && res.statusCode < 300) {
-                  console.log(`[bridge_workspace] Scaled ${depName} → 1 replica`);
-                } else {
-                  console.error(`[bridge_workspace] Scale failed: ${res.statusCode}`);
-                }
-                resolve();
-              });
-            });
-            req.on('error', () => resolve());
-            req.write(payload);
-            req.end();
-          });
-        } catch (err: any) {
-          console.error(`[bridge_workspace] Wake error: ${err.message}`);
-        }
+        // Ask the control plane to scale the target from 0 → 1 (3.1; the
+        // in-pod k8s PATCH is behind RT_LEGACY_INPOD_WAKE). Failure is not
+        // fatal here — the wake proxy may still bring the pod up — so we
+        // only log and keep polling.
+        await wakeWorkspace(bridge.targetWsId, {
+          requesterWsId: requesterWsId || config.workspaceId,
+          source: 'bridge_workspace',
+        });
 
         const wakeStart = Date.now();
         const MAX_WAKE_WAIT = 250_000;   // 50 retries × 5s

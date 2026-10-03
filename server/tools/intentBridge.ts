@@ -17,6 +17,11 @@ import { validateIntent, intentOpToAction } from '../protocols/intentToken';
 import type { IntentOperation, IntentResult } from '../protocols/intentToken';
 import type { Tool } from '../types';
 import { INTENT_OPS } from '../vocab/actions';
+// Waking a sleeping target goes through the control plane (POST
+// /api/internal/workspaces/:id/wake, v2 routePath 'wake', tenant = this
+// requester) — see utils/wakeWorkspace.ts. The in-pod k8s PATCH that lived
+// here is only reachable under RT_LEGACY_INPOD_WAKE=true.
+import { wakeWorkspace } from '../utils/wakeWorkspace';
 const { startSpan, endSpan, injectTraceHeaders, preview } = require('../tracing') as typeof import('../tracing');
 const { recordSpan } = require('../tracing/collector') as typeof import('../tracing/collector');
 
@@ -57,74 +62,6 @@ async function detectSleepingWorkspace(response: Response): Promise<boolean> {
     return false;
   } catch {
     return false;
-  }
-}
-
-/**
- * Wake a sleeping workspace by scaling its K8s deployment from 0 → 1.
- * Uses the in-cluster K8s API with the pod's service account token.
- * Returns:
- *   'scaled'    — deployment found and scaled to 1 replica
- *   'not_found' — deployment does not exist (stale bridge)
- *   'failed'    — K8s API error (permissions, network, etc.)
- */
-async function wakeWorkspace(targetWsId: string): Promise<'scaled' | 'not_found' | 'failed'> {
-  try {
-    const fs = require('fs');
-    const https = require('https');
-
-    // In-cluster credentials (auto-mounted by K8s)
-    const token = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/token', 'utf8').trim();
-    const ca = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/ca.crt');
-    const namespace = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/namespace', 'utf8').trim();
-
-    // Derive org namespace from current pod's namespace (rt-{orgSlug})
-    const orgNamespace = namespace; // Already in rt-pendragon-capital, etc.
-    const depName = `rt-ws-${targetWsId.slice(0, 12).toLowerCase()}`;
-
-    const payload = JSON.stringify({ spec: { replicas: 1 } });
-    const apiHost = process.env.KUBERNETES_SERVICE_HOST || 'kubernetes.default.svc';
-    const apiPort = process.env.KUBERNETES_SERVICE_PORT || '443';
-
-    return new Promise((resolve) => {
-      const req = https.request({
-        hostname: apiHost,
-        port: Number(apiPort),
-        path: `/apis/apps/v1/namespaces/${orgNamespace}/deployments/${depName}`,
-        method: 'PATCH',
-        ca,
-        rejectUnauthorized: true,
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/strategic-merge-patch+json',
-          'Content-Length': Buffer.byteLength(payload),
-        },
-      }, (res) => {
-        let data = '';
-        res.on('data', (c) => data += c);
-        res.on('end', () => {
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            console.log(`[intent_bridge] Scaled ${depName} → 1 replica in ns=${orgNamespace}`);
-            resolve('scaled');
-          } else if (res.statusCode === 404) {
-            console.warn(`[intent_bridge] Deployment ${depName} not found — bridge is stale`);
-            resolve('not_found');
-          } else {
-            console.error(`[intent_bridge] Failed to scale ${depName}: ${res.statusCode} ${data.slice(0, 200)}`);
-            resolve('failed');
-          }
-        });
-      });
-      req.on('error', (err) => {
-        console.error(`[intent_bridge] K8s API error: ${err.message}`);
-        resolve('failed');
-      });
-      req.write(payload);
-      req.end();
-    });
-  } catch (err: any) {
-    console.error(`[intent_bridge] wakeWorkspace error: ${err.message}`);
-    return 'failed';
   }
 }
 
@@ -490,8 +427,8 @@ const intentBridge: Tool = {
           console.log(`[intent_bridge] ${bridge.targetName} is sleeping — waking and retrying (up to ${MAX_WAKE_WAIT_MS / 1000}s)`);
           span.metadata = { ...span.metadata, wokeFromSleep: true };
 
-          // Scale the target deployment from 0 → 1 via K8s API
-          const wakeResult = await wakeWorkspace(bridge.targetWsId);
+          // Ask the control plane to scale the target from 0 → 1 (3.1).
+          const wakeResult = await wakeWorkspace(bridge.targetWsId, { requesterWsId: selfWsId, source: 'intent_bridge' });
 
           // Staleness guard: if deployment doesn't exist, the bridge is stale
           if (wakeResult === 'not_found') {

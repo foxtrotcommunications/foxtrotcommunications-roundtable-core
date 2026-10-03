@@ -5,7 +5,7 @@
     { "route": "relay",                  "tenantBound": true,       "direction": "core->cp",  "note": "tenant = sending workspace == body.sourceWsId" },
     { "route": "usage-report",           "tenantBound": true,       "direction": "core->cp",  "note": "tenant = reporting workspace == body.workspaceId" },
     { "route": "bridges/tasks/complete", "tenantBound": true,       "direction": "core->cp",  "note": "tenant = completing workspace == task.targetWsId (pooled: the tenant, not the service id)" },
-    { "route": "wake",                   "tenantBound": true,       "direction": "core->cp",  "note": "CP verifier shipped in 3.1/3.5; core still scales via k8s PATCH and does not sign this yet" },
+    { "route": "wake",                   "tenantBound": true,       "direction": "core->cp",  "note": "POST /api/internal/workspaces/:target/wake; tenant = REQUESTING workspace (CP reads the requester from the signature, the target from the URL); legacy X-Bridge-* alongside; in-pod k8s PATCH only under RT_LEGACY_INPOD_WAKE=true" },
     { "route": "bridge/receive",         "tenantBound": "optional", "direction": "cp->core",  "note": "tenant bound only when the target workspace is pooled" },
     { "route": "tools/execute",          "tenantBound": false,      "direction": "cp->core",  "note": "dedicated pods only; v2 hashes tool+args" },
     { "route": "initialize",             "tenantBound": false,      "direction": "cp->core",  "note": "CP signer exists; no core route serves /api/initialize today (plugin-owned or dead)" },
