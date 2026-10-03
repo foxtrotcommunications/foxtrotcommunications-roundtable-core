@@ -35,6 +35,17 @@ import callAgent from './callAgent';
 
 // Domain financial tools have been moved to the pendragon-tools-plaid plugin.
 
+// ─── Tool Profiles (upgrade plan 0.1) ───────────────────────────────────────
+//
+// Tools that can execute arbitrary code or mutate the pod's filesystem/repo.
+// A finance advisor's workspace never needs them (doctrine §10), so they are
+// OFF unless a workspace names one explicitly in enabled_tools. In pooled
+// mode they are not registered at all (0.2) — see the registry below.
+const DANGEROUS_TOOLS: readonly string[] = Object.freeze([
+  'run_code', 'shell_exec', 'write_file', 'git_clone', 'git_commit', 'git_pull',
+]);
+
+
 const tools = {
   // Meta-tools — always available, cannot be disabled
   describe_workspace: describeWorkspace,
@@ -68,6 +79,26 @@ const tools = {
   call_agent: callAgent,
 };
 
+// ─── Pooled hard-exclusion (upgrade plan 0.2) ───────────────────────────────
+// One pooled replica serves many tenants on a shared filesystem and a shared
+// process. Code execution and file/repo mutation there are not a per-tenant
+// opt-in question — they are not offered at all. Removing them from the
+// registry (rather than filtering at resolve time) means no enabled_tools
+// row, plugin registration, or dynamic MCP discovery can bring them back:
+// executeTool sees 'Unknown tool'.
+if (config.pooled) {
+  for (const name of DANGEROUS_TOOLS) delete tools[name];
+}
+
+/** Refuse a registry write under a dangerous name on a pooled service. */
+function rejectDangerousInPooled(name: string, source: string): boolean {
+  if (config.pooled && DANGEROUS_TOOLS.includes(name)) {
+    console.warn(`[tools] Refused to register dangerous tool '${name}' from ${source} on a pooled service`);
+    return true;
+  }
+  return false;
+}
+
 // Financial tools are now injected via the Plaid Plugin
 
 // ─── Plaid Plugin (sync + capabilities) ─────────────────────────────
@@ -88,6 +119,7 @@ try {
   } = require('../a2a/appHooks');
   registerFromEnv({
     register(name: string, tool: any) {
+      if (rejectDangerousInPooled(name, 'plugin')) return;
       tools[name] = tool;
     },
   }, capabilityRegistry, {
@@ -130,6 +162,7 @@ const dynamicTools: Record<string, Tool> = {};
  */
 function registerDynamicTools(toolsArray: Tool[]) {
   for (const tool of toolsArray) {
+    if (rejectDangerousInPooled(tool.name, 'dynamic registration')) continue;
     dynamicTools[tool.name] = tool;
   }
 }
@@ -152,16 +185,6 @@ function clearDynamicTools(prefix: string) {
 function getDynamicTools() {
   return { ...dynamicTools };
 }
-
-// ─── Tool Profiles (upgrade plan 0.1) ───────────────────────────────────────
-//
-// Tools that can execute arbitrary code or mutate the pod's filesystem/repo.
-// A finance advisor's workspace never needs them (doctrine §10), so they are
-// OFF unless a workspace names one explicitly in enabled_tools. In pooled
-// mode they are not registered at all (0.2) — see the registry below.
-const DANGEROUS_TOOLS: readonly string[] = Object.freeze([
-  'run_code', 'shell_exec', 'write_file', 'git_clone', 'git_commit', 'git_pull',
-]);
 
 /** Thrown by executeTool when the resolved allowlist does not contain the tool. */
 class ToolNotEnabled extends Error {
