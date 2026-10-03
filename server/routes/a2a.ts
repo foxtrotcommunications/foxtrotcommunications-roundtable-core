@@ -524,6 +524,18 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
           );
         }
 
+        // 0. Header contract must be the token's contract (1.6). The auth
+        //    middleware authorized X-Contract-Id; the token names the contract
+        //    whose key signed it. If they differ, a caller authorized under a
+        //    narrow contract could present a token minted under a broader one.
+        const headerContractId = req.headers['x-contract-id'] as string | undefined;
+        if (headerContractId && headerContractId !== token.contractId) {
+          console.warn(`[A2A:ICE] Contract mismatch: header ${headerContractId} vs token ${token.contractId}`);
+          return res.json(
+            jsonRpcError(id, -32000, 'Token contractId does not match the authenticated contract')
+          );
+        }
+
         // 1. Verify token signature, expiry, and freshness
         const verification = await verifyIntentToken(token, masterSecret);
         if (!verification.valid) {
@@ -594,6 +606,19 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
           );
         }
         const contract = contractEntry;
+
+        // 5b. The token's contractVersion must be the manifest's (1.6). The
+        //     signature verified above was checked with the key for the
+        //     version the TOKEN claimed; a rotated contract (version bump)
+        //     must not keep accepting tokens minted under the old key.
+        const manifestVersion = Number(contract.version || 1);
+        const tokenVersion = Number(token.contractVersion || 1);
+        if (manifestVersion !== tokenVersion) {
+          console.warn(`[A2A:ICE] contractVersion mismatch for ${token.contractId}: token ${tokenVersion}, manifest ${manifestVersion}`);
+          return res.json(
+            jsonRpcError(id, -32000, `Token contractVersion ${tokenVersion} does not match manifest version ${manifestVersion}`)
+          );
+        }
 
         const requiredAction = intentOpToAction(executableToken.intent);
         const TRANSPORT_ACTIONS = ['intent_execute', 'discover'];

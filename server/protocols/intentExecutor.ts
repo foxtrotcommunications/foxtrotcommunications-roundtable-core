@@ -18,7 +18,8 @@ import type { CapabilityContext } from './capabilityRegistry';
 import { iceCapabilityCall } from './iceClient';
 import { validateIntent, intentOpToAction } from './intentToken';
 import { signIntentResult } from './intentTokenCodec';
-import { executeTool, resolveTools, getAvailableTools } from '../tools/index';
+import * as toolRegistry from '../tools/index';
+const { executeTool, resolveTools, getAvailableTools } = toolRegistry;
 import { intentMetrics } from './intentMetrics';
 import { buildProof, type PolicyCheck, type ExecutionTrace } from './executionProof';
 import { intentCache } from './intentCache';
@@ -39,6 +40,38 @@ const BLOCKED_SQL_PATTERNS = [
  * These are foundational transport/discovery operations.
  */
 const ALWAYS_ALLOWED_ACTIONS = ['intent_execute', 'discover'];
+
+// ─── Cacheability (upgrade plan 1.6) ────────────────────────────────────────
+
+/**
+ * Only READ-ONLY work may be served from the intent cache. A tool or
+ * capability that does not declare `readOnly: true` is assumed to have side
+ * effects (a sync, a write, a send), and replaying its *result* for 60s
+ * would both skip the effect and report stale state as fresh. Default is the
+ * safe one: not cacheable. `discover` and `aggregate` stay uncacheable as
+ * before (intentCache.isCacheable).
+ */
+function isReadOnlyTool(name: string): boolean {
+  const reg: any = toolRegistry;
+  const t = (reg.tools && reg.tools[name])
+    || (typeof reg.getDynamicTools === 'function' && reg.getDynamicTools()[name])
+    || (typeof reg.resolveTools === 'function' && reg.resolveTools(null)[name]);
+  return !!(t && t.readOnly === true);
+}
+
+export function isIntentCacheable(intent: IntentOperation): boolean {
+  switch (intent.op) {
+    case 'query':
+    case 'tool_call':
+      return isReadOnlyTool(intent.tool);
+    case 'capability': {
+      const cap: any = capabilityRegistry.get(intent.name);
+      return !!(cap && cap.readOnly === true);
+    }
+    default:
+      return false;
+  }
+}
 
 // ─── Execution Context ──────────────────────────────────────────────────────
 
@@ -388,11 +421,13 @@ export async function executeIntentToken(
       }
     }
 
-    // 3. Check intent cache (only reached once the action is authorized).
+    // 3. Check intent cache (only reached once the action is authorized, and
+    //    only for read-only tools/capabilities — isIntentCacheable).
     // Scoped to this workspace's identity — see intentCache.key().
     const cacheScope = String((ctx.workspaceConfig as any)?.workspaceId
       || process.env.WS_ID || process.env.WORKSPACE_ID || '');
-    const cached = intentCache.get(token.intent, cacheScope);
+    const cacheable = isIntentCacheable(token.intent);
+    const cached = cacheable ? intentCache.get(token.intent, cacheScope) : null;
     if (cached) {
       intentMetrics.record(cached.toolExecuted || 'cache_hit', 0, true);
       intentMetrics.recordCacheHit();
@@ -465,8 +500,8 @@ export async function executeIntentToken(
       compilation: result.compilation,
     }, trace);
 
-    // 7. Cache the successful result
-    intentCache.set(token.intent, intentResult, undefined, cacheScope);
+    // 7. Cache the successful result — read-only work only
+    if (cacheable) intentCache.set(token.intent, intentResult, undefined, cacheScope);
 
     return intentResult;
   } catch (err: unknown) {

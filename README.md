@@ -91,7 +91,7 @@ LLM → intent_bridge → IntentToken (signed)
 | Hot path latency | ~15 ms |
 | Cold start (wake-on-request) | ~15 s |
 | Token savings per call | ~4,300 vs `bridge_workspace` |
-| Cache | LRU, 1000 entries, 60 s TTL |
+| Cache | LRU, 1000 entries, 60 s TTL — read-only tools/capabilities only (`readOnly: true`); anything else re-executes every call |
 
 ### Database Architecture
 
@@ -200,7 +200,8 @@ Auto-provisioned agreements between workspaces that define and enforce allowed a
 - **`message/send` is not transport** — a contract-authenticated `message/send` must be signed with `message` or `delegate` (`message_send` is satisfied by `message`) and that action must be in `allowedActions`; the turn then runs under the `delegated` tool profile (read-only tools + `intent_bridge`)
 - **Aggregates** — `aggregate` authorizes the envelope only; every step's tool must itself be allowed (`query:<tool>` / `tool:<tool>`). One unauthorized step denies the whole intent before any step runs, and each step's check appears in the proof's `policyChecks`
 - **Proof of what ran** — `proof.executedSqlHash` / `executedSqlCount` hash the compiled SQL actually handed to the tool (after fusion and LIMIT injection); absent when no SQL ran
-- **Storage** — Firestore manifest with 5 s TTL cache, fallback to `RT_CONTRACTS` env
+- **Storage** — Firestore manifest with 5 s TTL cache; `RT_CONTRACTS` env only before the first successful fetch (see `RT_MANIFEST_FAIL_CLOSED`)
+- **Token ↔ contract consistency** — on `intent/execute`, `X-Contract-Id` must equal `token.contractId`, and `token.contractVersion` must equal the manifest contract's `version` (a version bump revokes tokens minted under the old key)
 
 ### Action Mapping (`intentOpToAction`)
 

@@ -52,6 +52,12 @@ export interface WorkspaceCapability {
   outputSchema: JSONSchema;
   /** Required contract action for access (optional — defaults to capability:name) */
   requiredAction?: string;
+  /**
+   * True when the handler observes state without changing it. Only read-only
+   * capabilities are served from the intent cache (intentExecutor
+   * isIntentCacheable); absent = side-effecting = never cached.
+   */
+  readOnly?: boolean;
 }
 
 /** Internal registration — capability definition + handler */
