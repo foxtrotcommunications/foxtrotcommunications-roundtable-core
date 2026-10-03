@@ -11,6 +11,7 @@ import type { Tool } from '../types';
 
 const tool: Tool = {
   name: 'find_file',
+  readOnly: true,
   description: 'Search for files by name (or partial name) across all repos in the workspace. Returns matching file paths. Use this when you need to locate a file.',
   parameters: {
     type: 'object',

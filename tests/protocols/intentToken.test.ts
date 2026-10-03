@@ -657,10 +657,13 @@ describe('Intent Executor', () => {
     expect(result.data).toEqual({ rows: [{ revenue: 1000 }], rowCount: 1 });
     expect(result.toolExecuted).toBe('query_bigquery');
     expect(result.signature).toBeDefined();
+    // Tool profiles (0.1): the executor hands its resolved allowlist to
+    // executeTool so the registry enforces it at execution.
     expect(executeTool).toHaveBeenCalledWith(
       'query_bigquery',
       makeQueryIntent().params,
       {},
+      { enabledToolNames: null },
     );
   });
 
@@ -682,6 +685,7 @@ describe('Intent Executor', () => {
       'read_file',
       { path: '/data/report.csv' },
       {},
+      { enabledToolNames: null },
     );
   });
 

@@ -11,6 +11,7 @@ import type { Tool } from '../types';
 
 const tool: Tool = {
   name: 'list_files',
+  readOnly: true,
   description: 'List files and directories in a workspace path. Returns names, types, and sizes.',
   parameters: {
     type: 'object',

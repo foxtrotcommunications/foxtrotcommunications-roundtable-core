@@ -1,5 +1,6 @@
 // server/services/aiProvider.ts — Unified multi-provider AI interface with tool support
 import type {
+  ToolProfile,
   StreamEvent,
   OpenAIToolCall,
   OpenAIUsage,
@@ -15,11 +16,37 @@ import type { Response as NodeFetchResponse } from 'node-fetch';
 const fetch = require('node-fetch') as typeof import('node-fetch').default;
 const { GoogleGenAI } = require('@google/genai') as { GoogleGenAI: new (opts: Record<string, unknown>) => GoogleGenAIClient };
 const { executeTool, toOpenAITools, toAnthropicTools, toGoogleTools } = require('../tools') as {
-  executeTool: (name: string, args: Record<string, unknown>, config?: Record<string, unknown>) => Promise<Record<string, unknown>>;
-  toOpenAITools: (enabledToolNames?: string[] | null) => Record<string, unknown>[];
-  toAnthropicTools: (enabledToolNames?: string[] | null) => Record<string, unknown>[];
-  toGoogleTools: (enabledToolNames?: string[] | null) => Record<string, unknown>[];
+  executeTool: (name: string, args: Record<string, unknown>, config?: Record<string, unknown>, options?: { enabledToolNames?: string[] | null; profile?: ToolProfile }) => Promise<Record<string, unknown>>;
+  toOpenAITools: (enabledToolNames?: string[] | null, profile?: ToolProfile) => Record<string, unknown>[];
+  toAnthropicTools: (enabledToolNames?: string[] | null, profile?: ToolProfile) => Record<string, unknown>[];
+  toGoogleTools: (enabledToolNames?: string[] | null, profile?: ToolProfile) => Record<string, unknown>[];
 };
+
+/**
+ * Execute a model-requested tool under the workspace's allowlist. The
+ * registry enforces the profile (tools/index.ts executeTool); a denial —
+ * ToolNotEnabled, or a tool name the model invented — is handed back to the
+ * model as an error RESULT rather than thrown, so one hallucinated call does
+ * not turn the whole turn into a stream error. The message matches
+ * NON_TRANSIENT_PATTERNS so the breaker blocks that name for the rest of the
+ * turn instead of letting the model retry it.
+ */
+async function runWorkspaceTool(
+  name: string,
+  args: Record<string, unknown>,
+  cfg: WorkspaceConfig & Record<string, unknown>,
+  enabledToolNames: string[] | null,
+): Promise<Record<string, unknown>> {
+  try {
+    return await executeTool(name, args, cfg, { enabledToolNames, profile: cfg.toolProfile });
+  } catch (err: unknown) {
+    const e = err as Error & { code?: string };
+    if (e?.code === 'TOOL_NOT_ENABLED' || /^Unknown tool:/.test(e?.message || '')) {
+      return { error: e.message, code: e.code || 'UNKNOWN_TOOL' };
+    }
+    throw err;
+  }
+}
 const config = require('../config') as import('../types').AppConfig;
 const { startSpan, endSpan, preview } = require('../tracing') as typeof import('../tracing');
 const { recordSpan } = require('../tracing/collector') as typeof import('../tracing/collector');
@@ -44,6 +71,10 @@ const NON_TRANSIENT_PATTERNS = [
   'No bridge found',
   'is not registered in this workspace',
   'is not available in this workspace',
+  // Tool-profile denials (tools/index.ts ToolNotEnabled) and invented tool
+  // names: the allowlist does not change mid-turn, so retrying is pointless.
+  'is not enabled in this workspace',
+  'Unknown tool:',
 ];
 const NON_TRANSIENT_STATUS_CODES = [401, 403];
 
@@ -213,7 +244,7 @@ interface GoogleGenAIChunk {
  * @param {string} apiKey
  * @param {boolean} enableTools
  * @param {AbortSignal|null} signal — optional AbortSignal for cancellation
- * @param {string[]|null} enabledToolNames — optional tool allowlist; null = all tools
+ * @param {string[]|null} enabledToolNames — optional tool allowlist; null = default profile (registry minus dangerous tools)
  * @param {object} [workspaceConfig] — per-workspace config { dataSources: {...} }
  */
 async function* streamCompletion(provider: string, model: string, messages: ChatMessage[], apiKey: string, enableTools: boolean = true, signal: AbortSignal | null = null, enabledToolNames: string[] | null = null, workspaceConfig: WorkspaceConfig = {}): AsyncGenerator<StreamEvent> {
@@ -287,7 +318,7 @@ async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: str
     };
 
     if (enableTools && round < maxRounds - 1) {
-      body.tools = toOpenAITools(enabledToolNames);
+      body.tools = toOpenAITools(enabledToolNames, workspaceConfig?.toolProfile);
       body.tool_choice = 'auto';
       // gpt-5.6-sol rejects function tools on /v1/chat/completions unless
       // reasoning_effort is explicitly 'none' (reasoning defaults on). Tool
@@ -381,7 +412,7 @@ async function* streamOpenAI(model: string, messages: ChatMessage[], apiKey: str
           return { tc, blocked: true, result: { error: blockedToolMessage(_tripped, toolFailures) } as Record<string, unknown>, toolStart: Date.now(), durationMs: 0 };
         }
         const toolStart = Date.now();
-        const result: Record<string, unknown> = await executeTool(tc.name, JSON.parse(tc.arguments), configWithProgress);
+        const result: Record<string, unknown> = await runWorkspaceTool(tc.name, JSON.parse(tc.arguments), configWithProgress, enabledToolNames);
         return { tc, blocked: false, result, toolStart, durationMs: Date.now() - toolStart };
       }));
       for (const ex of settled) {
@@ -495,7 +526,7 @@ async function* streamAnthropic(model: string, messages: ChatMessage[], apiKey: 
     }
 
     if (enableTools && round < maxRounds - 1) {
-      body.tools = toAnthropicTools(enabledToolNames);
+      body.tools = toAnthropicTools(enabledToolNames, workspaceConfig?.toolProfile);
     }
 
     const response: NodeFetchResponse = await fetch('https://api.anthropic.com/v1/messages', {
@@ -568,7 +599,7 @@ async function* streamAnthropic(model: string, messages: ChatMessage[], apiKey: 
           _io.to(`ws:${_wsId}`).emit('ai-status', { step, label, state, ...opts });
         } : undefined,
       };
-      const result: Record<string, unknown> = await executeTool(tu.name, tu.input, configWithProgress);
+      const result: Record<string, unknown> = await runWorkspaceTool(tu.name, tu.input, configWithProgress, enabledToolNames);
       const toolDurationMs = Date.now() - toolStart;
       if (traceCtx) {
         const toolSpan = startSpan({ traceId: traceCtx.traceId, parentSpanId: llmSpan?.spanId || traceCtx.spanId, workspaceId: workspaceConfig?.workspaceId || '', workspaceName: workspaceConfig?.workspaceName || '', operation: 'tool_execution', toolName: tu.name, inputPreview: preview(JSON.stringify(tu.input)), sampled: traceCtx.sampled });
@@ -701,7 +732,7 @@ async function* streamGoogle(model: string, messages: ChatMessage[], apiKey: str
     }
 
     if (enableTools && round < maxRounds - 1) {
-      body.tools = toGoogleTools(enabledToolNames);
+      body.tools = toGoogleTools(enabledToolNames, workspaceConfig?.toolProfile);
     }
 
     const url: string = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse`;
@@ -773,7 +804,7 @@ async function* streamGoogle(model: string, messages: ChatMessage[], apiKey: str
             _io.to(`ws:${_wsId}`).emit('ai-status', { step, label, state, ...opts });
           } : undefined,
         };
-        const result = await executeTool(fc.name, fc.args, configWithProgress);
+        const result = await runWorkspaceTool(fc.name, fc.args, configWithProgress, enabledToolNames);
         const toolDurationMs = Date.now() - toolStart;
         if (traceCtx) {
           const toolSpan = startSpan({ traceId: traceCtx.traceId, parentSpanId: llmSpan?.spanId || traceCtx.spanId, workspaceId: workspaceConfig?.workspaceId || '', workspaceName: workspaceConfig?.workspaceName || '', operation: 'tool_execution', toolName: fc.name, inputPreview: preview(JSON.stringify(fc.args)), sampled: traceCtx.sampled });
@@ -876,7 +907,7 @@ async function* streamOllama(model: string, messages: ChatMessage[], enableTools
     };
 
     if (enableTools && round < maxRounds - 1) {
-      const tools: Record<string, unknown>[] = toOpenAITools(enabledToolNames);
+      const tools: Record<string, unknown>[] = toOpenAITools(enabledToolNames, workspaceConfig?.toolProfile);
       if (tools && tools.length > 0) {
         body.tools = tools;
         body.tool_choice = 'auto';
@@ -953,7 +984,7 @@ async function* streamOllama(model: string, messages: ChatMessage[], enableTools
           return { tc, blocked: true, result: { error: blockedToolMessage(_tripped, toolFailures) } as Record<string, unknown>, toolStart: Date.now(), durationMs: 0 };
         }
         const toolStart = Date.now();
-        const result: Record<string, unknown> = await executeTool(tc.name, JSON.parse(tc.arguments), configWithProgress);
+        const result: Record<string, unknown> = await runWorkspaceTool(tc.name, JSON.parse(tc.arguments), configWithProgress, enabledToolNames);
         return { tc, blocked: false, result, toolStart, durationMs: Date.now() - toolStart };
       }));
       for (const ex of settled) {
@@ -1109,7 +1140,7 @@ async function* streamVertexAI(model: string, messages: ChatMessage[], enableToo
       requestConfig.systemInstruction = systemInstruction;
     }
     if (enableTools && round < maxRounds - 1) {
-      requestConfig.tools = toGoogleTools(enabledToolNames);
+      requestConfig.tools = toGoogleTools(enabledToolNames, workspaceConfig?.toolProfile);
     }
 
     let stream: AsyncIterable<GoogleGenAIChunk>;
@@ -1231,7 +1262,7 @@ async function* streamVertexAI(model: string, messages: ChatMessage[], enableToo
             _io.to(`ws:${_wsId}`).emit('ai-status', { step, label, state, ...opts });
           } : undefined,
         };
-        const result = await executeTool(fc.name, fc.args, configWithProgress);
+        const result = await runWorkspaceTool(fc.name, fc.args, configWithProgress, enabledToolNames);
         const toolDurationMs = Date.now() - toolStart;
         console.log(`[aiProvider] Tool '${fc.name}' completed with length ${JSON.stringify(result)?.length || 0}`);
         if (traceCtx) {

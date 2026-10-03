@@ -8,6 +8,7 @@
 
 import {
   tools,
+  DANGEROUS_TOOLS,
   resolveTools,
   getAvailableTools,
   toOpenAITools,
@@ -77,19 +78,31 @@ describe('resolveTools', () => {
     clearDynamicTools('test_');
   });
 
-  it('should return all tools when enabledNames is null', () => {
+  // Tool profiles (upgrade plan 0.1): NULL/undefined/[] is the DEFAULT
+  // profile — every registered tool except the dangerous set. It used to be
+  // "all tools"; the dangerous six now require an explicit opt-in.
+  const nonDangerous = () => Object.keys(tools).filter((n) => !DANGEROUS_TOOLS.includes(n));
+
+  it('should return the default profile (registry minus dangerous) when enabledNames is null', () => {
     const resolved = resolveTools(null);
-    expect(Object.keys(resolved).length).toBe(Object.keys(tools).length);
+    expect(Object.keys(resolved).sort()).toEqual(nonDangerous().sort());
+    for (const d of DANGEROUS_TOOLS) expect(resolved[d]).toBeUndefined();
   });
 
-  it('should return all tools when enabledNames is undefined', () => {
+  it('should return the default profile when enabledNames is undefined', () => {
     const resolved = resolveTools(undefined);
-    expect(Object.keys(resolved).length).toBe(Object.keys(tools).length);
+    expect(Object.keys(resolved).length).toBe(nonDangerous().length);
   });
 
-  it('should return all tools when enabledNames is empty array', () => {
+  it('should return the default profile when enabledNames is empty array', () => {
     const resolved = resolveTools([]);
-    expect(Object.keys(resolved).length).toBe(Object.keys(tools).length);
+    expect(Object.keys(resolved).length).toBe(nonDangerous().length);
+  });
+
+  it('should include a dangerous tool only when it is named explicitly', () => {
+    const resolved = resolveTools(['calculator', 'shell_exec']);
+    expect(resolved['shell_exec']).toBeDefined();
+    expect(resolved['run_code']).toBeUndefined();
   });
 
   it('should filter to only the specified tools + meta-tools', () => {

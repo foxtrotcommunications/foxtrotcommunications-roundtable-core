@@ -77,8 +77,24 @@ export interface Tool {
   description: string;
   parameters: ToolParameters;
   alwaysEnabled?: boolean;
+  /**
+   * True when invoking the tool observes state without changing it
+   * (query/read/list/get/search/snapshot style). Absent = side-effecting:
+   * excluded from the `delegated` tool profile and never served from the
+   * intent cache. Authors opt IN to read-only; the default is the safe one.
+   */
+  readOnly?: boolean;
   execute: (args: Record<string, unknown>, workspaceConfig?: WorkspaceConfig) => Promise<Record<string, unknown>>;
 }
+
+/**
+ * Tool profiles (upgrade plan 0.1 / 1.5):
+ *   'default'   — the workspace's enabled_tools; NULL means every registered
+ *                 tool EXCEPT the dangerous set (run_code, shell_exec, …).
+ *   'delegated' — a further restriction for turns another agent delegated to
+ *                 this workspace: read-only tools + intent_bridge only.
+ */
+export type ToolProfile = 'default' | 'delegated';
 
 // ─── Workspace Types ───────────────────────────────────────
 
@@ -104,6 +120,9 @@ export interface WorkspaceConfig {
   /** Pooled runtime: the executing tenant — sender tools resolve manifests
    *  and org master secrets from this instead of process env. */
   tenant?: { workspaceId: string; orgId?: string | null };
+  /** Tool profile for this turn (see ToolProfile). Absent = 'default'. Set
+   *  to 'delegated' by the A2A message/send and bridge-delegation paths. */
+  toolProfile?: ToolProfile;
   traceContext?: {
     traceId: string;
     spanId: string;

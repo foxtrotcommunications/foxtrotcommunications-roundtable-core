@@ -116,7 +116,9 @@ function createMcpRequestHandler(enabledToolNames: string[] | null) {
           }
 
           try {
-            const result = await executeTool(toolName, toolArgs);
+            // Same allowlist tools/list advertised — enforced at execution so
+            // a client cannot call a tool it was not shown.
+            const result = await executeTool(toolName, toolArgs, {}, { enabledToolNames });
 
             res.json(
               jsonRpcSuccess(id ?? null, {

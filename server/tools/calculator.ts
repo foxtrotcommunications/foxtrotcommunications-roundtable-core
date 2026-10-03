@@ -19,6 +19,7 @@ import type { Tool } from '../types';
 
 const tool: Tool = {
   name: 'calculator',
+  readOnly: true,
   description: 'Evaluate mathematical expressions. Supports arithmetic, algebra, unit conversions, statistics, and more. Examples: "2^10", "sin(pi/4)", "5 inches to cm", "mean([1,2,3,4,5])"',
   parameters: {
     type: 'object',

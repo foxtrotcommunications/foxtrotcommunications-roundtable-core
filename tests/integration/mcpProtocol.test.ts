@@ -264,7 +264,9 @@ describe('MCP Protocol — tools/call', () => {
 
     await handler(req, res);
 
-    expect(executeTool).toHaveBeenCalledWith('calculator', { expression: '3*7' });
+    // Tool profiles (0.1): tools/call passes the same allowlist tools/list
+    // advertised, so the registry enforces it at execution.
+    expect(executeTool).toHaveBeenCalledWith('calculator', { expression: '3*7' }, {}, { enabledToolNames: null });
   });
 
   it('should default arguments to empty object when not provided', async () => {
@@ -277,7 +279,7 @@ describe('MCP Protocol — tools/call', () => {
 
     await handler(req, res);
 
-    expect(executeTool).toHaveBeenCalledWith('calculator', {});
+    expect(executeTool).toHaveBeenCalledWith('calculator', {}, {}, { enabledToolNames: null });
   });
 });
 

@@ -235,7 +235,16 @@ Auto-provisioned agreements between workspaces that define and enforce allowed a
 
 ## Built-in Tools (27)
 
-All tools enabled by default. Toggle individually per workspace via the Settings panel.
+**Deny by default for the dangerous set.** A workspace with no `enabled_tools`
+row (NULL) gets every tool *except* `run_code`, `shell_exec`, `write_file`,
+`git_clone`, `git_commit` and `git_pull`; those run only when a workspace names
+them explicitly in `enabled_tools`. The allowlist is enforced at execution
+(`executeTool` throws `ToolNotEnabled`), not just at advertisement —
+`RT_TOOL_PROFILE_ENFORCE=warn|deny` picks log-and-run vs refuse on dedicated
+pods (default `warn`); pooled services always deny and never register the
+dangerous set at all. Delegated turns (A2A `message/send` from another
+workspace's agent) run under the `delegated` profile: read-only tools +
+`intent_bridge`. Toggle tools per workspace via the Settings panel.
 
 | Category | Tools |
 |----------|-------|
@@ -332,6 +341,7 @@ These events power the routing DAG visualization in Pendragon's chat UI.
 | `DEMO_MODE` | `false` | Enable auto-login guest accounts |
 | `A2A_SERVER_ENABLED` | `false` | Enable A2A protocol server |
 | `SHELL_EXEC_ENABLED` | `false` | Allow shell_exec tool |
+| `RT_TOOL_PROFILE_ENFORCE` | `warn` | `warn` logs a tool call outside the workspace allowlist and runs it; `deny` refuses it (`ToolNotEnabled`). Pooled services are always `deny`. |
 
 ### AI Providers
 

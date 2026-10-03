@@ -18,6 +18,7 @@ import type { Tool } from '../types';
 
 const tool: Tool = {
   name: 'describe_workspace',
+  readOnly: true,
   description: 'Discover the current workspace environment: what tools are available, what data warehouses are connected, deployment mode, and platform capabilities. Call this FIRST when a user asks what you can do or when you need to understand your environment.',
   parameters: {
     type: 'object',

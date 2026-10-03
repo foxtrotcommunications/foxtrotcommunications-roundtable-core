@@ -8,6 +8,7 @@ import type { Tool } from '../types';
 
 const tool: Tool = {
   name: 'read_url',
+  readOnly: true,
   description: 'Fetch a URL and extract its text content. Useful for reading articles, documentation, or web pages.',
   parameters: {
     type: 'object',

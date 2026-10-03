@@ -461,16 +461,25 @@ app.post('/api/tools/execute', async (req, res) => {
     const db = getAdapter();
     const ws = await db.getWorkspace(config.workspaceId);
 
+    // Control-plane calls run under the workspace's own enabled_tools — the
+    // CP's HMAC proves who is asking, not that the tool is enabled here.
+    let enabledToolNames = null;
+    if (ws && ws.enabled_tools) {
+      try {
+        const parsed = JSON.parse(ws.enabled_tools);
+        if (Array.isArray(parsed) && parsed.length > 0) enabledToolNames = parsed;
+      } catch { /* malformed row → default profile */ }
+    }
     const result = await executeTool(tool, args || {}, {
       workspaceId: config.workspaceId,
       workspaceName: ws?.name,
       traceContext: { spanId: `api-${Date.now()}` },
-    });
+    }, { enabledToolNames });
 
     res.json(result);
   } catch (err) {
     console.error('[tools/execute] Error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(err.code === 'TOOL_NOT_ENABLED' ? 403 : 500).json({ error: err.message });
   }
 });
 

@@ -14,6 +14,7 @@ import type { Tool } from '../types';
 
 const tool: Tool = {
   name: 'query_bigquery',
+  readOnly: true,
   description: 'Execute a read-only SQL query against Google BigQuery. Returns rows as JSON. Use fully qualified table names: `project.dataset.table`. Limited to SELECT/WITH statements. Max 100 rows returned. Always include a LIMIT clause.',
   parameters: {
     type: 'object',

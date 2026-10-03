@@ -32,7 +32,7 @@ const { streamCompletion } = require('../services/aiProvider') as {
 // fallbacks. (Pendragon's financial versions live in @pendragon/tools-plaid.)
 const { describeActivity, extractProvenance, getPreConsults } = require('./appHooks') as typeof import('./appHooks');
 const { dedupeMetadataComments } = require('./textShaping') as { dedupeMetadataComments: (t: string) => string };
-const { executeTool } = require('../tools') as { executeTool: (name: string, args: any, workspaceConfig?: any) => Promise<any> };
+const { executeTool } = require('../tools') as { executeTool: (name: string, args: any, workspaceConfig?: any, options?: { enabledToolNames?: string[] | null }) => Promise<any> };
 
 // ─── A2A Task Types ────────────────────────────────────────
 
@@ -198,7 +198,7 @@ async function processMessage(options: ProcessMessageOptions): Promise<A2aTask> 
     // (worst case is exactly the old behavior — the model asks).
     for (const pc of getPreConsults({ workspaceName: effectiveWsName })) {
       try {
-        const pcResult = await executeTool('intent_bridge', pc.args, tracedWorkspaceConfig);
+        const pcResult = await executeTool('intent_bridge', pc.args, tracedWorkspaceConfig, { enabledToolNames });
         const pcSpan = startSpan({
           traceId: rootSpan.traceId,
           parentSpanId: rootSpan.spanId,

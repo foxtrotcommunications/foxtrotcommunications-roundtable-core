@@ -12,6 +12,7 @@ import type { Tool } from '../types';
 
 const tool: Tool = {
   name: 'read_file',
+  readOnly: true,
   description: 'Read the contents of a file from the workspace or .roundtable/ platform directory. Returns the file content with line numbers.',
   parameters: {
     type: 'object',

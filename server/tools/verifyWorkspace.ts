@@ -17,6 +17,7 @@ import type { Tool } from '../types';
 
 const tool: Tool = {
   name: 'verify_workspace',
+  readOnly: true,
   description: 'Run health checks against all enabled tools and data sources to verify they are functional. Returns pass/fail status for each tool. Call this to confirm your environment is working before starting complex tasks, or when asked to verify your capabilities.',
   parameters: {
     type: 'object',

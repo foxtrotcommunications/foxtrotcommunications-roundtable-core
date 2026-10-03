@@ -120,7 +120,11 @@ async function executeQuery(
     policyChecks.push({ type: 'sql_safety', passed: true });
   }
 
-  const data = await executeTool(intent.tool, intent.params, ctx.workspaceConfig);
+  // Allowlist enforced at execution (tool profiles, 0.1): a query step names
+  // a tool like any other call, and the workspace's enabled_tools decide.
+  const data = await executeTool(intent.tool, intent.params, ctx.workspaceConfig, {
+    enabledToolNames: ctx.enabledToolNames,
+  });
   return { data };
 }
 
@@ -140,7 +144,9 @@ async function executeToolCall(
   }
   policyChecks.push({ type: 'tool_exists', passed: true, detail: intent.tool });
 
-  const data = await executeTool(intent.tool, intent.args, ctx.workspaceConfig);
+  const data = await executeTool(intent.tool, intent.args, ctx.workspaceConfig, {
+    enabledToolNames: ctx.enabledToolNames,
+  });
   return { data };
 }
 

@@ -20,6 +20,7 @@ import type { Tool } from '../types';
 
 const tool: Tool = {
   name: 'query_databricks',
+  readOnly: true,
   description: 'Execute a read-only SQL query against a Databricks SQL Warehouse. Returns rows as JSON. Use fully qualified table names: catalog.schema.table. Limited to SELECT/WITH statements. Max 1000 rows returned.',
   parameters: {
     type: 'object',

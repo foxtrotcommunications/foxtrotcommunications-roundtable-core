@@ -10,6 +10,7 @@ import type { Tool } from '../types';
 
 const tool: Tool = {
   name: 'web_search',
+  readOnly: true,
   description: 'Search the web for current information. Returns relevant search results with titles, snippets, and URLs.',
   parameters: {
     type: 'object',
