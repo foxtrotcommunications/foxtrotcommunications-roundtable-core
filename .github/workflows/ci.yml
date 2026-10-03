@@ -69,8 +69,20 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # Doc-vs-code: each claim in scripts/verify-claims.ts is a sentence from
+      # the README/doctrine paired with a predicate over the code. One false
+      # claim fails the build (doctrine §11).
+      - name: Verify doc claims
+        run: npm run verify:claims
+
       - name: Lint server (report only)
         run: npm run lint:server || true
+
+      # One action vocabulary (server/vocab/actions.ts, byte-identical to the
+      # control plane's api/services/actions.ts): fail if a second list of
+      # action names appears in source. Allowlist = follow-ups, not exemptions.
+      - name: Check for stray action literals
+        run: bash scripts/check-action-literals.sh
 
   # ── Build & Deploy (main branch only) ──────────────────────
   build:

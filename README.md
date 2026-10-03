@@ -440,13 +440,15 @@ See [`.env.example`](.env.example) for the full list.
 ## Testing
 
 ```bash
-npm test                  # Unit + ICE + pooled tests (552 tests, 40 suites; +1 suite skipped without DATABASE_URL)
+npm test                  # Unit + ICE + pooled tests (557 tests, 41 suites; +1 suite skipped without DATABASE_URL)
 npm run test:integration  # Integration tests (117 tests, 5 suites; set DATABASE_URL for the Postgres suites)
 npm run typecheck         # TypeScript strict mode
 npm run lint:server       # ESLint
+npm run check:actions     # One action vocabulary: fails on a second list of action names (CI)
+npm run verify:claims     # Doc-vs-code: 14 claims from the README/doctrine, each a predicate over the code (CI)
 ```
 
-### Unit Tests — 552 tests / 40 suites
+### Unit Tests — 557 tests / 41 suites
 
 | Suite | Tests | Coverage |
 |-------|-------|----------|
@@ -466,6 +468,7 @@ npm run lint:server       # ESLint
 | Execution proofs | 8 | Build, verify, tamper detection, hash matching |
 | Intent cache | 11 | Hit/miss, TTL, LRU eviction, stats |
 | Intent compiler | 14 | SQL fusion, dedup, LIMIT injection |
+| Action vocabulary (`tests/vocab/`) | 5 | `server/vocab/actions.ts` sha256 == `tests/fixtures/actions.sha256` (same value in the control plane), isKnownAction |
 | Pooled runtime (`tests/pooled/`) | 176 | Tenant auth/resolution, S2S HMAC v1+v2 (spec vectors), tool profiles, registry exclusion, manifest fail-closed, contract expiry, per-step auth, message/send gate, contract consistency, read-only cache |
 
 ### Integration Tests — 117 tests / 5 suites

@@ -16,6 +16,7 @@ import { buildIntentToken, verifyIntentResult } from '../protocols/intentTokenCo
 import { validateIntent, intentOpToAction } from '../protocols/intentToken';
 import type { IntentOperation, IntentResult } from '../protocols/intentToken';
 import type { Tool } from '../types';
+import { INTENT_OPS } from '../vocab/actions';
 const { startSpan, endSpan, injectTraceHeaders, preview } = require('../tracing') as typeof import('../tracing');
 const { recordSpan } = require('../tracing/collector') as typeof import('../tracing/collector');
 
@@ -147,7 +148,7 @@ const intentBridge: Tool = {
       },
       op: {
         type: 'string',
-        enum: ['query', 'tool_call', 'aggregate', 'discover', 'capability'],
+        enum: [...INTENT_OPS],
         description: 'Operation type',
       },
       tool: {
