@@ -104,9 +104,17 @@ const S2S_ROUTES = [
 try {
   const plugin = require('@pendragon/tools-plaid');
   for (const [mountPath, hmacPath, exportName] of S2S_ROUTES) {
-    if (plugin[exportName]) {
+    if (typeof plugin[exportName] === 'function') {
       app.use(mountPath, requireHmac(hmacPath, { tenantRequired: true }), attachTenantConnections, plugin[exportName]);
     }
+  }
+  // Attested consent grants (upgrade plan 4.2; tools-plaid ≥ 1.66.0 exports
+  // `consentRoute`): the Pendragon API hands the pod a grant it minted on
+  // the user's tap, signed with CONSENT_GRANT_SECRET, and the route refuses
+  // a body whose workspace_id is not the tenant bound into this HMAC. Older
+  // plugins (no export) keep serving it at POST /api/memory/consent-grants.
+  if (typeof plugin.consentRoute === 'function') {
+    app.use('/api/consent', requireHmac('consent', { tenantRequired: true }), attachTenantConnections, plugin.consentRoute);
   }
   // Demographics seeding only exists on the demographics service.
   if (config.pooledDomainType === 'demographics' && plugin.demographicsSeedRoute) {

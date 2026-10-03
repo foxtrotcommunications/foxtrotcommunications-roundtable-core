@@ -21,6 +21,7 @@
     { "route": "household-members",      "tenantBound": "optional", "direction": "pd->core" },
     { "route": "export",                 "tenantBound": "optional", "direction": "pd->core" },
     { "route": "watches",                "tenantBound": "optional", "direction": "pd->core" },
-    { "route": "import",                 "tenantBound": "optional", "direction": "pd->core" }
+    { "route": "import",                 "tenantBound": "optional", "direction": "pd->core" },
+    { "route": "consent",                "tenantBound": "optional", "direction": "pd->core" }
   ]
 }
