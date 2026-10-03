@@ -69,6 +69,12 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # Doc-vs-code: each claim in scripts/verify-claims.ts is a sentence from
+      # the README/doctrine paired with a predicate over the code. One false
+      # claim fails the build (doctrine §11).
+      - name: Verify doc claims
+        run: npm run verify:claims
+
       - name: Lint server (report only)
         run: npm run lint:server || true
 

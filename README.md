@@ -411,6 +411,7 @@ npm run test:integration  # Integration tests (117 tests, 5 suites; set DATABASE
 npm run typecheck         # TypeScript strict mode
 npm run lint:server       # ESLint
 npm run check:actions     # One action vocabulary: fails on a second list of action names (CI)
+npm run verify:claims     # Doc-vs-code: 14 claims from the README/doctrine, each a predicate over the code (CI)
 ```
 
 ### Unit Tests — 557 tests / 41 suites
