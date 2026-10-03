@@ -173,7 +173,7 @@ JSON-RPC 2.0 over HTTP. Plug in external agents built in any language.
 | Method | Headers | Use Case |
 |--------|---------|----------|
 | **API Key** | `Authorization: Bearer <key>` | Simple integrations |
-| **Contract HKDF** | `X-Contract-Id`, `X-Contract-Signature`, `X-Contract-Timestamp` (+ `X-Rt-Nonce`, `X-Rt-Sig-V: 2`) | Workspace-to-workspace |
+| **Contract HKDF** | `X-Contract-Id`, `X-Contract-Signature`, `X-Contract-Timestamp` (+ `X-Rt-Nonce`, `X-Rt-Sig-V: 2`; `X-Contract-Sender` names the signing party) | Workspace-to-workspace |
 | **Control-plane S2S HMAC** | `X-Control-Plane-Signature`, `X-Control-Plane-Timestamp` (+ `X-Rt-Nonce`, `X-Rt-Sig-V: 2`; `X-Rt-Workspace` when tenant-bound) | Control plane / trusted app → workspace |
 
 **Signature v2** (`SIGNING_SPEC.md`, `server/utils/s2sSig.js`): the signed string
@@ -187,6 +187,32 @@ mount captures `req.rawBody` for the hash. The routePath strings both sides of
 the wire use are pinned in `tests/pooled/s2sRoutePaths.json` (an identical copy
 lives in the control plane); `tests/pooled/s2sRoutePaths.test.ts` fails if a
 signer or verifier drifts from it.
+
+**Per-party contract keys** (`server/utils/contractKeys.js`): each party of a
+contract has its own key, `key(C, party) = HKDF-SHA256(orgMaster,
+"contract:{id}:{version}:party:{wsId}")`, minted by the control plane at
+approval, published to Secret Manager as `roundtable-contract-{id}-{wsId}`,
+deleted on revocation and re-minted (new version) on amendment approval. A
+sender signs requests and intent tokens with its own key and names itself
+(`X-Contract-Sender`, `token.sender`); the receiver resolves the SENDER's key
+— dedicated pods from `RT_CONTRACT_KEYS` (the per-workspace k8s Secret),
+pooled services per request from Secret Manager through the tenant-keyed
+credential cache — and checks the sender is a party to the contract and the
+counterparty of the workspace addressed. A request or token with no sender is
+a legacy org-key one, accepted while `RT_ACCEPT_ORG_KEY !== 'false'` and
+logged `[contractAuth] org-key … accepted (deprecated)` once a minute per
+contract. Bridge deliveries from the control plane must name a
+`sourceWorkspace` that is the contract's counterparty (`SOURCE_NOT_PARTY`).
+
+**Removing `ORG_MASTER_SECRET` from workspace pods** — possible once: (1) every
+dedicated pod receives `RT_CONTRACT_KEYS` (control plane 5.1 sync) and every
+pooled service account can read `roundtable-contract-*`; (2) every signer emits
+per-party identities — core's `intent_bridge` / `bridge_workspace` do so
+automatically when they hold a party key, Pendragon's signers must too; (3)
+`RT_ACCEPT_ORG_KEY=false` is set fleet-wide and the deprecated-acceptance log
+line has been silent for a release. After that the control plane can stop
+injecting `ORG_MASTER_SECRET` and the only key material a pod holds is for its
+own contracts.
 
 > **Domain isolation guard** — Domain workspaces reject `message/send` over contract auth; only `intent/execute` is accepted.
 
@@ -223,7 +249,7 @@ Auto-provisioned agreements between workspaces that define and enforce allowed a
 
 | Layer | Mechanism |
 |-------|-----------|
-| Key derivation | HKDF from `ORG_MASTER_SECRET`, per-contract keys |
+| Key derivation | Per-party contract keys, HKDF from the org master (minted by the control plane, delivered only to the two parties); legacy per-contract org key accepted behind `RT_ACCEPT_ORG_KEY` |
 | Payload encryption | AES-256-GCM end-to-end |
 | Request signing | HMAC-SHA256 with `timingSafeEqual`; v2 binds body hash + nonce |
 | Replay prevention | Nonce store, 10-min window (intent tokens and v2 S2S requests, namespaced) |
@@ -353,7 +379,9 @@ These events power the routing DAG visualization in Pendragon's chat UI.
 | `WORKSPACE_NAME` | `Roundtable` | Display name |
 | `SESSION_SECRET` | dev default | Session cookie secret (required in production) |
 | `WORKSPACE_URL` | — | Public URL (required for bridges) |
-| `ORG_MASTER_SECRET` | — | HKDF master secret for contract key derivation |
+| `ORG_MASTER_SECRET` | — | Legacy HKDF master for org-wide contract keys. Needed only while org-key signatures are still emitted/accepted (see "Removing `ORG_MASTER_SECRET`") |
+| `RT_CONTRACT_KEYS` | — | Dedicated pods: JSON map `contractId → { version, party, key, keys: { [wsId]: hex } }` of this workspace's per-party contract keys, delivered in the per-workspace k8s Secret by the control plane |
+| `RT_ACCEPT_ORG_KEY` | `true` | Accept requests/tokens with no sender, verified with the legacy org-derived contract key (logged as deprecated). `false` → 401 for anything not signed with a per-party key |
 | `EMBED_MODE` | `false` | Allow iframe embedding |
 | `DEMO_MODE` | `false` | Enable auto-login guest accounts |
 | `A2A_SERVER_ENABLED` | `false` | Enable A2A protocol server |

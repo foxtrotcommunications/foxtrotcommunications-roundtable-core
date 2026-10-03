@@ -6,7 +6,8 @@
 //   v2 (X-Rt-Sig-V: 2): header signature, routePath 'bridge/receive' (SIGNING_SPEC.md)
 //
 // When a bridged message arrives:
-// 1. Verify HMAC signature
+// 1. Verify HMAC signature; the contract must be live in the receiving
+//    workspace's manifest and sourceWorkspace must be its counterparty
 // 2. Save the message to local DB with source_workspace_id
 // 3. Broadcast to connected WebSocket clients
 // 4. For 'delegate' action: invoke AI, return result to control plane
@@ -122,6 +123,24 @@ router.post('/receive', async (req, res) => {
           contractId,
           code: 'CONTRACT_NOT_LIVE',
           detail: livenessError,
+        });
+      }
+
+      // 1c. The relaying source must be the contract's other party (5.1).
+      //     The control plane's signature says "the control plane relayed
+      //     this"; the manifest says who the contract is between. A
+      //     sourceWorkspace that is not the counterparty of the receiving
+      //     workspace is not authorized by this contract, whatever the
+      //     action list says. Fails closed when the entry names no parties.
+      const { senderPartyError } = require('../utils/contractKeys');
+      const partyError = senderPartyError(manifest, tenantWsId || config.workspaceId, sourceWorkspace && sourceWorkspace.id);
+      if (partyError) {
+        console.warn(`[Bridge] Rejected: ${partyError}`);
+        return res.status(403).json({
+          error: 'Source workspace is not the counterparty of this contract',
+          contractId,
+          code: 'SOURCE_NOT_PARTY',
+          detail: partyError,
         });
       }
 

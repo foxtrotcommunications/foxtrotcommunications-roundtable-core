@@ -365,30 +365,49 @@ const intentBridge: Tool = {
       return { success: false, error: `Invalid intent: ${validation.error}` };
     }
 
-    // ── 5. Resolve the org master secret ─────────────────────────
-    // Dedicated: pod env (org-scoped fleet). Pooled Arthur: the executing
-    // TENANT's org owns the HKDF root — fetched per tenant (TTL-cached,
-    // audit-logged) because pooled tenants span orgs.
-    let masterSecret = process.env.ORG_MASTER_SECRET;
+    // ── 5. Resolve the signing key ───────────────────────────────
+    // 5.1: this workspace's own party key for the contract (dedicated:
+    // RT_CONTRACT_KEYS; pooled Arthur: Secret Manager for the sending
+    // TENANT), signed as `sender`. Without one, the legacy org-derived key —
+    // dedicated from pod env, pooled fetched per tenant (tenants span orgs)
+    // — logged as deprecated by ownPartyKey.
     const senderTenant = _workspaceConfig?.tenant as { workspaceId?: string; orgId?: string } | undefined;
-    if (senderTenant?.workspaceId) {
-      try {
-        const { getOrgMasterSecret } = require('../tenantCredentials');
-        masterSecret = await getOrgMasterSecret(
-          senderTenant.workspaceId,
-          senderTenant.orgId || manifest.orgId || '',
-        ) || masterSecret;
-      } catch (e: any) {
-        console.error(`[intent_bridge] tenant master-secret fetch failed: ${e?.message}`);
-      }
+    const selfWsId: string = senderTenant?.workspaceId || _workspaceConfig?.workspaceId || config.workspaceId;
+    const { ownPartyKey } = require('../utils/contractKeys');
+    let partyKey: { key: Buffer; version: number } | null = null;
+    try {
+      partyKey = await ownPartyKey({
+        contractId: contract.contractId,
+        version: contract.version || 1,
+        selfWsId,
+        tenant: senderTenant?.workspaceId ? { workspaceId: senderTenant.workspaceId } : undefined,
+      });
+    } catch (e: any) {
+      console.error(`[intent_bridge] party key lookup failed: ${e?.message}`);
     }
-    if (!masterSecret) {
-      endSpan(span, 'error', { outputPreview: 'No org master secret available' });
-      recordSpan(span);
-      return {
-        success: false,
-        error: 'No org master secret available (env for dedicated pods, per-tenant fetch for pooled). Intent bridge requires contract-based authentication.',
-      };
+
+    let masterSecret: string | undefined;
+    if (!partyKey) {
+      masterSecret = process.env.ORG_MASTER_SECRET;
+      if (senderTenant?.workspaceId) {
+        try {
+          const { getOrgMasterSecret } = require('../tenantCredentials');
+          masterSecret = await getOrgMasterSecret(
+            senderTenant.workspaceId,
+            senderTenant.orgId || manifest.orgId || '',
+          ) || masterSecret;
+        } catch (e: any) {
+          console.error(`[intent_bridge] tenant master-secret fetch failed: ${e?.message}`);
+        }
+      }
+      if (!masterSecret) {
+        endSpan(span, 'error', { outputPreview: 'No contract signing key available' });
+        recordSpan(span);
+        return {
+          success: false,
+          error: 'No contract signing key available (per-party key via RT_CONTRACT_KEYS / Secret Manager, or the org master secret). Intent bridge requires contract-based authentication.',
+        };
+      }
     }
 
     // ── 6. Build signed intent token ─────────────────────────────
@@ -400,16 +419,15 @@ const intentBridge: Tool = {
         intent,
         contract.contractId,
         contract.version || 1,
-        masterSecret,
+        masterSecret || '',
+        partyKey ? { partyKey: partyKey.key, sender: selfWsId } : {},
       );
 
       // ── 7. Build contract-level auth headers ─────────────────
       const timestamp = Date.now().toString();
-      const contractKey = await deriveContractKey(
-        masterSecret,
-        contract.contractId,
-        contract.version || 1,
-      );
+      const contractKey: Buffer = partyKey
+        ? partyKey.key
+        : await deriveContractKey(masterSecret, contract.contractId, contract.version || 1);
       const action = intentOpToAction(intent);
       // Pooled target: the bridge manifest carries pooledTenant (the target's
       // logical workspace id). Bind it into the signature and send it as
@@ -450,6 +468,8 @@ const intentBridge: Tool = {
         'X-Contract-Id': contract.contractId,
         ...signatureHeaders(timestamp),
         'X-Contract-Action': action,
+        // 5.1: who signed — the receiver verifies with key(C, sender).
+        ...(partyKey ? { 'X-Contract-Sender': selfWsId } : {}),
         ...(pooledTenant ? { 'X-Rt-Tenant': pooledTenant } : {}),
       };
       injectTraceHeaders(requestHeaders, span);

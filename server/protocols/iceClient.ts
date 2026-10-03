@@ -18,6 +18,13 @@ export interface IceCallOptions {
   encrypt?: boolean;
   /** Contract version (default: 1) */
   contractVersion?: number;
+  /**
+   * Per-party signing (5.1): sign the token with key(contract, sender) and
+   * stamp `sender`. Both or neither; with neither the token is a legacy
+   * org-key token from `masterSecret`.
+   */
+  partyKey?: Buffer;
+  sender?: string;
 }
 
 export interface IceCallResult {
@@ -63,6 +70,8 @@ export async function iceCall(
     timeoutMs = 30_000,
     encrypt = true,
     contractVersion = 1,
+    partyKey,
+    sender,
   } = options;
 
   try {
@@ -72,7 +81,7 @@ export async function iceCall(
       contractId,
       contractVersion,
       masterSecret,
-      { encrypt },
+      { encrypt, ...(partyKey && sender ? { partyKey, sender } : {}) },
     );
 
     // 2. Send via JSON-RPC to target's /a2a endpoint

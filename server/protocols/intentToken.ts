@@ -72,6 +72,13 @@ export interface IntentToken {
   // Governance binding
   contractId: string;
   contractVersion: number;
+  /**
+   * Per-party identity (upgrade plan 5.1): the workspace id of the party
+   * that signed this token with key(contract, sender). Absent on legacy
+   * tokens signed with the org-derived contract key — accepted only while
+   * RT_ACCEPT_ORG_KEY !== 'false'. Part of the signed body.
+   */
+  sender?: string;
 
   // Cryptographic envelope
   signature: string;                   // HMAC-SHA256 of canonical token body

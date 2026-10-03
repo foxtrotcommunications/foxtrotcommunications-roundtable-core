@@ -98,7 +98,9 @@ describe('bridgeReceive — tenant signature matrix', () => {
     mockScopedSaveMessage.mockResolvedValue({ id: 2, role: 'user', content: 'x' });
     mockScopedGetWorkspace.mockResolvedValue({ id: 'ws-a', name: 'Arthur' });
     mockFetchManifest.mockResolvedValue({
-      RT_CONTRACTS: [{ contractId: 'contract-1', status: 'active', allowedActions: ALLOWED }],
+      // 5.1: the receiver checks sourceWorkspace is the contract's
+      // counterparty, so the manifest entry names it.
+      RT_CONTRACTS: [{ contractId: 'contract-1', status: 'active', allowedActions: ALLOWED, counterparty: { wsId: 'src-ws', name: 'Source' } }],
       orgId: 'org-a',
     });
     jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -179,5 +181,35 @@ describe('bridgeReceive — tenant signature matrix', () => {
     await handler({ body, headers: { 'x-rt-workspace': 'ws-a' } }, res);
     expect(res.statusCode).toBe(403);
     expect(res.body.code).toBe('CONTRACT_NOT_FOUND');
+  });
+
+  it('5.1: a sourceWorkspace that is not the contract counterparty is refused (SOURCE_NOT_PARTY)', async () => {
+    const body = makeBody({ sourceWorkspace: { id: 'stranger', name: 'S' } });
+    const res = createRes();
+    await handler({ body, headers: {} }, res);
+    expect(res.statusCode).toBe(403);
+    expect(res.body.code).toBe('SOURCE_NOT_PARTY');
+    expect(mockSingletonSaveMessage).not.toHaveBeenCalled();
+  });
+
+  it('5.1: a manifest entry that names no parties fails closed', async () => {
+    mockFetchManifest.mockResolvedValue({
+      RT_CONTRACTS: [{ contractId: 'contract-1', status: 'active', allowedActions: ALLOWED }],
+      orgId: 'org-a',
+    });
+    const res = createRes();
+    await handler({ body: makeBody(), headers: {} }, res);
+    expect(res.statusCode).toBe(403);
+    expect(res.body.code).toBe('SOURCE_NOT_PARTY');
+  });
+
+  it('5.1: explicit parties on the entry are honored', async () => {
+    mockFetchManifest.mockResolvedValue({
+      RT_CONTRACTS: [{ contractId: 'contract-1', status: 'active', allowedActions: ALLOWED, parties: ['src-ws', 'ded-ws'] }],
+      orgId: 'org-a',
+    });
+    const res = createRes();
+    await handler({ body: makeBody(), headers: {} }, res);
+    expect(res.statusCode).toBe(200);
   });
 });

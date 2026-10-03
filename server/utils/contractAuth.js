@@ -1,12 +1,22 @@
 // server/utils/contractAuth.js — HKDF-based contract key derivation and verification
 //
-// Each organization has ONE master secret. Contract keys are derived mathematically
-// using HKDF-SHA256: contractKey = HKDF(masterSecret, "contract:{contractId}:{version}")
+// Legacy (pre-5.1) key: each organization has ONE master secret and the
+// contract key is HKDF(masterSecret, "contract:{contractId}:{version}") —
+// the same key for both parties, derivable by every pod in the org.
 //
-// No per-contract secrets. No Secret Manager calls. Just math.
+// 5.1 per-party keys (utils/contractKeys.js): key(C, party) =
+// HKDF(master, "contract:{id}:{version}:party:{wsId}"), minted by the
+// control plane, delivered only to the two parties. A request that names
+// its sender (X-Contract-Sender) is verified with the SENDER's key; one that
+// does not is a legacy org-key request, accepted while RT_ACCEPT_ORG_KEY
+// !== 'false'. `resolveContractKeyForRequest` below is the one place that
+// decides which.
 
 const crypto = require('crypto');
 const s2s = require('./s2sSig');
+const contractKeys = require('./contractKeys');
+
+const SENDER_HEADER = 'x-contract-sender';
 
 /**
  * Derive a contract-specific key from the org master secret.
@@ -251,6 +261,50 @@ async function verifyContractRequest(contractKey, { headers, rawBody, contractId
 }
 
 /**
+ * Decide which key verifies a contract-signed REQUEST (upgrade plan 5.1).
+ *
+ *   X-Contract-Sender present → the sender must be a party to the contract
+ *     and the counterparty of `selfWsId` (the workspace being addressed:
+ *     the claimed tenant on a pooled service, this pod on a dedicated one);
+ *     the key is key(C, sender) via contractKeys.resolvePartyKey (pooled:
+ *     Secret Manager through the tenant cache; dedicated: RT_CONTRACT_KEYS).
+ *     No key → 401. Not a party → 403.
+ *   absent → legacy org key, only while RT_ACCEPT_ORG_KEY !== 'false';
+ *     `getMasterSecret()` is called lazily so a per-party request never
+ *     needs the master at all.
+ *
+ * Returns { key, kind: 'party'|'org', sender? } or { error, status }.
+ */
+async function resolveContractKeyForRequest({ headers, contract, selfWsId, tenant, getMasterSecret }) {
+  const rawSender = headers[SENDER_HEADER];
+  const sender = typeof rawSender === 'string' && rawSender.trim() ? rawSender.trim() : undefined;
+  const version = contract.version || 1;
+  if (sender) {
+    const partyErr = contractKeys.senderPartyError(contract, selfWsId, sender);
+    if (partyErr) return { error: partyErr, status: 403 };
+    let resolved;
+    try {
+      resolved = await contractKeys.resolvePartyKey({ contractId: contract.contractId, version, partyWsId: sender, tenant });
+    } catch (e) {
+      return { error: `Party key lookup failed: ${e.message}`, status: 503 };
+    }
+    if (!resolved) {
+      return { error: `No party key for sender ${sender} under contract ${contract.contractId}`, status: 401 };
+    }
+    return { key: resolved.key, kind: 'party', sender };
+  }
+  if (!contractKeys.acceptOrgKey()) {
+    return { error: 'Request names no X-Contract-Sender; org-key signatures are no longer accepted (RT_ACCEPT_ORG_KEY=false)', status: 401 };
+  }
+  const master = await getMasterSecret();
+  if (!master) {
+    return { error: 'Contract auth not available (no org master secret configured)', status: 403 };
+  }
+  const key = await deriveContractKey(master, contract.contractId, version);
+  return { key, kind: 'org' };
+}
+
+/**
  * Find the matching contract for an inbound request.
  *
  * @param {Array} contracts - Contract manifest (from RT_CONTRACTS)
@@ -387,6 +441,7 @@ function decryptPayload(contractKey, iv, ciphertext, authTag) {
 }
 
 module.exports = {
+  SENDER_HEADER,
   deriveContractKey,
   parseExpiresAt,
   contractLivenessError,
@@ -394,6 +449,7 @@ module.exports = {
   verifyRequest,
   signRequestV2,
   verifyContractRequest,
+  resolveContractKeyForRequest,
   findAndValidateContract,
   isActionAllowed,
   TRANSPORT_ACTIONS,

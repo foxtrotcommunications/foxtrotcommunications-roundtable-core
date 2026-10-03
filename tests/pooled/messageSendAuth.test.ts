@@ -138,7 +138,8 @@ describe('bridge delegation runs under the delegated profile', () => {
     const { fetchManifest } = require('../../server/utils/fetchManifest');
     const contractId = 'c-bridge';
     const allowed = ['delegate'];
-    fetchManifest.mockResolvedValue({ RT_CONTRACTS: [{ contractId, status: 'active', allowedActions: allowed }], RT_BRIDGES: [] });
+    // 5.1: the receiver checks sourceWorkspace is the contract's counterparty.
+    fetchManifest.mockResolvedValue({ RT_CONTRACTS: [{ contractId, status: 'active', allowedActions: allowed, counterparty: { wsId: 'src' } }], RT_BRIDGES: [] });
     (global as any).fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
     mockStreamCompletion.mockImplementation(async function* () { yield { type: 'done', fullText: 'done' }; });
 

@@ -157,10 +157,28 @@ const bridgeWorkspace: Tool = {
     const _sourceName = _workspaceConfig?.workspaceName || _workspaceConfig?.workspaceId
       || config.workspaceName || config.workspaceId;
 
-    // Pooled Arthur: the tenant's ORG owns the contract-key root.
-    let bridgeMasterSecret = process.env.ORG_MASTER_SECRET;
+    // Signing key (5.1): this workspace's own party key for the contract
+    // (dedicated: RT_CONTRACT_KEYS; pooled Arthur: Secret Manager for the
+    // sending tenant), else the legacy org key — pooled from the tenant's
+    // ORG (tenants span orgs), dedicated from pod env.
     const senderTenant = _workspaceConfig?.tenant as { workspaceId?: string; orgId?: string } | undefined;
-    if (senderTenant?.workspaceId) {
+    const selfWsId: string = senderTenant?.workspaceId || _workspaceConfig?.workspaceId || config.workspaceId;
+    let bridgePartyKey: { key: Buffer; version: number } | null = null;
+    if (contract) {
+      try {
+        const { ownPartyKey } = require('../utils/contractKeys');
+        bridgePartyKey = await ownPartyKey({
+          contractId: contract.contractId,
+          version: contract.version || 1,
+          selfWsId,
+          tenant: senderTenant?.workspaceId ? { workspaceId: senderTenant.workspaceId } : undefined,
+        });
+      } catch (e: any) {
+        console.error(`[bridge_workspace] party key lookup failed: ${e?.message}`);
+      }
+    }
+    let bridgeMasterSecret = bridgePartyKey ? undefined : process.env.ORG_MASTER_SECRET;
+    if (!bridgePartyKey && senderTenant?.workspaceId) {
       try {
         const { getOrgMasterSecret } = require('../tenantCredentials');
         bridgeMasterSecret = await getOrgMasterSecret(
@@ -176,18 +194,18 @@ const bridgeWorkspace: Tool = {
       const headers = { 'Content-Type': 'application/json' };
       injectTraceHeaders(headers, span);
 
-      if (contract && bridgeMasterSecret) {
-        // Contract-based HKDF auth — cryptographic proof of valid contract
+      if (contract && (bridgePartyKey || bridgeMasterSecret)) {
+        // Contract-based HKDF auth — the holder of the contract key signs.
         const { deriveContractKey, signRequest, signRequestV2, encryptPayload } = require('../utils/contractAuth');
         const { emitV2 } = require('../utils/s2sSig');
-        const contractKey = await deriveContractKey(
-          bridgeMasterSecret,
-          contract.contractId,
-          contract.version || 1
-        );
+        const contractKey: Buffer = bridgePartyKey
+          ? bridgePartyKey.key
+          : await deriveContractKey(bridgeMasterSecret, contract.contractId, contract.version || 1);
 
         headers['X-Contract-Id'] = contract.contractId;
         headers['X-Contract-Action'] = action;
+        // 5.1: who signed — the receiver verifies with key(C, sender).
+        if (bridgePartyKey) headers['X-Contract-Sender'] = selfWsId;
 
         // E2E encrypt the message payload — only the target workspace can decrypt
         const encrypted = encryptPayload(contractKey, { text: content });

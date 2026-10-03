@@ -329,13 +329,28 @@ async function executeCapability(
   }
   policyChecks.push({ type: 'capability_exists', passed: true, detail: intent.name });
 
-  // Build the capability context with an ICE client for internal hops
+  // Build the capability context with an ICE client for internal hops.
+  // 5.1: the hop signs with THIS workspace's party key for the hop contract
+  // when one is held (RT_CONTRACT_KEYS / Secret Manager for the tenant),
+  // else the legacy org key from the workspace config.
   const masterSecret = (ctx.workspaceConfig as Record<string, string>).ORG_MASTER_SECRET || '';
+  const selfWsId = String((ctx.workspaceConfig as any)?.workspaceId
+    || (ctx.tenant as any)?.workspaceId || process.env.WS_ID || process.env.WORKSPACE_ID || '');
   const capCtx: CapabilityContext = {
     executionCtx: ctx,
     tenant: ctx.tenant,
     iceCall: async (targetUrl, contractId, capabilityName, input) => {
-      return iceCapabilityCall(targetUrl, contractId, capabilityName, input, masterSecret);
+      let party: { key: Buffer } | null = null;
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { ownPartyKey } = require('../utils/contractKeys');
+        party = await ownPartyKey({
+          contractId, version: 1, selfWsId,
+          tenant: ctx.tenant ? { workspaceId: (ctx.tenant as any).workspaceId } : undefined,
+        });
+      } catch { party = null; }
+      return iceCapabilityCall(targetUrl, contractId, capabilityName, input, masterSecret,
+        party ? { partyKey: party.key, sender: selfWsId } : {});
     },
   };
 

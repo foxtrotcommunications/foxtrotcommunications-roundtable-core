@@ -9,7 +9,8 @@
 //
 // The secret layout is the control plane's existing one: one secret per
 // connection, `roundtable-conn-<connId>`, JSON payload with the credential
-// fields (access_token / client_id / secret / env / item_id for Plaid).
+// fields (access_token / client_id / secret / env / item_id for Plaid); and,
+// since 5.1, one secret per contract party, `roundtable-contract-<C>-<ws>`.
 // Nothing new is written by this module — it only reads.
 //
 // AUTHORIZATION IS NOT DECIDED HERE. The pooled entrypoint must only ask for
@@ -23,6 +24,7 @@ import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 
 const GCP_PROJECT = process.env.GCP_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || '';
 const SECRET_PREFIX = 'roundtable-conn';
+const CONTRACT_SECRET_PREFIX = 'roundtable-contract';
 
 // Hard ceiling 5 minutes — the design decision, not a tunable default. The
 // env var may only shorten it (e.g. tests, high-sensitivity deployments).
@@ -65,16 +67,30 @@ export async function getConnectionSecret(
   if (!workspaceId || !connId) {
     throw new Error('getConnectionSecret: workspaceId and connId are required');
   }
+  return fetchTenantSecret(workspaceId, `${SECRET_PREFIX}-${connId}`, `conn=${connId}`, cacheKey(workspaceId, connId));
+}
+
+/**
+ * The shared fetch: one Secret Manager read per (tenant, secret) per TTL,
+ * audit-logged against the tenant it served. `label` is what the audit line
+ * prints; `key` is the cache slot (always tenant-prefixed so one tenant's
+ * cached payload is never returned for another's key).
+ */
+async function fetchTenantSecret(
+  workspaceId: string,
+  secretName: string,
+  label: string,
+  key: string,
+): Promise<Record<string, unknown> | null> {
   if (!GCP_PROJECT) {
-    throw new Error('getConnectionSecret: GCP_PROJECT unset — pooled mode requires Secret Manager access');
+    throw new Error('tenantCredentials: GCP_PROJECT unset — pooled mode requires Secret Manager access');
   }
 
-  const key = cacheKey(workspaceId, connId);
   const now = Date.now();
   const hit = cache.get(key);
   if (hit && hit.expiresAt > now) return hit.data;
 
-  const name = `projects/${GCP_PROJECT}/secrets/${SECRET_PREFIX}-${connId}/versions/latest`;
+  const name = `projects/${GCP_PROJECT}/secrets/${secretName}/versions/latest`;
   let data: Record<string, unknown> | null = null;
   try {
     const [version] = await getClient().accessSecretVersion({ name });
@@ -82,18 +98,18 @@ export async function getConnectionSecret(
     data = raw ? JSON.parse(raw) : null;
   } catch (e: any) {
     if (e?.code === 5) {
-      data = null; // NOT_FOUND — connection has no stored credential
+      data = null; // NOT_FOUND — nothing stored under this name
     } else {
-      console.error(`[credaudit] FETCH-ERROR workspace=${workspaceId} conn=${connId}: ${e?.message}`);
+      console.error(`[credaudit] FETCH-ERROR workspace=${workspaceId} ${label}: ${e?.message}`);
       throw e;
     }
   }
 
   // The audit line: every real fetch, paired with the tenant it served.
   // Cache hits are intentionally not logged — the fetch cadence (≤ once per
-  // TTL per tenant-conn) is what bounds both log volume and blast radius.
+  // TTL per tenant-secret) is what bounds both log volume and blast radius.
   console.log(
-    `[credaudit] fetch workspace=${workspaceId} conn=${connId} found=${data !== null} ttl_ms=${data !== null ? CACHE_TTL_MS : NEGATIVE_TTL_MS}`,
+    `[credaudit] fetch workspace=${workspaceId} ${label} found=${data !== null} ttl_ms=${data !== null ? CACHE_TTL_MS : NEGATIVE_TTL_MS}`,
   );
 
   cache.set(key, {
@@ -101,6 +117,31 @@ export async function getConnectionSecret(
     expiresAt: now + (data !== null ? CACHE_TTL_MS : NEGATIVE_TTL_MS),
   });
   return data;
+}
+
+/**
+ * A contract party's key (upgrade plan 5.1): `roundtable-contract-{C}-{party}`,
+ * payload `{ key: <hex>, version, contractId, party, signingKey? }`, minted by
+ * the control plane at approval and deleted on revocation. Same TTL cache
+ * and audit trail as connection credentials, keyed by (tenant, contract,
+ * party) — a key fetched for tenant A's request is never served to tenant B
+ * even for the same contract. No env fallback: env keys belong to dedicated
+ * pods (utils/contractKeys.js reads RT_CONTRACT_KEYS there).
+ */
+export async function getContractPartyKey(
+  workspaceId: string,
+  contractId: string,
+  partyWsId: string,
+): Promise<Record<string, unknown> | null> {
+  if (!workspaceId || !contractId || !partyWsId) {
+    throw new Error('getContractPartyKey: workspaceId, contractId and partyWsId are required');
+  }
+  return fetchTenantSecret(
+    workspaceId,
+    `${CONTRACT_SECRET_PREFIX}-${contractId}-${partyWsId}`,
+    `contract=${contractId} party=${partyWsId}`,
+    `${workspaceId}:contract:${contractId}:${partyWsId}`,
+  );
 }
 
 /**

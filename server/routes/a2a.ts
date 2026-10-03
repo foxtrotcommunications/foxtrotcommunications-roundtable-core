@@ -123,7 +123,8 @@ async function requireA2aAuth(req: Request, res: Response, next: () => void): Pr
 
   if (contractId && contractSig && contractTs) {
     try {
-      const { deriveContractKey, verifyContractRequest, findAndValidateContract } = require('../utils/contractAuth');
+      const { verifyContractRequest, findAndValidateContract, resolveContractKeyForRequest } = require('../utils/contractAuth');
+      const { logOrgKeyAccepted } = require('../utils/contractKeys');
 
       // Load contracts from the live manifest (Firestore, 5s TTL cache).
       // fetchManifest fails closed (1.1): a 200 is the truth, env
@@ -143,17 +144,6 @@ async function requireA2aAuth(req: Request, res: Response, next: () => void): Pr
           contracts = [];
         }
       }
-      // Dedicated: the org master secret is pod env (org-scoped fleet).
-      // Pooled: tenants SPAN orgs (Pendragon is org-per-household), so the
-      // master secret is resolved per tenant after the manifest lookup below.
-      let masterSecret = process.env.ORG_MASTER_SECRET;
-
-      if (!masterSecret && !config.pooled) {
-        res.status(403).json(
-          jsonRpcError(req.body?.id || null, -32000, 'Contract auth not available (no master secret configured)')
-        );
-        return;
-      }
 
       // Find and validate the contract
       // Use the action the sender signed with (from header), default to 'message_send' for backward compat
@@ -168,20 +158,12 @@ async function requireA2aAuth(req: Request, res: Response, next: () => void): Pr
       if (config.pooled) {
         try {
           const { resolveTenantFromRequest } = require('../pooled/tenantResolver');
-          resolvedTenant = await resolveTenantFromRequest(req, { contractId, action: signedAction });
+          resolvedTenant = await resolveTenantFromRequest(req, {
+            contractId,
+            action: signedAction,
+            sender: req.headers['x-contract-sender'] as string | undefined,
+          });
           contract = resolvedTenant.contract;
-          // Per-tenant master secret: the tenant's ORG owns the HKDF root.
-          const { getOrgMasterSecret } = require('../tenantCredentials');
-          masterSecret = await getOrgMasterSecret(
-            resolvedTenant.workspaceId, resolvedTenant.manifest?.orgId || '',
-          );
-          if (!masterSecret) {
-            res.status(403).json(
-              jsonRpcError(req.body?.id || null, -32000, 'Contract auth not available (no org master secret for tenant)')
-            );
-            return;
-          }
-          resolvedTenant.masterSecret = masterSecret;
         } catch (e: any) {
           res.status(e?.status || 403).json(
             jsonRpcError(req.body?.id || null, -32000, `Tenant resolution failed: ${e?.message}`)
@@ -199,38 +181,65 @@ async function requireA2aAuth(req: Request, res: Response, next: () => void): Pr
         contract = found;
       }
 
-      // Derive key and verify signature (v1 while RT_HMAC_ACCEPT_V1, v2 with
-      // X-Rt-Sig-V: 2 — nonce + body hash; SIGNING_SPEC.md). Pooled: the
-      // claimed tenant is part of the signed string — a signature minted for
-      // tenant A cannot be replayed with tenant B in the header.
-      deriveContractKey(masterSecret, contractId, contract.version || 1)
-        .then(async (contractKey: Buffer) => {
-          const { valid, error: sigError } = await verifyContractRequest(contractKey, {
-            headers: req.headers,
-            rawBody: (req as any).rawBody,
-            contractId,
-            action: signedAction,
-            tenantWsId: resolvedTenant ? resolvedTenant.workspaceId : undefined,
-          });
+      // Which key (5.1): X-Contract-Sender → the sender's per-party key
+      // (sender must be the counterparty of the workspace addressed);
+      // no sender → legacy org-derived key while RT_ACCEPT_ORG_KEY. The org
+      // master is resolved LAZILY — dedicated from pod env, pooled per
+      // tenant (tenants span orgs) — so a per-party request never needs it.
+      const selfWsId = resolvedTenant ? resolvedTenant.workspaceId : config.workspaceId;
+      const getMasterSecret = async (): Promise<string | null> => {
+        if (!config.pooled) return process.env.ORG_MASTER_SECRET || null;
+        const { getOrgMasterSecret } = require('../tenantCredentials');
+        const m = await getOrgMasterSecret(resolvedTenant.workspaceId, resolvedTenant.manifest?.orgId || '');
+        if (m) resolvedTenant.masterSecret = m;
+        return m;
+      };
+      const keyRes = await resolveContractKeyForRequest({
+        headers: req.headers,
+        contract,
+        selfWsId,
+        tenant: resolvedTenant ? { workspaceId: resolvedTenant.workspaceId } : undefined,
+        getMasterSecret,
+      });
+      if (keyRes.error) {
+        res.status(keyRes.status || 403).json(
+          jsonRpcError(req.body?.id || null, -32000, keyRes.status === 403 && /party|parties|receiving/.test(keyRes.error)
+            ? `Contract rejected: ${keyRes.error}`
+            : keyRes.error)
+        );
+        return;
+      }
 
-          if (!valid) {
-            res.status(401).json(
-              jsonRpcError(req.body?.id || null, -32000, `Contract signature invalid: ${sigError}`)
-            );
-            return;
-          }
+      // Verify signature (v1 while RT_HMAC_ACCEPT_V1, v2 with X-Rt-Sig-V: 2
+      // — nonce + body hash; SIGNING_SPEC.md). Pooled: the claimed tenant is
+      // part of the signed string — a signature minted for tenant A cannot
+      // be replayed with tenant B in the header.
+      const { valid, error: sigError } = await verifyContractRequest(keyRes.key, {
+        headers: req.headers,
+        rawBody: (req as any).rawBody,
+        contractId,
+        action: signedAction,
+        tenantWsId: resolvedTenant ? resolvedTenant.workspaceId : undefined,
+      });
 
-          // Attach contract info to request for downstream use
-          (req as any).contract = contract;
-          if (resolvedTenant) (req as any).rtTenant = resolvedTenant;
-          next();
-        })
-        .catch((err: Error) => {
-          res.status(500).json(
-            jsonRpcError(req.body?.id || null, -32000, `Contract auth error: ${err.message}`)
-          );
-        });
-      return; // async — don't fall through
+      if (!valid) {
+        res.status(401).json(
+          jsonRpcError(req.body?.id || null, -32000, `Contract signature invalid: ${sigError}`)
+        );
+        return;
+      }
+      if (keyRes.kind === 'org') logOrgKeyAccepted(contractId, 'request');
+
+      // Attach contract info to request for downstream use. contractKey is
+      // the key that verified the request (party or org) — E2E decryption
+      // and result signing use it rather than re-deriving from the master.
+      (req as any).contract = contract;
+      (req as any).contractKey = keyRes.key;
+      (req as any).contractKeyKind = keyRes.kind;
+      if (keyRes.sender) (req as any).contractSender = keyRes.sender;
+      if (resolvedTenant) (req as any).rtTenant = resolvedTenant;
+      next();
+      return;
     } catch (err: unknown) {
       const error = err as Error;
       res.status(500).json(
@@ -342,20 +351,18 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
         const isEncrypted = req.headers['x-contract-encrypted'] === 'aes-256-gcm';
         if (isEncrypted && (req as any).contract) {
           const contractId = req.headers['x-contract-id'] as string;
-          // Pooled: the tenant's ORG owns the HKDF root; dedicated pods keep
-          // the process-env secret.
-          const masterSecret = rtTenant?.masterSecret || process.env.ORG_MASTER_SECRET;
-          const contract = (req as any).contract;
+          // The key that verified the request (5.1: the sender's party key,
+          // or the legacy org key) is the key the sender encrypted with.
+          const contractKey: Buffer | undefined = (req as any).contractKey;
 
-          if (!masterSecret) {
+          if (!contractKey) {
             return res.json(
-              jsonRpcError(id, -32000, 'Cannot decrypt: no master secret configured')
+              jsonRpcError(id, -32000, 'Cannot decrypt: no contract key for this request')
             );
           }
 
           try {
-            const { deriveContractKey, decryptPayload } = require('../utils/contractAuth');
-            const contractKey = await deriveContractKey(masterSecret, contractId, contract.version || 1);
+            const { decryptPayload } = require('../utils/contractAuth');
 
             // Decrypt each encrypted part
             const decryptedParts = [];
@@ -516,16 +523,45 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
         }
 
         const token: IntentToken = params.token;
-        // Pooled: the token was minted with the TENANT'S org master secret
-        // (senders live in the household's org); auth already resolved it.
-        const rtTenantEarly = (req as any).rtTenant as { masterSecret?: string } | undefined;
-        const masterSecret = rtTenantEarly?.masterSecret || process.env.ORG_MASTER_SECRET;
-
-        if (!masterSecret) {
+        // Key for the token (5.1): a token with `sender` verifies with
+        // key(contract, sender) — resolved for the addressed workspace
+        // (pooled: the tenant, via Secret Manager; dedicated: RT_CONTRACT_KEYS).
+        // A legacy token (no sender) uses the org master: pooled, the
+        // TENANT's org secret auth already resolved (or resolves now);
+        // dedicated, pod env. Missing master only matters for legacy tokens.
+        const rtTenantEarly = (req as any).rtTenant as { workspaceId: string; masterSecret?: string; manifest?: any } | undefined;
+        let masterSecret: string | undefined = rtTenantEarly?.masterSecret || (config.pooled ? undefined : process.env.ORG_MASTER_SECRET);
+        if (!token.sender && !masterSecret && rtTenantEarly) {
+          try {
+            const { getOrgMasterSecret } = require('../tenantCredentials');
+            masterSecret = (await getOrgMasterSecret(rtTenantEarly.workspaceId, rtTenantEarly.manifest?.orgId || '')) || undefined;
+          } catch (e) {
+            console.warn('[A2A:ICE] tenant master-secret resolution failed:', (e as Error).message);
+          }
+        }
+        if (!token.sender && !masterSecret) {
           return res.json(
             jsonRpcError(id, -32000, 'Intent execution not available (no master secret)')
           );
         }
+        // The token's sender must be the request's sender when both are
+        // named — one identity per call, like header contract == token
+        // contract below.
+        const headerSender = (req as any).contractSender as string | undefined;
+        if (token.sender && headerSender && token.sender !== headerSender) {
+          return res.json(
+            jsonRpcError(id, -32000, 'Token sender does not match X-Contract-Sender')
+          );
+        }
+        const selfWsIdForToken = rtTenantEarly ? rtTenantEarly.workspaceId : config.workspaceId;
+        const { resolvePartyKey, senderPartyError } = require('../utils/contractKeys');
+        const partyKeyResolver = async (cId: string, version: number, sender: string): Promise<Buffer | null> => {
+          const r = await resolvePartyKey({
+            contractId: cId, version, partyWsId: sender,
+            tenant: rtTenantEarly ? { workspaceId: rtTenantEarly.workspaceId } : undefined,
+          });
+          return r ? r.key : null;
+        };
 
         // 0. Header contract must be the token's contract (1.6). The auth
         //    middleware authorized X-Contract-Id; the token names the contract
@@ -540,7 +576,7 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
         }
 
         // 1. Verify token signature, expiry, and freshness
-        const verification = await verifyIntentToken(token, masterSecret);
+        const verification = await verifyIntentToken(token, masterSecret || '', { partyKeyResolver });
         if (!verification.valid) {
           console.warn(`[A2A:ICE] Token verification failed: ${verification.error}`);
           return res.json(
@@ -609,6 +645,20 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
           );
         }
         const contract = contractEntry;
+
+        // 5a. Per-party identity (5.1): the token's sender must be a party to
+        //     the contract and the counterparty of the workspace addressed.
+        //     The signature proved the sender holds key(C, sender); this
+        //     proves that key was ALLOWED to be used toward this workspace.
+        if (token.sender) {
+          const partyErr = senderPartyError(contract, selfWsIdForToken, token.sender);
+          if (partyErr) {
+            console.warn(`[A2A:ICE] ${partyErr}`);
+            return res.json(
+              jsonRpcError(id, -32000, `Token rejected: ${partyErr}`)
+            );
+          }
+        }
 
         // 5b. The token's contractVersion must be the manifest's (1.6). The
         //     signature verified above was checked with the key for the

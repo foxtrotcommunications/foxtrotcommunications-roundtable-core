@@ -11,12 +11,19 @@
 // Together: the only tenant a holder of key(C) can successfully claim is the
 // counterparty of their own contract — exactly the workspace they are
 // authorized to consult. Everything else fails closed (403).
+//
+// 5.1 adds the sender's identity: when the request names X-Contract-Sender
+// the sender must be a party to C AND the counterparty of the claimed
+// tenant (resolveTenantFromRequest `sender`), and the a2a middleware then
+// verifies with key(C, sender) rather than the org-wide key.
 
 // CJS interop style matching routes/a2a.ts — these modules are CommonJS.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { fetchManifest } = require('../utils/fetchManifest');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { findAndValidateContract, contractLivenessError } = require('../utils/contractAuth');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { senderPartyError } = require('../utils/contractKeys');
 
 export const TENANT_HEADER = 'x-rt-tenant';
 
@@ -51,7 +58,7 @@ export class TenantResolutionError extends Error {
  */
 export async function resolveTenantFromRequest(
   req: { headers: Record<string, unknown> },
-  opts: { contractId: string; action: string },
+  opts: { contractId: string; action: string; sender?: string },
 ): Promise<ResolvedTenant> {
   const raw = req.headers[TENANT_HEADER];
   const workspaceId = typeof raw === 'string' ? raw.trim() : '';
@@ -81,6 +88,20 @@ export async function resolveTenantFromRequest(
     throw new TenantResolutionError(
       `Contract ${opts.contractId} not live for tenant ${workspaceId}: ${liveness}`,
     );
+  }
+
+  // Sender ∈ parties(C) and sender is the tenant's counterparty (5.1). A
+  // party key proves "someone holding key(C, sender) signed"; this proves
+  // that identity may address THIS tenant under C. Only when the request
+  // names a sender — legacy org-key requests carry none and are governed
+  // by RT_ACCEPT_ORG_KEY in the middleware.
+  if (opts.sender !== undefined) {
+    const partyErr = senderPartyError(validation.contract, workspaceId, opts.sender);
+    if (partyErr) {
+      throw new TenantResolutionError(
+        `Contract ${opts.contractId} on tenant ${workspaceId}: ${partyErr}`,
+      );
+    }
   }
 
   // Direction assert — consults run source→target, so the receiving tenant
