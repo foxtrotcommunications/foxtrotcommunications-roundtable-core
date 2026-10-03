@@ -86,6 +86,20 @@ router.post('/receive', async (req, res) => {
         });
       }
 
+      // 1b. Status + expiry (1.2): a revoked or lapsed contract that is
+      //     still listed is not an authorization.
+      const { contractLivenessError } = require('../utils/contractAuth');
+      const livenessError = contractLivenessError(manifest);
+      if (livenessError) {
+        console.warn(`[Bridge] Rejected: ${livenessError}`);
+        return res.status(403).json({
+          error: 'Contract is not active',
+          contractId,
+          code: 'CONTRACT_NOT_LIVE',
+          detail: livenessError,
+        });
+      }
+
       // 2. Verify contractToken — proves allowedActions weren't tampered with in transit
       const sortedActions = [...manifest.allowedActions].sort().join(',');
       const expectedToken = crypto

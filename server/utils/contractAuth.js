@@ -101,6 +101,51 @@ function verifyRequest(contractKey, contractId, timestamp, action, signature, ma
 }
 
 /**
+ * Parse a contract's expiresAt into epoch ms. Accepts ISO strings, epoch
+ * numbers (ms, or seconds when < 1e12), and Firestore-style
+ * { seconds | _seconds } objects. Returns null when absent, NaN when present
+ * but unparseable — the caller treats NaN as expired (fail closed: a
+ * contract whose expiry we cannot read is not one we can honor).
+ */
+function parseExpiresAt(expiresAt) {
+  if (expiresAt === undefined || expiresAt === null || expiresAt === '') return null;
+  if (typeof expiresAt === 'number') {
+    return expiresAt < 1e12 ? expiresAt * 1000 : expiresAt;
+  }
+  if (typeof expiresAt === 'string') {
+    if (/^\d+$/.test(expiresAt)) return parseExpiresAt(parseInt(expiresAt, 10));
+    return new Date(expiresAt).getTime();
+  }
+  if (typeof expiresAt === 'object') {
+    if (typeof expiresAt.toMillis === 'function') return expiresAt.toMillis();
+    const secs = expiresAt.seconds ?? expiresAt._seconds;
+    if (typeof secs === 'number') return secs * 1000;
+    if (expiresAt instanceof Date) return expiresAt.getTime();
+  }
+  return NaN;
+}
+
+/**
+ * Status + expiry gate shared by every contract lookup (upgrade plan 1.2).
+ * Returns an error string, or undefined when the contract is live.
+ */
+function contractLivenessError(contract, now = Date.now()) {
+  if (!contract) return 'No contract';
+  if (contract.status !== 'active') {
+    return `Contract ${contract.contractId} is not active (status: ${contract.status})`;
+  }
+  const exp = parseExpiresAt(contract.expiresAt);
+  if (exp === null) return undefined;
+  if (Number.isNaN(exp)) {
+    return `Contract ${contract.contractId} has an unreadable expiresAt (${JSON.stringify(contract.expiresAt)}) — refusing`;
+  }
+  if (exp <= now) {
+    return `Contract ${contract.contractId} expired at ${new Date(exp).toISOString()}`;
+  }
+  return undefined;
+}
+
+/**
  * Find the matching contract for an inbound request.
  *
  * @param {Array} contracts - Contract manifest (from RT_CONTRACTS)
@@ -118,8 +163,11 @@ function findAndValidateContract(contracts, contractId, action) {
     return { error: `Unknown contract: ${contractId}` };
   }
 
-  if (contract.status !== 'active') {
-    return { error: `Contract ${contractId} is not active (status: ${contract.status})` };
+  // status === 'active' AND not past expiresAt — a revoked or lapsed
+  // contract in the manifest is not an authorization.
+  const liveness = contractLivenessError(contract);
+  if (liveness) {
+    return { error: liveness };
   }
 
   // Check allowedActions — only transport/protocol actions are auto-allowed.
@@ -211,6 +259,8 @@ function decryptPayload(contractKey, iv, ciphertext, authTag) {
 
 module.exports = {
   deriveContractKey,
+  parseExpiresAt,
+  contractLivenessError,
   signRequest,
   verifyRequest,
   findAndValidateContract,

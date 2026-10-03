@@ -548,14 +548,17 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
             contracts = [];
           }
         }
-        const contract = contracts.find((c: any) =>
-          c.contractId === token.contractId && c.status === 'active'
-        );
-        if (!contract) {
+        const { contractLivenessError } = require('../utils/contractAuth');
+        const contractEntry = contracts.find((c: any) => c.contractId === token.contractId);
+        const livenessError = contractLivenessError(contractEntry);
+        if (!contractEntry || livenessError) {
           return res.json(
-            jsonRpcError(id, -32000, 'No active contract found for this token')
+            jsonRpcError(id, -32000, contractEntry
+              ? `Contract not live: ${livenessError}`
+              : 'No active contract found for this token')
           );
         }
+        const contract = contractEntry;
 
         const requiredAction = intentOpToAction(executableToken.intent);
         const TRANSPORT_ACTIONS = ['intent_execute', 'discover'];

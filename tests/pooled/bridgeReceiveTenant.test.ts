@@ -98,7 +98,7 @@ describe('bridgeReceive — tenant signature matrix', () => {
     mockScopedSaveMessage.mockResolvedValue({ id: 2, role: 'user', content: 'x' });
     mockScopedGetWorkspace.mockResolvedValue({ id: 'ws-a', name: 'Arthur' });
     mockFetchManifest.mockResolvedValue({
-      RT_CONTRACTS: [{ contractId: 'contract-1', allowedActions: ALLOWED }],
+      RT_CONTRACTS: [{ contractId: 'contract-1', status: 'active', allowedActions: ALLOWED }],
       orgId: 'org-a',
     });
     jest.spyOn(console, 'log').mockImplementation(() => {});

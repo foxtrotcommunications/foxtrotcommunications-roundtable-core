@@ -16,7 +16,7 @@
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { fetchManifest } = require('../utils/fetchManifest');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { findAndValidateContract } = require('../utils/contractAuth');
+const { findAndValidateContract, contractLivenessError } = require('../utils/contractAuth');
 
 export const TENANT_HEADER = 'x-rt-tenant';
 
@@ -71,6 +71,15 @@ export async function resolveTenantFromRequest(
   if (!validation.contract) {
     throw new TenantResolutionError(
       `Contract ${opts.contractId} not authorized for tenant ${workspaceId}: ${validation.error}`,
+    );
+  }
+  // Liveness (1.2), asserted here as well as inside findAndValidateContract:
+  // membership in the manifest is necessary, not sufficient — the entry must
+  // be status 'active' and not past expiresAt at the moment of the request.
+  const liveness = contractLivenessError(validation.contract);
+  if (liveness) {
+    throw new TenantResolutionError(
+      `Contract ${opts.contractId} not live for tenant ${workspaceId}: ${liveness}`,
     );
   }
 

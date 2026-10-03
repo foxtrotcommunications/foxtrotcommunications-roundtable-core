@@ -138,7 +138,7 @@ describe('Bridge Receive — HMAC Authentication', () => {
   it('should accept a valid HMAC signature', async () => {
     // Set up RT_CONTRACTS so contract enforcement passes
     process.env.RT_CONTRACTS = JSON.stringify([
-      { contractId: 'test-contract', allowedActions: ['message', 'delegate'] },
+      { contractId: 'test-contract', status: 'active', allowedActions: ['message', 'delegate'] },
     ]);
     const body = makeValidRequest();
     const res = createMockRes();
@@ -177,7 +177,7 @@ describe('Bridge Receive — HMAC Authentication', () => {
     const contractId = 'test-contract';
 
     process.env.RT_CONTRACTS = JSON.stringify([
-      { contractId, allowedActions: ['message', 'delegate'] },
+      { contractId, status: 'active', allowedActions: ['message', 'delegate'] },
     ]);
 
     const body = makeValidRequest({
@@ -202,7 +202,7 @@ describe('Bridge Receive — HMAC Authentication', () => {
     const contractToken = makeContractToken(contractId, allowedActions);
 
     process.env.RT_CONTRACTS = JSON.stringify([
-      { contractId, allowedActions },
+      { contractId, status: 'active', allowedActions },
     ]);
 
     const body = makeValidRequest({
@@ -239,6 +239,51 @@ describe('Bridge Receive — Contract Enforcement', () => {
     jest.restoreAllMocks();
   });
 
+  // Liveness (upgrade plan 1.2): the manifest entry must be status 'active'
+  // and not past expiresAt — bridgeReceive used to accept any listed
+  // contract regardless of status, which is why the fixtures above now carry
+  // status: 'active'.
+  it('should reject a listed contract whose status is not active', async () => {
+    const taskId = 'task-revoked';
+    const timestamp = Date.now().toString();
+    const contractId = 'revoked-contract';
+    const action = 'message';
+    const allowedActions = ['message', 'delegate'];
+    process.env.RT_CONTRACTS = JSON.stringify([
+      { contractId, status: 'revoked', allowedActions },
+    ]);
+    const body = makeValidRequest({
+      taskId, timestamp, contractId, action,
+      contractToken: makeContractToken(contractId, allowedActions),
+      signature: makeSignature(taskId, timestamp, contractId, action),
+    });
+    const res = createMockRes();
+    await handler({ body }, res);
+    expect(res.statusCode).toBe(403);
+    expect(res.body.code).toBe('CONTRACT_NOT_LIVE');
+  });
+
+  it('should reject a listed contract that has expired', async () => {
+    const taskId = 'task-expired';
+    const timestamp = Date.now().toString();
+    const contractId = 'expired-contract';
+    const action = 'message';
+    const allowedActions = ['message', 'delegate'];
+    process.env.RT_CONTRACTS = JSON.stringify([
+      { contractId, status: 'active', expiresAt: new Date(Date.now() - 1000).toISOString(), allowedActions },
+    ]);
+    const body = makeValidRequest({
+      taskId, timestamp, contractId, action,
+      contractToken: makeContractToken(contractId, allowedActions),
+      signature: makeSignature(taskId, timestamp, contractId, action),
+    });
+    const res = createMockRes();
+    await handler({ body }, res);
+    expect(res.statusCode).toBe(403);
+    expect(res.body.code).toBe('CONTRACT_NOT_LIVE');
+    expect(res.body.detail).toMatch(/expired/);
+  });
+
   it('should reject when contractId is provided but not in local manifest', async () => {
     process.env.RT_CONTRACTS = JSON.stringify([]);
 
@@ -267,7 +312,7 @@ describe('Bridge Receive — Contract Enforcement', () => {
     const allowedActions = ['message']; // 'delegate' not allowed
 
     process.env.RT_CONTRACTS = JSON.stringify([
-      { contractId, allowedActions },
+      { contractId, status: 'active', allowedActions },
     ]);
 
     const taskId = 'task-forbidden-action';
@@ -296,7 +341,7 @@ describe('Bridge Receive — Contract Enforcement', () => {
     const allowedActions = ['message', 'delegate'];
 
     process.env.RT_CONTRACTS = JSON.stringify([
-      { contractId, allowedActions },
+      { contractId, status: 'active', allowedActions },
     ]);
 
     const taskId = 'task-ok';
@@ -325,7 +370,7 @@ describe('Bridge Receive — Contract Enforcement', () => {
     const realActions = ['message'];
 
     process.env.RT_CONTRACTS = JSON.stringify([
-      { contractId, allowedActions: realActions },
+      { contractId, status: 'active', allowedActions: realActions },
     ]);
 
     const taskId = 'task-tampered';
@@ -355,7 +400,7 @@ describe('Bridge Receive — Contract Enforcement', () => {
     const allowedActions = ['message'];
 
     process.env.RT_CONTRACTS = JSON.stringify([
-      { contractId, allowedActions },
+      { contractId, status: 'active', allowedActions },
     ]);
 
     const taskId = 'task-no-token';
