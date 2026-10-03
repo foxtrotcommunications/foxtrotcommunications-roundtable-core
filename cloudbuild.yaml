@@ -32,4 +32,6 @@ substitutions:
   # Private plugins installed from Artifact Registry at build time. Pinned to a
   # known-good version — 1.2.0 is broken (undeclared express dep). See
   # forge-outstanding-security-items / pendragon-demo-deployment-facts.
-  _PLUGINS: '@pendragon/tools-plaid@1.65.0'
+  # 1.66.0 adds the attested consent-grant route (`consentRoute`, upgrade
+  # plan 4.2) that server/pooled/index.js mounts at /api/consent.
+  _PLUGINS: '@pendragon/tools-plaid@1.66.0'
