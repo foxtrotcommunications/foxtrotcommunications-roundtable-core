@@ -99,7 +99,8 @@ describe('proof hashes the compiled SQL actually executed', () => {
     expect(executed).toEqual(['SELECT a FROM t1']);
     expect(result.proof!.executedSqlHash).toBe(hashExecutedSql(executed));
     expect(result.proof!.executedSqlCount).toBe(1);
-    expect(verifyProof(result.proof!, ctx.contractKey, undefined, undefined, executed)).toEqual({ valid: true });
+    // 5.2: verifyProof also reports which signature(s) it checked.
+    expect(verifyProof(result.proof!, ctx.contractKey, undefined, undefined, executed)).toEqual({ valid: true, verifiedWith: ['hmac'] });
     expect(verifyProof(result.proof!, ctx.contractKey, undefined, undefined, ['SELECT a FROM t1 LIMIT 1']).valid).toBe(false);
   });
 

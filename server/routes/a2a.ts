@@ -724,12 +724,27 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
             tenantCtx = await buildTenantContext(rtTenant);
           }
 
+          // 5.2: this party's Ed25519 proof-signing key for the contract
+          // (minted with the party key; absent on pre-5.2 mints → HMAC-only
+          // proof). Lookup failure is not an execution failure.
+          let signer: { wsId: string; privateKeyPem: string } | undefined;
+          try {
+            const own = await resolvePartyKey({
+              contractId: token.contractId, version: manifestVersion, partyWsId: selfWsIdForToken,
+              tenant: rtTenant ? { workspaceId: rtTenant.workspaceId } : undefined,
+            });
+            if (own?.signingKey) signer = { wsId: selfWsIdForToken, privateKeyPem: own.signingKey };
+          } catch (e) {
+            console.warn('[A2A:ICE] proof signing key lookup failed:', (e as Error).message);
+          }
+
           const result = await executeIntentToken(executableToken, {
             contractKey: verification.contractKey!,
             contract,
             workspaceConfig: tenantCtx ? { workspaceId: rtTenant!.workspaceId, tenant: tenantCtx } : {},
             enabledToolNames,
             ...(tenantCtx ? { tenant: tenantCtx } : {}),
+            ...(signer ? { signer } : {}),
           });
 
           // Track metrics

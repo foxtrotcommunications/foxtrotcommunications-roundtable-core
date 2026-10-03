@@ -229,6 +229,7 @@ Auto-provisioned agreements between workspaces that define and enforce allowed a
 - **`message/send` is not transport** — a contract-authenticated `message/send` must be signed with `message` or `delegate` (`message_send` is satisfied by `message`) and that action must be in `allowedActions`; the turn then runs under the `delegated` tool profile (read-only tools + `intent_bridge`)
 - **Aggregates** — `aggregate` authorizes the envelope only; every step's tool must itself be allowed (`query:<tool>` / `tool:<tool>`). One unauthorized step denies the whole intent before any step runs, and each step's check appears in the proof's `policyChecks`
 - **Proof of what ran** — `proof.executedSqlHash` / `executedSqlCount` hash the compiled SQL actually handed to the tool (after fusion and LIMIT injection); absent when no SQL ran
+- **Who ran it** — `proof.signature = { alg: 'ed25519', signer: <wsId>, sig }` is the executing party's signature over `sha256(executedSqlHash ∥ outputHash ∥ nonce ∥ timestamp ∥ contractId ∥ intentHash)` (fields joined by `0x1f`), made with the Ed25519 key the control plane minted for that party at approval; the public key is `contract.signing[wsId]` in the manifest. The HMAC `proofSignature` covers it. A proof from a party without a signing key (pre-5.2 mint) is HMAC-only; `verifyProof` checks Ed25519 when it has public keys and HMAC when it has the contract key, and fails when it has neither
 - **Storage** — Firestore manifest with 5 s TTL cache; `RT_CONTRACTS` env only before the first successful fetch (see `RT_MANIFEST_FAIL_CLOSED`)
 - **Token ↔ contract consistency** — on `intent/execute`, `X-Contract-Id` must equal `token.contractId`, and `token.contractVersion` must equal the manifest contract's `version` (a version bump revokes tokens minted under the old key)
 
@@ -253,7 +254,7 @@ Auto-provisioned agreements between workspaces that define and enforce allowed a
 | Payload encryption | AES-256-GCM end-to-end |
 | Request signing | HMAC-SHA256 with `timingSafeEqual`; v2 binds body hash + nonce |
 | Replay prevention | Nonce store, 10-min window (intent tokens and v2 S2S requests, namespaced) |
-| Execution proofs | SHA-256 input/output hashes, HMAC-signed |
+| Execution proofs | SHA-256 input/output/executed-SQL hashes; HMAC-signed with the contract key AND, when the executing party holds its per-contract Ed25519 key, signed as that party — verifiable from the manifest's public keys alone (`scripts/verify-proof.js <manifest.json> <proof.json>`) |
 
 ### Application Security
 

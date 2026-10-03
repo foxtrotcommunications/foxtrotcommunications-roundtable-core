@@ -21,7 +21,7 @@ import { signIntentResult } from './intentTokenCodec';
 import * as toolRegistry from '../tools/index';
 const { executeTool, resolveTools, getAvailableTools } = toolRegistry;
 import { intentMetrics } from './intentMetrics';
-import { buildProof, type PolicyCheck, type ExecutionTrace } from './executionProof';
+import { buildProof, intentHashOf, type PolicyCheck, type ExecutionTrace, type ProofSigner } from './executionProof';
 import { intentCache } from './intentCache';
 import { compileIntents } from './intentCompiler';
 
@@ -84,6 +84,9 @@ export interface ExecutionContext {
   /** Pooled runtime: per-request tenant, copied onto CapabilityContext so
    *  plugin handlers can resolve their config. Absent on dedicated pods. */
   tenant?: Record<string, unknown>;
+  /** The executing party's Ed25519 key for this contract (5.2); absent →
+   *  proofs carry the HMAC signature only. */
+  signer?: ProofSigner;
 }
 
 // ─── Authorization ──────────────────────────────────────────────────────────
@@ -570,6 +573,8 @@ function buildResult(
       ctx.contractKey,
       policyChecks,
       trace,
+      // 5.2: bind the proof to this token and sign it as this party.
+      { nonce: token.nonce, intentHash: intentHashOf(token), signer: ctx.signer },
     );
   }
 
