@@ -4,16 +4,9 @@
 # to `import … from '../vocab/actions'` as soon as their owner can take the
 # edit. Remove the line in the same commit.
 #
-# Owned by the Phase 5 (per-party contract identity) branch at the time of
-# the Phase 6.5 commit — not edited here to keep that merge clean:
-#   TRANSPORT_ACTIONS / MESSAGE_ACTIONS (contractAuth.js:297,300) → TRANSPORT_ACTIONS, MESSAGE_ACTIONS
-#   TRANSPORT_ACTIONS + capabilities/intentOps advert (a2a.ts:627,717,719) → TRANSPORT_ACTIONS, INTENT_OPS, A2A_METHODS
-#   ALWAYS_ALLOWED_ACTIONS (intentExecutor.ts:42) → TRANSPORT_ACTIONS minus tasks_*
-#   VALID_OPS (intentToken.ts:118) → INTENT_OPS
-#   NON_CACHEABLE_OPS (intentCache.ts:39) → ACTION.discover
-server/utils/contractAuth.js
-server/routes/a2a.ts
-server/protocols/
+# (The Phase 5-owned entries — contractAuth.js, routes/a2a.ts, protocols/ —
+# were switched to the vocabulary in the 6.5 follow-up and removed here.)
+#
 # Demo seed data run by plain node (no TS loader); the contract rows it
 # writes are data, not a vocabulary definition. Switch to the vocabulary
 # when the demo scripts move to tsx.

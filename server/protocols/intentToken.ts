@@ -3,6 +3,8 @@
 // Intent tokens are compiled, deterministic instructions that execute on
 // receiving workspaces without LLM inference.
 
+import { INTENT_OPS } from '../vocab/actions';
+
 // ─── Intent Operations ──────────────────────────────────────────────────────
 
 /** Execute a structured data query */
@@ -122,7 +124,7 @@ export interface IntentResult {
 
 // ─── Validation ─────────────────────────────────────────────────────────────
 
-const VALID_OPS = new Set(['query', 'tool_call', 'aggregate', 'discover', 'capability']);
+const VALID_OPS = new Set<string>(INTENT_OPS);
 const VALID_RESPONSE_FORMATS = new Set(['json_table', 'csv', 'summary', 'scalar']);
 const VALID_REDUCE_OPS = new Set(['concat', 'merge', 'last']);
 const VALID_DISCOVER_SCOPES = new Set(['tools', 'tables', 'capabilities']);

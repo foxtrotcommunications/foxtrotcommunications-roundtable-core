@@ -35,6 +35,9 @@ import type { IntentToken, IntentResult } from '../protocols/intentToken';
 import { verifyIntentToken, decryptIntentToken, signIntentResult } from '../protocols/intentTokenCodec';
 import { nonceStore } from '../protocols/nonceStore';
 import { intentMetrics } from '../protocols/intentMetrics';
+// The ONE action vocabulary (6.5): transport auto-allow, the JSON-RPC
+// methods and intent ops this endpoint advertises.
+import { ACTION, TRANSPORT_ACTIONS, INTENT_OPS, A2A_METHODS } from '../vocab/actions';
 
 const router = express.Router();
 
@@ -673,12 +676,16 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
           );
         }
 
+        // Transport actions (vocabulary TRANSPORT_ACTIONS — the same set
+        // contractAuth.findAndValidateContract auto-allows; tasks_get /
+        // tasks_cancel are in it but never come out of intentOpToAction)
+        // need no grant; everything else must be listed, or covered by a
+        // blanket `intent_execute` / `*` grant.
         const requiredAction = intentOpToAction(executableToken.intent);
-        const TRANSPORT_ACTIONS = ['intent_execute', 'discover'];
-        if (!TRANSPORT_ACTIONS.includes(requiredAction) &&
+        if (!(TRANSPORT_ACTIONS as readonly string[]).includes(requiredAction) &&
             !contract.allowedActions?.includes('*') &&
             !contract.allowedActions?.includes(requiredAction) &&
-            !contract.allowedActions?.includes('intent_execute')) {
+            !contract.allowedActions?.includes(ACTION.intent_execute)) {
           console.warn(`[A2A:ICE] Action '${requiredAction}' not permitted by contract ${token.contractId}`);
           const deniedResult: Omit<IntentResult, 'signature'> = {
             version: 1,
@@ -760,7 +767,7 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
 
           // Track metrics
           intentMetrics.record(
-            executableToken.intent.op === 'discover' ? 'discover' : (executableToken.intent as any).tool || 'unknown',
+            executableToken.intent.op === ACTION.discover ? ACTION.discover : (executableToken.intent as any).tool || 'unknown',
             result.executionMs,
             true  // compiled execution
           );
@@ -790,9 +797,9 @@ router.post('/a2a', requireA2aAuth, async (req: Request, res: Response) => {
         // Returns available tools and capabilities — lightweight, no token required
         const tools = getAvailableTools();
         return res.json(jsonRpcSuccess(id, {
-          capabilities: ['intent/execute', 'intent/discover', 'message/send'],
+          capabilities: [...A2A_METHODS],
           tools: tools.map(t => ({ name: t.name, description: t.description })),
-          intentOps: ['query', 'tool_call', 'aggregate', 'discover'],
+          intentOps: [...INTENT_OPS],
         }));
       }
 

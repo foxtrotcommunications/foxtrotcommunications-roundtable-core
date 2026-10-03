@@ -15,6 +15,9 @@
 const crypto = require('crypto');
 const s2s = require('./s2sSig');
 const contractKeys = require('./contractKeys');
+// The ONE action vocabulary (6.5). Re-exported below so existing
+// `require('../utils/contractAuth').TRANSPORT_ACTIONS` callers keep working.
+const { TRANSPORT_ACTIONS, MESSAGE_ACTIONS, ACTION, WILDCARD_ACTION } = require('../vocab/actions');
 
 const SENDER_HEADER = 'x-contract-sender';
 
@@ -343,15 +346,13 @@ function findAndValidateContract(contracts, contractId, action) {
   return { contract };
 }
 
-/**
- * Transport/protocol actions auto-allowed for every active contract. The
- * message actions (`message`, `delegate`, `message_send`) were here until
- * 1.5; they now require an explicit grant.
- */
-const TRANSPORT_ACTIONS = Object.freeze(['tasks_get', 'tasks_cancel', 'intent_execute', 'discover']);
-
-/** Actions that invoke message/send (an LLM turn on the receiving side). */
-const MESSAGE_ACTIONS = Object.freeze(['message', 'delegate', 'message_send']);
+// TRANSPORT_ACTIONS (`tasks_get`, `tasks_cancel`, `intent_execute`,
+// `discover`) — auto-allowed for every active contract — and MESSAGE_ACTIONS
+// (`message`, `delegate`, `message_send`, which an LLM turn requires an
+// explicit grant for since 1.5) are defined ONCE in server/vocab/actions.ts
+// and imported at the top of this file. `tasks_get`/`tasks_cancel` are
+// transport: they operate on a task the caller already created through a
+// granted action, so a contract need not list them to poll its own task.
 
 /**
  * allowedActions membership with the one alias we keep: `message_send` (the
@@ -360,8 +361,8 @@ const MESSAGE_ACTIONS = Object.freeze(['message', 'delegate', 'message_send']);
  */
 function isActionAllowed(allowedActions, action) {
   const list = Array.isArray(allowedActions) ? allowedActions : [];
-  if (list.includes('*') || list.includes(action)) return true;
-  if (action === 'message_send' && list.includes('message')) return true;
+  if (list.includes(WILDCARD_ACTION) || list.includes(action)) return true;
+  if (action === ACTION.message_send && list.includes(ACTION.message)) return true;
   return false;
 }
 

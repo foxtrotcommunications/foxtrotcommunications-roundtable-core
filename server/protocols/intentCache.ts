@@ -6,6 +6,7 @@
 import crypto from 'crypto';
 import { canonicalize } from './intentTokenCodec';
 import type { IntentOperation, IntentResult } from './intentToken';
+import { ACTION } from '../vocab/actions';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -36,7 +37,7 @@ export interface CacheConfig {
 // ─── Non-cacheable operations ───────────────────────────────────────────────
 
 /** Operations that should never be cached */
-const NON_CACHEABLE_OPS = new Set(['discover']);
+const NON_CACHEABLE_OPS = new Set<string>([ACTION.discover]);
 
 /** Check if an intent is cacheable */
 function isCacheable(intent: IntentOperation): boolean {

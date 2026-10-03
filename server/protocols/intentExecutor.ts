@@ -25,6 +25,7 @@ import { buildProof, intentHashOf, type PolicyCheck, type ExecutionTrace, type P
 import { intentCache } from './intentCache';
 import { compileIntents } from './intentCompiler';
 import { evaluatePrerequisites, intentParams, type GrantVerifier } from './prerequisites';
+import { ACTION, TRANSPORT_ACTIONS } from '../vocab/actions';
 
 // ─── SQL Safety ─────────────────────────────────────────────────────────────
 
@@ -37,10 +38,13 @@ const BLOCKED_SQL_PATTERNS = [
 // ─── Transport Actions ──────────────────────────────────────────────────────
 
 /**
- * Actions that are always permitted regardless of contract allowedActions.
- * These are foundational transport/discovery operations.
+ * Actions that are always permitted regardless of contract allowedActions:
+ * the vocabulary's TRANSPORT_ACTIONS (server/vocab/actions.ts — the same set
+ * contractAuth auto-allows at the door). Of these only `discover` can come
+ * out of intentOpToAction; `intent_execute` and `tasks_*` are never an
+ * intent's required action, so listing them here changes nothing.
  */
-const ALWAYS_ALLOWED_ACTIONS = ['intent_execute', 'discover'];
+const ALWAYS_ALLOWED_ACTIONS: readonly string[] = TRANSPORT_ACTIONS;
 
 // ─── Cacheability (upgrade plan 1.6) ────────────────────────────────────────
 
@@ -424,7 +428,7 @@ export async function executeIntentToken(
       //     adopt resolveConfig, only capability/discover ops may run pooled.
       //     Consult traffic runs on capabilities, so this is traffic-invisible;
       //     shadow parity is the proof.
-      if (token.intent.op !== 'capability' && token.intent.op !== 'discover') {
+      if (token.intent.op !== ACTION.capability && token.intent.op !== ACTION.discover) {
         policyChecks.push({
           type: 'pooled_op_restriction', passed: false,
           detail: `op '${token.intent.op}' not available in pooled mode`,
